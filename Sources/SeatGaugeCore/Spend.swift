@@ -24,6 +24,14 @@ public struct TokenCounts: Equatable, Sendable, Codable {
                     cacheWrite5m: a.cacheWrite5m + b.cacheWrite5m,
                     cacheWrite1h: a.cacheWrite1h + b.cacheWrite1h)
     }
+
+    public static func - (a: TokenCounts, b: TokenCounts) -> TokenCounts {
+        TokenCounts(responses: a.responses - b.responses, input: a.input - b.input,
+                    output: a.output - b.output, thinking: a.thinking - b.thinking,
+                    cacheRead: a.cacheRead - b.cacheRead,
+                    cacheWrite5m: a.cacheWrite5m - b.cacheWrite5m,
+                    cacheWrite1h: a.cacheWrite1h - b.cacheWrite1h)
+    }
 }
 
 /// One model's list price, per million tokens. The three cache figures are

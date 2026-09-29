@@ -3,11 +3,18 @@ import SeatGaugeCore
 import SwiftUI
 
 /// The Spend tab: one line per account plus the total, over the last 28 local
-/// days, in tokens or list-price dollars. Two boxes like the seat cards: the
-/// family totals on the left, the graph and its legend on the right.
+/// days or every day on record, in tokens or list-price dollars. Two boxes
+/// like the seat cards: the family totals on the left, under All with each
+/// account's floor above them, and the graph and its legend on the right.
 struct SpendTab: View {
-    let chart: SpendChart
+    private let record: SpendChart
+    @State private var range = SpendRange.recent
     private var mirror: GaugeMirror { .shared }
+
+    init(chart: SpendChart) { record = chart }
+
+    /// The chart over the chosen range.
+    private var chart: SpendChart { record.showing(range) }
 
     /// The totals' label and figure sizes, and the legend's.
     static let headingLabelSize: CGFloat = 9
@@ -29,6 +36,23 @@ struct SpendTab: View {
         day.locale = Locale(identifier: "en_AU")
         day.dateFormat = "EEE d MMM"
         return "\(day.string(from: point.day)) · \(chart.measure.figure(point.amount))"
+    }
+
+    /// An account's floor over the whole record and how long it covers, as the
+    /// All range lists it. The figure is short, `at least 444.9M`, and rounded
+    /// down: rounded to nearest it could claim more than the record holds.
+    static func floor(_ account: SpendAccountTotal) -> (figure: String, detail: String) {
+        let day = DateFormatter()
+        day.locale = Locale(identifier: "en_AU")
+        day.dateFormat = "d MMM yyyy"
+        let count = account.tokens.asDouble
+        let short = switch count {
+        case 1_000_000...: String(format: "%.1fM", (count / 100_000).rounded(.down) / 10)
+        case 1_000...: String(format: "%.0fK", (count / 1_000).rounded(.down))
+        default: String(format: "%.0f", count.rounded(.down))
+        }
+        let days = account.activeDays == 1 ? "1 day" : "\(account.activeDays) days"
+        return ("at least \(short)", "\(days) · from \(day.string(from: account.firstDay))")
     }
 
     static func lineTone(dimmed: Bool) -> Color { dimmed ? Tone.inkDim : Tone.ink }
@@ -87,14 +111,23 @@ struct SpendTab: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    /// The measure switch over the family totals. The list asks for no
-    /// height of its own, so the graph sets the tab's, and it scrolls when
-    /// the panel is too short to show every family.
+    /// The range and measure switches over the family totals. The list asks
+    /// for no height of its own, so the graph sets the tab's, and it scrolls
+    /// when the panel is too short to show every family and account.
     private var totals: some View {
         VStack(alignment: .leading, spacing: CardMetrics.scaled(Self.gap)) {
-            measureSwitch.fixedSize()
+            HStack(spacing: 0) {
+                rangeSwitch.fixedSize()
+                Spacer(minLength: 8)
+                measureSwitch.fixedSize()
+            }
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: CardMetrics.scaled(Self.gap) / 2) {
+                    // Under All the accounts come first, so each floor shows
+                    // without a scroll; the families follow under a rule.
+                    if range == .all {
+                        ForEach(chart.accounts, id: \.account) { floor($0) }
+                    }
                     ForEach(chart.totals, id: \.group) { heading($0) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -125,6 +158,18 @@ struct SpendTab: View {
                 }
             }
         }
+    }
+
+    /// `28D · ALL`, the chosen one in ink and the other dim.
+    private var rangeSwitch: some View {
+        HStack(spacing: 8) {
+            ForEach([(SpendRange.recent, "28D"), (SpendRange.all, "ALL")], id: \.1) { choice, word in
+                if choice == .all { Text("·").foregroundStyle(Tone.inkDim) }
+                Text(word).foregroundStyle(range == choice ? Tone.ink : Tone.inkDim)
+                    .onTapGesture { range = choice }
+            }
+        }
+        .font(Type.mono(10))
     }
 
     /// `TOKENS · $`, the chosen one in ink and the other dim.
@@ -169,7 +214,8 @@ struct SpendTab: View {
                 AxisValueLabel { Text(axis(value.as(Double.self) ?? 0)) }
             }
         }
-        .chartXAxis { AxisMarks(values: .stride(by: .day, count: 7)) { AxisValueLabel(format: .dateTime.day().month(.abbreviated)) } }
+        .chartXAxis { AxisMarks(values: chart.axisDays()) { AxisValueLabel(format: .dateTime.day().month(.abbreviated)) } }
+        .chartXScale(domain: chart.drawn() ?? chart.from...chart.from)
         .chartOverlay { proxy in
             Rectangle().fill(.clear).contentShape(Rectangle())
                 .onContinuousHover { phase in
@@ -241,5 +287,21 @@ struct SpendTab: View {
                 .font(Type.mono(Self.headingFigureSize)).foregroundStyle(Tone.ink)
         }
         .lineLimit(1)
+    }
+
+    /// An account's floor over the family totals, a rule under the last:
+    /// its name and figure on one line, its days and first day on hover.
+    private func floor(_ account: SpendAccountTotal) -> some View {
+        let words = Self.floor(account)
+        return VStack(alignment: .leading, spacing: CardMetrics.scaled(Self.gap) / 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(account.account.uppercased()).font(Type.mono(Self.headingLabelSize)).foregroundStyle(Tone.inkDim)
+                Spacer(minLength: 4)
+                Text(words.figure).font(Type.mono(Self.headingFigureSize)).foregroundStyle(Tone.ink)
+            }
+            if account == chart.accounts.last { Rectangle().fill(Tone.rule).frame(height: 0.5) }
+        }
+        .lineLimit(1)
+        .help(words.detail)
     }
 }

@@ -90,7 +90,8 @@ public struct SpendCollection: Sendable {
 /// and throws `SpendRecordUnreadable`. A record missing after a roll-up is
 /// rebuilt from every transcript and rollout still on disk, as a first run
 /// would read them, and `state.json` keeps the rebuild until a later run
-/// reads the record whole.
+/// reads the record whole. Once both are written, the run takes the day's
+/// `HistoryBackup` of the record beside it.
 public actor SpendCoordinator {
     let csv: URL
     let state: URL
@@ -114,14 +115,62 @@ public actor SpendCoordinator {
     }
 
     public func run(profiles: [SpendProfile], rates: RateCard, now: Date) async throws -> SpendRun? {
+        try await holdingRecord {
+            try await self.locked(profiles: profiles, rates: rates, now: now)
+        }
+    }
+
+    /// Every Codex rollout still on disk, read from the start of each session
+    /// and merged as a roll-up merges: a missing cell is added, an open one is
+    /// completed and a sealed one is left as it is, so a second import changes
+    /// nothing and no response is counted twice. The roll-ups since Codex
+    /// joined passed by the older sessions, which is the history this brings
+    /// back. Once `state.json` exists it buckets in the zone recorded there,
+    /// and an import that writes records its own, so a record written in
+    /// another zone gains no second copy of an hour. Returns what it added:
+    /// each new cell whole, and each completed cell's new tokens only. Nil
+    /// when the lock was busy.
+    public func importCodex(rates: RateCard, now: Date) async throws -> [SpendRow]? {
+        guard let codex else { return [] }
+        var calendar = calendar
+        if FileManager.default.fileExists(atPath: state.path),
+           let zone = TimeZone(identifier: StateStore(file: state).load().timeZone) {
+            calendar.timeZone = zone
+        }
+        return try await holdingRecord { [calendar] in
+            let existing = SpendCSV.read(self.csv, state: self.state)
+            if let reason = existing.reason { throw SpendRecordUnreadable(reason: reason) }
+            let collected = codex.collect(rolledUpAt: nil, now: now, calendar: calendar)
+            let rows = SpendCSV.merge(existing.rows, with: Self.priced(collected.cells, rates: rates),
+                                      now: now, calendar: calendar)
+            let held = Dictionary(existing.rows.map { ($0.cell, $0.counts) }) { first, _ in first }
+            let changed = rows.filter { held[$0.cell] != $0.counts }
+            guard !changed.isEmpty else { return [] }
+            try SpendCSV.write(rows, to: self.csv)
+            try StateStore(file: self.state).update { $0.timeZone = calendar.timeZone.identifier }
+            return changed.map { row in
+                guard let before = held[row.cell] else { return row }
+                return SpendRow(seat: row.seat, day: row.day, hour: row.hour, model: row.model,
+                                counts: row.counts - before, usd: nil, sealed: row.sealed)
+            }
+        }
+    }
+
+    /// `body` with the record's lock held, or nil when another run holds it.
+    func holdingRecord<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T? {
         let lock = FileLock.file(for: csv)
         do {
-            return try await FileLock.holdingAsync(lock, timeout: lockTimeout) {
-                try await self.locked(profiles: profiles, rates: rates, now: now)
-            }
+            return try await FileLock.holdingAsync(lock, timeout: lockTimeout, body)
         } catch let busy as FileLock.Busy where busy.lock == lock {
             log("spend: \(busy), so this run writes nothing")
             return nil
+        }
+    }
+
+    static func priced(_ cells: [SpendCell: TokenCounts], rates: RateCard) -> [SpendRow] {
+        cells.map { cell, counts in
+            SpendRow(seat: cell.seat, day: cell.day, hour: cell.hour, model: cell.model,
+                     counts: counts, usd: rates.usd(model: cell.model, counts: counts), sealed: false)
         }
     }
 
@@ -149,10 +198,7 @@ public actor SpendCoordinator {
         async let fromCodex = codex?.collect(rolledUpAt: rolledUpAt, now: now, calendar: calendar)
         let collected = try await fromClaude + (fromCodex ?? SpendCollection())
 
-        let fresh = collected.cells.map { cell, counts in
-            SpendRow(seat: cell.seat, day: cell.day, hour: cell.hour, model: cell.model,
-                     counts: counts, usd: rates.usd(model: cell.model, counts: counts), sealed: false)
-        }
+        let fresh = Self.priced(collected.cells, rates: rates)
         let rows = SpendCSV.merge(existing.rows, with: fresh, now: now, calendar: calendar)
         try SpendCSV.write(rows, to: csv)
         try store.update {
@@ -160,6 +206,12 @@ public actor SpendCoordinator {
             $0.rolledUpAt = now
             $0.spendRebuiltAt = rebuild ? now : nil
             $0.sessionCosts.merge(collected.sessionCosts) { _, fresh in fresh }
+        }
+        // A backup that fails costs a day's copy, never the roll-up.
+        do {
+            try HistoryBackup(support: csv.deletingLastPathComponent(), calendar: calendar).run(now: now)
+        } catch {
+            log("spend: no backup this run, \(error.localizedDescription)")
         }
 
         let took = ContinuousClock.now - started

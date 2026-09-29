@@ -27,6 +27,29 @@ public struct SpendGroupTotal: Equatable, Sendable {
     public let responses: Int
 }
 
+/// How far back the Spend tab reaches: the last 28 days, or every day on record.
+public enum SpendRange: String, CaseIterable, Sendable {
+    case recent, all
+}
+
+/// One account over the whole record. A floor, not a total: use off this Mac
+/// never reaches `spend.csv`.
+public struct SpendAccountTotal: Equatable, Sendable {
+    public let account: String
+    public let tokens: Decimal
+    public let activeDays: Int
+    public let firstDay: Date
+}
+
+/// The lines and headings over every day on record, kept beside the recent
+/// ones so a switch of range reads no file.
+public struct SpendWhole: Equatable, Sendable {
+    public let series: [SpendSeries]
+    public let totals: [SpendGroupTotal]
+    public let from: Date
+    public let days: Int
+}
+
 /// What the Spend tab draws, as values, so the chart can be read without a
 /// screen.
 public struct SpendChart: Equatable, Sendable {
@@ -48,6 +71,47 @@ public struct SpendChart: Equatable, Sendable {
     public var note: String? = nil
     /// Why none of the record could be drawn, in place of the empty line.
     public var unreadable: String? = nil
+    /// Every day on record, and each account's floor over it.
+    public var whole: SpendWhole? = nil
+    public var accounts: [SpendAccountTotal] = []
+
+    /// The same chart over `range`. With nothing older than the recent days,
+    /// All draws what the recent range does.
+    public func showing(_ range: SpendRange) -> SpendChart {
+        guard range == .all, let whole else { return self }
+        var chart = SpendChart(series: whole.series, totals: whole.totals, from: whole.from, days: whole.days,
+                               measure: measure, note: note, unreadable: unreadable)
+        chart.whole = whole
+        chart.accounts = accounts
+        return chart
+    }
+
+    /// Days between the x axis labels: a week for four weeks, and wider as the
+    /// range grows so the labels keep about four to a graph.
+    public var axisStride: Int { max(7, days / 28 * 7) }
+
+    /// The dates the lines span, from the first day any line has to the end
+    /// of the last. The x axis is pinned to it, so the labels below always
+    /// fall on the plot. Nil when there is no line.
+    public func drawn(calendar: Calendar = .current) -> ClosedRange<Date>? {
+        let days = series.flatMap(\.points).map(\.day)
+        guard let first = days.min(), let last = days.max(),
+              let end = calendar.date(byAdding: .day, value: 1, to: last) else { return nil }
+        return first...end
+    }
+
+    /// The days the x axis labels, a stride apart from the first day drawn. A
+    /// label starts at its day and runs right, so one after the first with
+    /// under an eighth of the span left after it would be cut at the edge and
+    /// is left off.
+    public func axisDays(calendar: Calendar = .current) -> [Date] {
+        guard let span = drawn(calendar: calendar),
+              let length = calendar.dateComponents([.day], from: span.lowerBound, to: span.upperBound).day
+        else { return [] }
+        return stride(from: 0, to: length, by: axisStride)
+            .filter { $0 == 0 || (length - $0) * 8 >= length }
+            .compactMap { calendar.date(byAdding: .day, value: $0, to: span.lowerBound) }
+    }
 
     public var isEmpty: Bool { series.isEmpty }
     public var emptyMessage: String? { unreadable ?? (isEmpty ? "no spend recorded yet" : nil) }
@@ -85,14 +149,37 @@ public struct SpendChart: Equatable, Sendable {
                             rates: RateCard, measure: Measure = .usd, now: Date,
                             calendar: Calendar = .current, days: Int = 28) -> SpendChart {
         let rows = SpendAttribution(record: attribution).project(record.rows)
-        var chart = make(rows: rows, rates: rates, measure: measure, now: now, calendar: calendar, days: days)
-        let lines = chart.series.filter { $0.name != AttributionRecord.unattributed }
-        if lines.count < chart.series.count {
-            chart = SpendChart(series: lines, totals: chart.totals, from: chart.from, days: chart.days,
-                               measure: measure)
-        }
+        let accountLines = { (series: [SpendSeries]) in series.filter { $0.name != AttributionRecord.unattributed } }
+        let recent = make(rows: rows, rates: rates, measure: measure, now: now, calendar: calendar, days: days)
+        var chart = SpendChart(series: accountLines(recent.series), totals: recent.totals, from: recent.from,
+                               days: recent.days, measure: measure)
+        let today = calendar.startOfDay(for: now)
+        let first = rows.compactMap { SpendCSV.start(day: $0.day, calendar: calendar) }.filter { $0 <= today }.min()
+        let span = first.flatMap { calendar.dateComponents([.day], from: $0, to: today).day }.map { $0 + 1 } ?? 0
+        let all = make(rows: rows, rates: rates, measure: measure, now: now, calendar: calendar,
+                       days: max(days, span))
+        chart.whole = SpendWhole(series: accountLines(all.series), totals: all.totals, from: all.from, days: all.days)
+        chart.accounts = accounts(rows, through: today, calendar: calendar)
         if case let .unavailable(reason) = record { chart.unreadable = reason } else { chart.note = record.reason }
         return chart
+    }
+
+    /// Each account's tokens, active days and first day, over every row on
+    /// record through `today`, the days All can draw. Unattributed usage
+    /// belongs to no account, so it has no floor.
+    static func accounts(_ rows: [SpendRow], through today: Date, calendar: Calendar) -> [SpendAccountTotal] {
+        var tokens: [String: Decimal] = [:]
+        var days: [String: Set<Date>] = [:]
+        for row in rows where row.seat != AttributionRecord.unattributed {
+            guard let day = SpendCSV.start(day: row.day, calendar: calendar), day <= today else { continue }
+            tokens[row.seat, default: 0] += Measure.tokens.amount(of: row) ?? 0
+            days[row.seat, default: []].insert(day)
+        }
+        return days.keys.sorted().compactMap { account in
+            guard let active = days[account], let first = active.min() else { return nil }
+            return SpendAccountTotal(account: account, tokens: tokens[account] ?? 0, activeDays: active.count,
+                                     firstDay: first)
+        }
     }
 
     /// Rows to lines. Only the last `days` local days are drawn; the rest stay
@@ -123,10 +210,10 @@ public struct SpendChart: Equatable, Sendable {
         }
 
         var series = lines.keys.sorted().map { seat in
-            SpendSeries(name: seat, points: points(lines[seat] ?? [:]))
+            SpendSeries(name: seat, points: points(lines[seat] ?? [:], calendar: calendar))
         }
         if !series.isEmpty {
-            series.append(SpendSeries(name: "total", points: points(everyDay), isTotal: true))
+            series.append(SpendSeries(name: "total", points: points(everyDay, calendar: calendar), isTotal: true))
         }
         let totals = headings(measure).map { group in
             SpendGroupTotal(group: group, amount: group == Self.unpriced ? nil : money[group] ?? 0,
@@ -135,8 +222,20 @@ public struct SpendChart: Equatable, Sendable {
         return SpendChart(series: series, totals: totals, from: from, days: days, measure: measure)
     }
 
-    static func points(_ byDay: [Date: Decimal]) -> [SpendPoint] {
-        byDay.keys.sorted().map { SpendPoint(day: $0, amount: byDay[$0] ?? 0) }
+    /// A line's days in order. Where days with no record fall between two
+    /// that have one, the line drops to zero the day after and climbs from
+    /// zero the day before, so a gap reads as no use rather than steady use.
+    static func points(_ byDay: [Date: Decimal], calendar: Calendar) -> [SpendPoint] {
+        var drawn: [SpendPoint] = []
+        for day in byDay.keys.sorted() {
+            if let last = drawn.last?.day, let after = calendar.date(byAdding: .day, value: 1, to: last),
+               let before = calendar.date(byAdding: .day, value: -1, to: day), after < day {
+                drawn.append(SpendPoint(day: after, amount: 0))
+                if before > after { drawn.append(SpendPoint(day: before, amount: 0)) }
+            }
+            drawn.append(SpendPoint(day: day, amount: byDay[day] ?? 0))
+        }
+        return drawn
     }
 }
 

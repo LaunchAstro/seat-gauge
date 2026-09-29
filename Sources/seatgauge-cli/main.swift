@@ -157,7 +157,8 @@ do {
         if let path = arguments.dropFirst().first { spend(file: path) } else { try await spend() }
     case "state": try state(arguments.dropFirst())
     case "attribute": await attribute(arguments.dropFirst())
-    default: print("usage: seatgauge-cli read [seats.json] | record <seat> [seats.json] | watch | spend [file] | state [range <r>] [measure <m>] | attribute --seed <file>")
+    case "import-codex": try await importCodex()
+    default: print("usage: seatgauge-cli read [seats.json] | record <seat> [seats.json] | watch | spend [file] | state [range <r>] [measure <m>] | attribute --seed <file> | import-codex")
     }
 } catch {
     FileHandle.standardError.write(Data("seatgauge-cli: \(error)\n".utf8))
