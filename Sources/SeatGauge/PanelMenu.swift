@@ -8,6 +8,8 @@ final class PanelMenu: NSObject, NSMenuDelegate {
     let menu = NSMenu(title: "Seat Gauge")
     var loginItemOn = false
     var notes: [String] = []
+    /// The card the right click landed on, which the menu offers to hide.
+    var card: CardModel?
     /// Set by `main.swift` once the app knows where it is running from. The
     /// tick is the service's own status when it is there, so the menu never
     /// claims a login item the system does not hold.
@@ -20,7 +22,9 @@ final class PanelMenu: NSObject, NSMenuDelegate {
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
-        notes = GaugeMirror.shared.model(at: Date()).notes
+        let model = GaugeMirror.shared.model(at: Date())
+        notes = model.notes
+        card = model.cards.first { $0.id == GaugeMirror.shared.hovered }
         if let loginItem {
             loginItemOn = loginItem.isOn
             if let hint = loginItem.hint { notes.insert(hint, at: 0) }
@@ -35,6 +39,10 @@ final class PanelMenu: NSObject, NSMenuDelegate {
         let problems = GaugeMirror.shared.problems
         for problem in problems { addNote(problem) }
         if !problems.isEmpty { menu.addItem(.separator()) }
+        if let card {
+            add("Hide \(card.label)", #selector(hideCard))
+            menu.addItem(.separator())
+        }
         add("Sync all", #selector(syncAll))
         add("Launch at login", #selector(toggleLoginItem)).state = loginItemOn ? .on : .off
         add(RevealConfigCommand.title, #selector(revealConfig))
@@ -76,6 +84,8 @@ final class PanelMenu: NSObject, NSMenuDelegate {
         menu.addItem(item)
         return item
     }
+
+    @objc private func hideCard() { card.map { GaugeMirror.shared.hide($0.id) } }
 
     @objc private func syncAll() { GaugeMirror.shared.syncAll() }
 

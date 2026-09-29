@@ -64,6 +64,13 @@ struct CardView: View {
                 .opacity(face == .detail ? 1 : 0)
         }
         .animation(.easeInOut(duration: CardDetailMetrics.fade), value: face)
+        // Dropped on another card, a card takes its place.
+        .draggable(card.id.rawValue)
+        .dropDestination(for: String.self) { ids, _ in
+            guard let id = ids.first else { return false }
+            GaugeMirror.shared.move(SeatID(rawValue: id), to: card.id)
+            return true
+        }
         .modifier(CardBox())
         .opacity(card.isDimmed ? 0.6 : 1)
         .onHover { inside in
@@ -296,11 +303,23 @@ struct CardScroller<Row: View>: View {
     /// The row's leading edge in the scroller, zero or less.
     @State private var offset: CGFloat = 0
     @State private var viewport: CGFloat = 0
+    /// The pointer over the row, which alone draws the arrows.
+    @State private var hovered = false
 
     private static var space: String { "cards" }
 
+    /// Which edges draw an arrow and its fade: only while the pointer is on
+    /// the row, so a passive glance sees every card whole, and only at an
+    /// edge with more row past it.
+    static func arrows(hovered: Bool, offset: CGFloat, width: CGFloat,
+                       viewport: CGFloat) -> (leading: Bool, trailing: Bool) {
+        guard hovered else { return (false, false) }
+        return (offset < -0.5, offset + width > viewport + 0.5)
+    }
+
     var body: some View {
         let width = PanelLayout.scrolledRowWidth(viewport: viewport, cards: ids.count)
+        let arrows = Self.arrows(hovered: hovered, offset: offset, width: width, viewport: viewport)
         ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 row.containerRelativeFrame(.horizontal) { length, _ in
@@ -313,11 +332,12 @@ struct CardScroller<Row: View>: View {
             .coordinateSpace(name: Self.space)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewport = $0 }
             .overlay(alignment: .leading) {
-                if offset < -0.5 { EdgeArrow(edge: .leading) { step(-1, width: width, proxy) } }
+                if arrows.leading { EdgeArrow(edge: .leading) { step(-1, width: width, proxy) } }
             }
             .overlay(alignment: .trailing) {
-                if offset + width > viewport + 0.5 { EdgeArrow(edge: .trailing) { step(1, width: width, proxy) } }
+                if arrows.trailing { EdgeArrow(edge: .trailing) { step(1, width: width, proxy) } }
             }
+            .onHover { hovered = $0 }
         }
         .frame(minWidth: CardMetrics.minimumWidth)
     }
@@ -331,7 +351,7 @@ struct CardScroller<Row: View>: View {
     }
 }
 
-/// A soft fade from the ground over the cards at one edge, and a small
+/// A soft fade from half the ground over the cards at one edge, and a small
 /// arrow on it. Only the arrow takes the pointer, so the card under the fade
 /// still hovers and scrolls.
 struct EdgeArrow: View {
@@ -343,7 +363,7 @@ struct EdgeArrow: View {
     var body: some View {
         let leading = edge == .leading
         ZStack {
-            LinearGradient(colors: [Tone.bg, Tone.bg.opacity(0)],
+            LinearGradient(colors: [Tone.bg.opacity(0.5), Tone.bg.opacity(0)],
                            startPoint: leading ? .leading : .trailing, endPoint: leading ? .trailing : .leading)
                 .allowsHitTesting(false)
             Button(action: action) {

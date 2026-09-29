@@ -190,6 +190,16 @@ enum Tab: CaseIterable {
     var title: String { self == .seats ? "SEATS" : "SPEND" }
 }
 
+/// A configured seat not on the window, as the title bar's `+` offers it:
+/// one the user hid, or one with no reading to draw and why.
+struct Offstage: Equatable, Identifiable {
+    let id: SeatID
+    let label: String
+    let why: String
+
+    var title: String { "\(label) · \(why)" }
+}
+
 struct PanelModel: Equatable {
     let cards: [CardModel]
     /// The ALL card, first in the row when there is one.
@@ -201,6 +211,7 @@ struct PanelModel: Equatable {
     /// The card drawing its detail face, only ever one that is drawn.
     var hovered: SeatID?
     var details: [SeatID: CardDetail] = [:]
+    var offstage: [Offstage] = []
 
     func face(_ id: SeatID) -> CardFace { hovered == id ? .detail : .glance }
 
@@ -228,7 +239,7 @@ struct PanelModel: Equatable {
 
     static func make(snapshot: Snapshot, seats: [Seat], now: Date, hovered: SeatID?, selected: Int?,
                      histories: [SeatID: SeatHistory], syncing: Set<SeatID> = [],
-                     pollMinutes: Int = 5) -> PanelModel {
+                     pollMinutes: Int = 5, arrangement: CardArrangement = CardArrangement()) -> PanelModel {
         let declared = Dictionary(seats.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         // An empty label is not a name, so the card falls back to the id
         // rather than drawing the provider alone.
@@ -240,7 +251,19 @@ struct PanelModel: Equatable {
         var notes: [String] = []
         var polled: [SeatState] = []
         var live: [Reading] = []
-        for id in snapshot.order {
+        var offstage: [Offstage] = []
+        // A hidden seat is still read and still in `headroom.json`; it is
+        // only off the window, the ALL card and the pick.
+        // The config's seats, so one with no restored reading is offered by
+        // the `+` before the first poll, then any the snapshot alone names.
+        let configured = seats.map(\.id) + snapshot.order.filter { declared[$0] == nil }
+        let onWindow = arrangement.arranged(configured).filter { id in
+            guard arrangement.hidden.contains(id) else { return true }
+            offstage.append(Offstage(id: id, label: name(id), why: "hidden"))
+            return false
+        }
+        let best = Snapshot(states: snapshot.states, order: onWindow).best
+        for id in onWindow {
             let state = snapshot.states[id]
             let polls = declared[id]?.pollsAutomatically ?? true
             if polls, let state, state.canSync { polled.append(state) }
@@ -250,22 +273,34 @@ struct PanelModel: Equatable {
             case let .live(read):
                 reading = read
                 live.append(read)
-            case let .unreadable(_, last):
+            case let .unreadable(_, last?):
                 reading = last
-                stale = last.map { "stale · \(Countdown.text(until: now, now: $0.takenAt))" }
-            default:
-                break
+                stale = "stale · \(Countdown.text(until: now, now: last.takenAt))"
+            case let .dormant(why), let .unreadable(why, nil):
+                // Drawn only when the user asked for it: an inactive card with
+                // whatever it last reported and why it has nothing now.
+                guard arrangement.shown.contains(id) else {
+                    notes.append("\(name(id)): \(why)")
+                    offstage.append(Offstage(id: id, label: name(id), why: why))
+                    continue
+                }
+                reading = snapshot.reported[id]
+                stale = why
+            case nil:
+                offstage.append(Offstage(id: id, label: name(id), why: "not read yet"))
+                continue
             }
+            let seat = declared[id]
             guard let reading else {
-                if case let .dormant(reason) = state { notes.append("\(name(id)): \(reason)") }
-                if case let .unreadable(reason, _) = state { notes.append("\(name(id)): \(reason)") }
+                cards.append(CardModel(id: id, label: name(id), isBest: false, lines: [], pace: nil, stale: stale,
+                                       mark: seat?.kind.provider ?? .claude, account: PlanText.said(seat?.account),
+                                       plan: PlanText.resolve(tier: nil, declared: seat?.plan, wire: nil)))
                 continue
             }
             let windows = reading.windows.sorted { $0.kind < $1.kind }
-            let seat = declared[id]
             let mark = seat?.kind.provider ?? .claude
             cards.append(CardModel(
-                id: id, label: name(id), isBest: snapshot.best == id,
+                id: id, label: name(id), isBest: best == id,
                 // A stale card's pace is yesterday's, so its meters keep the
                 // usage colours.
                 lines: windows.map {
@@ -292,7 +327,7 @@ struct PanelModel: Equatable {
             cards: cards, summary: SummaryModel.make(live, now: now), notes: notes,
             emptyMessage: cards.isEmpty ? "no seat is readable" : nil,
             updated: synced(polled, now: now, pollMinutes: pollMinutes),
-            hovered: shown, details: details)
+            hovered: shown, details: details, offstage: offstage)
     }
 }
 

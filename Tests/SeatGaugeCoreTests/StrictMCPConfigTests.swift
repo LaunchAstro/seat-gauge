@@ -161,7 +161,7 @@ import SeatGaugeTestSupport
         let spec = try #require(recorded.launched.first)
         // Only the initialize line: the question after it is never sent, so no turn runs.
         let first = try #require(recorded.sent.first)
-        let flagless = ProcessSpec(executable: spec.executable, arguments: spec.arguments.filter { $0 != Self.flag },
+        let flagless = ProcessSpec(executable: spec.executable, arguments: spec.arguments.filter { ![Self.flag, "--safe-mode"].contains($0) },
                                    environment: spec.environment, currentDirectory: spec.currentDirectory)
         let extra = ["DISABLE_AUTOUPDATER": "1"]
 
@@ -239,7 +239,8 @@ import SeatGaugeTestSupport
                 #expect(spec.arguments.contains(Self.flag), "\(seat.id.rawValue) has no \(Self.flag)")
                 #expect(!spec.arguments.contains("--mcp-config"))
             } else {
-                #expect(spec.arguments == ["codex", "app-server"])
+                #expect(spec.arguments.prefix(2) == ["codex", "app-server"])
+                #expect(!spec.arguments.contains(Self.flag))
             }
         }
     }
@@ -280,7 +281,7 @@ import SeatGaugeTestSupport
                         tokenFile: token)
         let run = await Self.recorded(seat, home: root, replies: replies)
         let spec = try #require(run.runner.launched.first)
-        #expect(spec.arguments == Array(Self.oldClaudeArguments.prefix(7)) + [Self.flag]
+        #expect(spec.arguments == Array(Self.oldClaudeArguments.prefix(7)) + [Self.flag, "--safe-mode"]
                 + ["--model", "haiku", "--max-turns", "1"])
         #expect(run.runner.sent == [
             #"{"type":"control_request","request_id":"1","request":{"subtype":"initialize"}}"#,
@@ -297,7 +298,7 @@ import SeatGaugeTestSupport
 
         let codex = await Self.recorded(Seat(id: SeatID(rawValue: "codex"), label: "Codex", kind: .codex),
                                         home: root)
-        #expect(codex.runner.launched.first?.arguments == ["codex", "app-server"])
+        #expect(codex.runner.launched.first?.arguments.prefix(2) == ["codex", "app-server"])
     }
 
     // MARK: - Fails closed

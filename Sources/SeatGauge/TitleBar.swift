@@ -192,6 +192,7 @@ struct TitleControls: View {
 
     var body: some View {
         HStack(spacing: TitleBarMetrics.gap) {
+            ShowSeatMenu(offstage: mirror.model(at: Date()).offstage)
             SyncButton(busy: !mirror.syncing.isEmpty, label: "Sync all",
                        side: TitleBarMetrics.points(TitleBarMetrics.textSize)) { mirror.syncAll() }
             ForEach(Tab.allCases, id: \.title) { one in
@@ -205,6 +206,28 @@ struct TitleControls: View {
         .fixedSize()
         .padding(.trailing, TitleBarMetrics.gap)
         .frame(maxHeight: .infinity)
+    }
+}
+
+/// The `+`: every configured seat not on the window, hidden or with nothing
+/// to draw, and a click puts it back. Absent when every seat is on it.
+struct ShowSeatMenu: View {
+    let offstage: [Offstage]
+
+    var body: some View {
+        if !offstage.isEmpty {
+            Menu {
+                ForEach(offstage) { seat in
+                    Button(seat.title) { GaugeMirror.shared.show(seat.id) }
+                }
+            } label: {
+                Text("+").foregroundStyle(Tone.ink)
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .help("Show a seat")
+        }
     }
 }
 

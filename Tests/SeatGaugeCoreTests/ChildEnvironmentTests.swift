@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import SeatGaugeCore
+import SeatGaugeTestSupport
 
 /// A CLI child starts with a deliberate environment, and the poll log keeps
 /// seat names and headroom private.
@@ -78,6 +79,52 @@ import Testing
         let parent = Self.planted.merging(["PATH": "/bin", "HOME": "/h", "USER": "u", "TERM_PROGRAM": "x"]) { $1 }
         let made = ChildEnvironment.make(from: parent, setting: ["CLAUDE_CONFIG_DIR": "/seat"])
         #expect(made == ["PATH": "/bin", "HOME": "/h", "USER": "u", "CLAUDE_CONFIG_DIR": "/seat"])
+    }
+
+    /// The spec each fetcher launches, from a runner that spawns nothing.
+    static func spec(_ seat: Seat) async throws -> ProcessSpec {
+        let runner = ScriptedRunner()
+        let folder = URL(fileURLWithPath: "/tmp/seat-gauge-spec")
+        switch seat.kind {
+        case .claude:
+            _ = await ClaudeFetcher(runner: runner, primer: folder, timeout: .milliseconds(50), parent: planted)
+                .fetch(seat, now: Date(), last: nil)
+        case .codex:
+            _ = await CodexFetcher(runner: runner, timeout: .milliseconds(50),
+                                   authFile: folder.appendingPathComponent("auth.json"),
+                                   primer: FileManager.default.temporaryDirectory, parent: planted)
+                .fetch(seat, now: Date(), last: nil)
+        }
+        return try #require(runner.launched.first)
+    }
+
+    static let claudeSeat = Seat(id: SeatID(rawValue: "work"), label: "Work",
+                                 kind: .claude(profileDir: URL(fileURLWithPath: "/tmp/seat-gauge-profile")))
+    static let codexSeat = Seat(id: SeatID(rawValue: "codex"), label: "Codex", kind: .codex)
+
+    @Test func aClaudePollNeverUpdatesTheCLI() async throws {
+        #expect(try await Self.spec(Self.claudeSeat).environment["DISABLE_AUTOUPDATER"] == "1")
+    }
+
+    @Test func aClaudePollLoadsNoneOfTheLoginsHooksOrPlugins() async throws {
+        let spec = try await Self.spec(Self.claudeSeat)
+        #expect(spec.arguments.contains("--safe-mode"))
+        // Safe mode is not bare mode, which would refuse the seat's own login.
+        #expect(!spec.arguments.contains("--bare"))
+        #expect(spec.environment["CLAUDE_CONFIG_DIR"] == "/tmp/seat-gauge-profile")
+    }
+
+    @Test func aCodexPollNeverChecksForAnUpdate() async throws {
+        let arguments = try await Self.spec(Self.codexSeat).arguments
+        let at = try #require(arguments.firstIndex(of: "check_for_update_on_startup=false"))
+        #expect(arguments[at - 1] == "-c")
+    }
+
+    @Test func aCodexPollRunsNoneOfTheLoginsHooksOrPlugins() async throws {
+        let arguments = try await Self.spec(Self.codexSeat).arguments
+        let disabled = arguments.indices.dropLast().filter { arguments[$0] == "--disable" }.map { arguments[$0 + 1] }
+        #expect(Set(disabled) == ["hooks", "plugins"])
+        #expect(arguments.prefix(2) == ["codex", "app-server"])
     }
 
     @Test func proxySettingsReachTheChildInEitherSpelling() {

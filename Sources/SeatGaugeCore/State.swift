@@ -41,12 +41,18 @@ public struct AppState: Equatable, Sendable, Codable {
     public var spendRebuiltAt: Date?
     /// The Spend lines the user has clicked off, by key, total included.
     public var hiddenSpendLines: Set<String>
+    /// The cards' order and which seats are off or on the window, by seat id,
+    /// as `CardArrangement` reads them.
+    public var cardOrder: [String]
+    public var hiddenCards: Set<String>
+    public var shownCards: Set<String>
 
     public init(timeZone: String = TimeZone.current.identifier, rolledUpAt: Date? = nil,
                 sessionCosts: [String: Double] = [:], alerts: AlertLedger = AlertLedger(),
                 loginItemDeclined: Bool = false, textSizeStep: Int = TextScale.default.step,
                 lightAppearance: Bool = false, historyRange: HistoryRange = .week,
-                measure: Measure = .tokens, hiddenSpendLines: Set<String> = []) {
+                measure: Measure = .tokens, hiddenSpendLines: Set<String> = [],
+                cards: CardArrangement = CardArrangement()) {
         self.timeZone = timeZone
         self.rolledUpAt = rolledUpAt
         self.sessionCosts = sessionCosts
@@ -57,6 +63,10 @@ public struct AppState: Equatable, Sendable, Codable {
         self.historyRange = historyRange
         self.measure = measure
         self.hiddenSpendLines = hiddenSpendLines
+        cardOrder = []
+        hiddenCards = []
+        shownCards = []
+        self.cards = cards
     }
 
     public init(from decoder: any Decoder) throws {
@@ -77,6 +87,21 @@ public struct AppState: Equatable, Sendable, Codable {
         measure = (try? values.decode(Measure.self, forKey: .measure)) ?? .tokens
         spendRebuiltAt = try? values.decode(Date.self, forKey: .spendRebuiltAt)
         hiddenSpendLines = (try? values.decode(Set<String>.self, forKey: .hiddenSpendLines)) ?? []
+        cardOrder = (try? values.decode([String].self, forKey: .cardOrder)) ?? []
+        hiddenCards = (try? values.decode(Set<String>.self, forKey: .hiddenCards)) ?? []
+        shownCards = (try? values.decode(Set<String>.self, forKey: .shownCards)) ?? []
+    }
+
+    public var cards: CardArrangement {
+        get {
+            CardArrangement(order: cardOrder.map(SeatID.init(rawValue:)), hidden: Set(hiddenCards.map(SeatID.init(rawValue:))),
+                            shown: Set(shownCards.map(SeatID.init(rawValue:))))
+        }
+        set {
+            cardOrder = newValue.order.map(\.rawValue)
+            hiddenCards = Set(newValue.hidden.map(\.rawValue))
+            shownCards = Set(newValue.shown.map(\.rawValue))
+        }
     }
 }
 

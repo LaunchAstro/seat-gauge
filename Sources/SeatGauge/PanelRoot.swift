@@ -102,9 +102,49 @@ import SwiftUI
         if spendFocus == line, hidden.contains(line) { spendFocus = nil; spendPoint = nil }
     }
 
+    /// Where the user has put the cards, read at launch and changed only
+    /// once the change is saved, as the Spend lines are.
+    private(set) var cards = CardArrangement()
+    /// Set by `main.swift`: a card on or off the window changes its height.
+    var refit: () -> Void = {}
+
+    /// The file the arrangement was last read from or saved to, which a
+    /// config change prunes.
+    private var cardStore = StateStore()
+
+    func readCards(_ store: StateStore = StateStore()) {
+        cardStore = store
+        cards = store.load().cards
+    }
+
+    func arrange(_ change: (CardArrangement) -> CardArrangement, store: StateStore? = nil) throws {
+        let store = store ?? cardStore
+        cardStore = store
+        let next = change(cards).kept(seats.map(\.id))
+        guard next != cards else { return }
+        try store.update { $0.cards = next }
+        cards = next
+        refit()
+    }
+
+    func move(_ id: SeatID, to target: SeatID) {
+        try? arrange { $0.moving(id, to: target, configured: seats.map(\.id)) }
+    }
+
+    func hide(_ id: SeatID) {
+        if hovered == id { hover(nil) }
+        try? arrange { $0.hiding(id) }
+    }
+
+    func show(_ id: SeatID) { try? arrange { $0.showing(id) } }
+
     func apply(_ snapshot: Snapshot, seats: [Seat]) {
         self.snapshot = snapshot
         self.seats = seats
+        // A seat gone from the config leaves the saved arrangement. A config
+        // that did not read is the template's seats, not the user's, so it
+        // prunes nothing.
+        if configProblem == nil { try? arrange { $0 } }
     }
 
     func readSpend(csv: URL = SpendCSV.defaultFile, state: URL = StateStore.defaultFile,
@@ -139,7 +179,8 @@ import SwiftUI
                                                    now: now, calendar: calendar))
         }
         return PanelModel.make(snapshot: snapshot, seats: seats, now: now, hovered: hovered, selected: selected,
-                               histories: histories?.value ?? [:], syncing: syncing, pollMinutes: pollMinutes)
+                               histories: histories?.value ?? [:], syncing: syncing, pollMinutes: pollMinutes,
+                               arrangement: cards)
     }
 }
 

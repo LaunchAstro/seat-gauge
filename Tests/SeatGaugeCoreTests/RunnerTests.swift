@@ -105,7 +105,7 @@ import SeatGaugeTestSupport
 
         let codexSpec = try #require(codexRunner.launched.first)
         #expect(codexRunner.launched.count == 1)
-        #expect(codexSpec.arguments == ["codex", "app-server"])
+        #expect(codexSpec.arguments.prefix(2) == ["codex", "app-server"])
         #expect(codexRunner.sent.count == 3)
         #expect(codexRunner.sent[0].contains("\"method\":\"initialize\""))
         #expect(codexRunner.sent[0].contains("clientInfo"))

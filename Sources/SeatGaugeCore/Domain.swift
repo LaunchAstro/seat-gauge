@@ -181,10 +181,15 @@ public enum SeatState: Equatable, Sendable {
 public struct Snapshot: Sendable {
     public let states: [SeatID: SeatState]
     public let order: [SeatID]
+    /// A dormant seat's last reading, which its card draws when the user
+    /// shows it. `GaugeStore` keeps it in `reported.json`, not beside the
+    /// readings, so a dormant seat is never restored as a stale card.
+    public let reported: [SeatID: Reading]
 
-    public init(states: [SeatID: SeatState], order: [SeatID]) {
+    public init(states: [SeatID: SeatState], order: [SeatID], reported: [SeatID: Reading] = [:]) {
         self.states = states
         self.order = order
+        self.reported = reported
     }
 
     /// Live seats, and stale ones that still have a last reading to dim.
@@ -226,5 +231,56 @@ extension Duration {
     /// Seconds as a Double, for the pace arithmetic in `TimeInterval`.
     var seconds: Double {
         Double(components.seconds) + Double(components.attoseconds) / 1e18
+    }
+}
+
+/// Where the user has put the cards: an order, the seats taken off the window
+/// and the seats put on it though they have no reading to draw. It is read
+/// against the config every time, so a seat new to `seats.json` lands at the
+/// end and one gone from it drops out. The app keeps it in `state.json` and
+/// never writes `seats.json`.
+public struct CardArrangement: Equatable, Sendable {
+    public var order: [SeatID]
+    public var hidden: Set<SeatID>
+    public var shown: Set<SeatID>
+
+    public init(order: [SeatID] = [], hidden: Set<SeatID> = [], shown: Set<SeatID> = []) {
+        self.order = order
+        self.hidden = hidden
+        self.shown = shown
+    }
+
+    /// The configured seats: the saved order first, then the rest in config order.
+    public func arranged(_ configured: [SeatID]) -> [SeatID] {
+        let known = Set(configured)
+        var placed = Set<SeatID>()
+        let saved = order.filter { known.contains($0) && placed.insert($0).inserted }
+        return saved + configured.filter { !placed.contains($0) }
+    }
+
+    /// `id` dropped where `target` is, the cards between them shifting one place.
+    public func moving(_ id: SeatID, to target: SeatID, configured: [SeatID]) -> CardArrangement {
+        var ids = arranged(configured)
+        guard id != target, let from = ids.firstIndex(of: id), let to = ids.firstIndex(of: target) else {
+            return self
+        }
+        ids.insert(ids.remove(at: from), at: to)
+        return CardArrangement(order: ids, hidden: hidden, shown: shown)
+    }
+
+    public func hiding(_ id: SeatID) -> CardArrangement {
+        CardArrangement(order: order, hidden: hidden.union([id]), shown: shown.subtracting([id]))
+    }
+
+    public func showing(_ id: SeatID) -> CardArrangement {
+        CardArrangement(order: order, hidden: hidden.subtracting([id]), shown: shown.union([id]))
+    }
+
+    /// What is worth saving: the order and both sets over configured seats
+    /// only, so a seat removed and added again lands at the end.
+    public func kept(_ configured: [SeatID]) -> CardArrangement {
+        let known = Set(configured)
+        return CardArrangement(order: order.filter(known.contains), hidden: hidden.intersection(known),
+                               shown: shown.intersection(known))
     }
 }

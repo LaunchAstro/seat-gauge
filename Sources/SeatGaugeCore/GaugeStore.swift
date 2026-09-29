@@ -19,8 +19,14 @@ public actor GaugeStore {
             states[reading.seat] = .unreadable(reason: "stale, not polled yet", last: reading)
         }
         self.file = file
-        snapshot = Snapshot(states: states, order: order.isEmpty ? restored.map(\.seat) : order)
+        let reported = Self.read(file.deletingLastPathComponent().appendingPathComponent("reported.json"))
+        snapshot = Snapshot(states: states, order: order.isEmpty ? restored.map(\.seat) : order,
+                            reported: Dictionary(reported.map { ($0.seat, $0) }, uniquingKeysWith: { first, _ in first }))
     }
+
+    /// `reported.json`: a dormant seat's last reading, kept apart from
+    /// `readings.json` so a relaunch never draws a dormant seat as stale.
+    nonisolated var reportedFile: URL { file.deletingLastPathComponent().appendingPathComponent("reported.json") }
 
     public static var defaultFile: URL { AppPaths.support.appendingPathComponent("readings.json") }
 
@@ -31,12 +37,23 @@ public actor GaugeStore {
     /// the readings, and the headroom of `seats` read against `pollMinutes`.
     public func apply(states: [SeatID: SeatState], order: [SeatID], seats: [Seat] = [],
                       pollMinutes: Int = 5, now: Date = Date()) -> Snapshot {
-        snapshot = Snapshot(states: states, order: order)
+        let reported = order.compactMap { id -> (SeatID, Reading)? in
+            guard case .dormant = states[id],
+                  let last = RefreshService.last(snapshot.states[id]) ?? snapshot.reported[id] else { return nil }
+            return (id, last)
+        }
+        snapshot = Snapshot(states: states, order: order,
+                            reported: Dictionary(reported, uniquingKeysWith: { first, _ in first }))
         let headroom = Headroom(snapshot: snapshot, seats: seats, pollMinutes: pollMinutes, now: now)
         let kept = order.compactMap { RefreshService.last(states[$0]) }
         let readings = write(file) { try JSONEncoder().encode(kept) }
+        // Only while a dormant seat has something to show, so an ordinary
+        // folder holds no more files than it did.
+        var dormant: String?
+        if reported.isEmpty { try? FileManager.default.removeItem(at: reportedFile) }
+        else { dormant = write(reportedFile) { try JSONEncoder().encode(reported.map(\.1)) } }
         let agents = write(headroomFile) { try headroom.data() }
-        problem = readings ?? agents
+        problem = readings ?? dormant ?? agents
         return snapshot
     }
 

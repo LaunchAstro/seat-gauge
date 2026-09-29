@@ -84,11 +84,16 @@ public struct ClaudeFetcher: SeatFetching {
         self.parent = parent
     }
 
-    /// `--strict-mcp-config` with no `--mcp-config` starts no MCP server. A
-    /// server the login declares is the login's, and one that tries to modify
-    /// an app is charged to Seat Gauge as App Management.
+    /// `--strict-mcp-config` with no `--mcp-config` starts no MCP server, and
+    /// `--safe-mode` loads none of the login's hooks, plugins, skills or LSP
+    /// servers. What they start is the login's, and one that tries to modify
+    /// an app is charged to Seat Gauge as App Management. Sign-in is untouched.
     static let arguments = ["claude", "-p", "--input-format", "stream-json",
-                            "--output-format", "stream-json", "--verbose", "--strict-mcp-config"]
+                            "--output-format", "stream-json", "--verbose", "--strict-mcp-config",
+                            "--safe-mode"]
+    /// A poll never updates the CLI. An update rewrites the install the
+    /// user's own sessions run, charged to whichever app spawned it.
+    static let noUpdate = ["DISABLE_AUTOUPDATER": "1"]
     /// The one short turn a token seat needs: its `get_usage` reply is empty,
     /// and its windows arrive only as a `rate_limit_event` during a turn.
     static let turn = ["--model", "haiku", "--max-turns", "1"]
@@ -104,7 +109,7 @@ public struct ClaudeFetcher: SeatFetching {
         guard case let .claude(profileDir) = seat.kind else {
             return Fetched(state: .unreadable(reason: "not a Claude seat", last: last), lines: [])
         }
-        var seatVariables = ["CLAUDE_CONFIG_DIR": profileDir.path]
+        var seatVariables = Self.noUpdate.merging(["CLAUDE_CONFIG_DIR": profileDir.path]) { $1 }
         if let tokenFile = seat.tokenFile {
             switch SeatToken.read(tokenFile) {
             case let .success(token): seatVariables[SeatToken.variable] = token
@@ -168,7 +173,10 @@ public struct CodexFetcher: SeatFetching {
         self.parent = parent
     }
 
-    static let arguments = ["codex", "app-server"]
+    /// The same guard as Claude's: no update check, and none of the login's
+    /// hooks or plugins, so a poll starts nothing the gauge did not ask for.
+    static let arguments = ["codex", "app-server", "-c", "check_for_update_on_startup=false",
+                            "--disable", "hooks", "--disable", "plugins"]
     static let initialize = #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"seat-gauge","title":"Seat Gauge","version":"0.1.0"}}}"#
     static let initialized = #"{"jsonrpc":"2.0","method":"initialized"}"#
     static let limits = #"{"jsonrpc":"2.0","id":2,"method":"account/rateLimits/read","params":{"excludeResetCreditDetails":true}}"#

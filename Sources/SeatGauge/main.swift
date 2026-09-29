@@ -16,8 +16,10 @@ FontLoader.registerBundledFonts()
 GaugeMirror.shared.textScale = TextSizeStore.load()
 GaugeMirror.shared.lightAppearance = AppearanceStore.load()
 GaugeMirror.shared.choice = DetailChoiceStore.load()
+GaugeMirror.shared.readCards()
 
 let controller = WindowController(rootView: Root())
+GaugeMirror.shared.refit = { controller.refit(.drawn) }
 let panelMenu = PanelMenu()
 controller.window.contentView?.menu = panelMenu.menu
 let delegate = SeatGaugeDelegate(controller: controller)
@@ -65,8 +67,8 @@ if let watcher = try? ConfigWatcher() {
                         identity: IdentityObserver.hook(writer: AttributionWriter()),
                         notify: { snapshot, seats in
                             Task { @MainActor in
-                                GaugeMirror.shared.apply(snapshot, seats: seats)
                                 GaugeMirror.shared.configProblem = await watcher.problem
+                                GaugeMirror.shared.apply(snapshot, seats: seats)
                                 GaugeMirror.shared.pollMinutes = await watcher.config.pollMinutes
                                 // Cards that changed ask for a height.
                                 controller.refit(.drawn)
@@ -81,8 +83,8 @@ if let watcher = try? ConfigWatcher() {
         // The store restores `readings.json` as it is built, so a cold
         // start is instant: last night's cards are
         // up, dimmed and dated, before the first fetch answers.
-        GaugeMirror.shared.apply(await store.snapshot, seats: await watcher.config.seats)
         GaugeMirror.shared.configProblem = await watcher.problem
+        GaugeMirror.shared.apply(await store.snapshot, seats: await watcher.config.seats)
         GaugeMirror.shared.pollMinutes = await watcher.config.pollMinutes
         // The cards are in, so the user's height has something to fill.
         controller.refit(.drawn)
