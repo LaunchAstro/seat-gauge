@@ -1,0 +1,4 @@
+{"type":"assistant","requestId":"req-6","sessionId":"session-b","cwd":"/home/example/Library/Application Support/com.launchastro.seatgauge/primer","timestamp":"2026-09-20T04:05:00.000Z","message":{"id":"msg-6","role":"assistant","model":"claude-fable-5","usage":{"input_tokens":5,"cache_read_input_tokens":0,"output_tokens":5}}}
+{"type":"assistant","requestId":"req-7","sessionId":"session-b","cwd":"/home/example/Desktop/work","timestamp":"2026-09-20T04:10:00.000Z","message":{"id":"msg-7","role":"assistant","model":"claude-sonnet-5","usage":{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":100}}}
+{"type":"assistant","requestId":"req-9","sessionId":"session-b","cwd":"/home/example/Desktop/work","timestamp":"2026-09-20T04:12:00.000Z","message":{"id":"msg-9","role":"assistant","model":"claude-opus-5
+{"type":"cost-state","sessionId":"session-b","totalCostUSD":0.25,"totalDuration":999}

@@ -1,0 +1,15 @@
+Seat Gauge
+Copyright (c) 2026 LaunchAstro
+
+The source code is under the MIT licence in LICENSE.
+
+Claude and Anthropic are trademarks of Anthropic. ChatGPT, Codex and OpenAI
+are trademarks of OpenAI. Seat Gauge is an independent project, not made or
+endorsed by either company.
+
+The app shows each provider's own favicon, fetched from the provider's site
+at runtime, only to identify which service a seat belongs to. No provider
+mark ships in this repository, and none is covered by the MIT licence.
+
+The bundled fonts (Funnel Display, Funnel Sans, Chivo Mono) are under the
+SIL Open Font License, in Resources/Fonts/OFL.txt.
