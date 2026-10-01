@@ -1,11 +1,11 @@
 import Foundation
 
 /// The plan a Claude login says it has, read off the config dir's
-/// `.claude.json`. That file holds live account state, so exactly one
-/// key is read, `oauthAccount.organizationRateLimitTier`, and the rest of the
-/// parsed file is dropped where it was parsed: nothing else is kept, logged,
-/// printed or written anywhere. A file that cannot say is no plan, never an
-/// error and never "Free".
+/// `.claude.json`. That file holds live account state, so two keys are read,
+/// `oauthAccount.organizationRateLimitTier` and `oauthAccount.organizationType`,
+/// and the rest of the parsed file is dropped where it was parsed: only the
+/// plan's words are kept, and nothing is logged, printed or written anywhere.
+/// A file that cannot say is no plan, never an error and never "Free".
 public enum ClaudePlanFile {
     /// `~/.claude.json` for the default login, `<profile>/.claude.json` for a
     /// profile seat, which is where the CLI keeps each login's account.
@@ -17,16 +17,17 @@ public enum ClaudePlanFile {
     public static func plan(in file: URL) -> String? {
         guard let data = FileManager.default.contents(atPath: file.path),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let account = root["oauthAccount"] as? [String: Any],
-              let tier = account["organizationRateLimitTier"] as? String
+              let account = root["oauthAccount"] as? [String: Any]
         else { return nil }
-        return words(forTier: tier)
+        // A Pro login's tier is the generic `default_claude_ai`, so its type says Pro.
+        return (account["organizationRateLimitTier"] as? String).flatMap(words(forTier:))
+            ?? (account["organizationType"] as? String).flatMap(words(forType:))
     }
 
     /// The display words for a tier: `default_claude_max_20x` is `Max 20x`.
     /// A tier this app does not know keeps its own words, the tail after the
     /// last `default_claude_` with underscores as spaces, rather than being
-    /// guessed into one it does.
+    /// guessed into one it does. The generic `ai` names no plan.
     public static func words(forTier tier: String) -> String? {
         let marker = "default_claude_"
         let tail = tier.range(of: marker, options: .backwards)
@@ -36,6 +37,17 @@ public enum ClaudePlanFile {
         case "max_5x": return "Max 5x"
         case "pro": return "Pro"
         case "free": return "Free"
+        case "ai": return nil
+        default: return PlanText.said(tail.replacingOccurrences(of: "_", with: " "))
+        }
+    }
+
+    /// The display words for an organisation type: `claude_pro` is `Pro`. A
+    /// type this app does not know keeps its own words, as a tier does.
+    private static func words(forType type: String) -> String? {
+        let tail = type.hasPrefix("claude_") ? String(type.dropFirst("claude_".count)) : type
+        switch tail {
+        case "pro": return "Pro"
         default: return PlanText.said(tail.replacingOccurrences(of: "_", with: " "))
         }
     }

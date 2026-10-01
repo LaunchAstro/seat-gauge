@@ -65,7 +65,7 @@ Leave `login` out and the seat signs in with an OAuth token instead, read from t
 
 ### The plan on a card
 
-The plan comes from three places, in this order: the tier in the seat's own login file, so a switch between Max 5x and Max 20x shows up by itself; then the `plan` you write in `seats.json`; then the plan the usage reply names, which for Claude is only `max`. With none of the three the card shows no plan. It never guesses "free". `seatgauge-cli read` prints each seat's plan beside its reading.
+The plan comes from three places, in this order: the tier in the seat's own login file, so a switch between Max 5x and Max 20x shows up by itself, or the organisation type beside it when the tier names no plan, which is how a Pro login says Pro; then the `plan` you write in `seats.json`; then the plan the usage reply names, which for Claude is only `max`. With none of the three the card shows no plan. It never guesses "free". `seatgauge-cli read` prints each seat's plan beside its reading.
 
 ## The command line
 
