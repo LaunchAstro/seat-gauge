@@ -51,8 +51,8 @@ public protocol ProcessRunning: Sendable {
 ///
 /// `SIGPIPE` is ignored, because a CLI that exits while a request is being
 /// written would otherwise kill this process instead of the write. `PATH` is
-/// augmented, because an app launched at login has a bare environment and
-/// neither `claude` nor `codex` sits in it.
+/// extended from `SearchPath`, because an app launched at login has a bare
+/// environment and neither `claude` nor `codex` sits in it.
 public struct RealProcessRunner: ProcessRunning {
     let searchPath: SearchPath
 

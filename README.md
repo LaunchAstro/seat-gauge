@@ -8,7 +8,7 @@ It reads Claude seats through the `claude` CLI and ChatGPT seats through the `co
 
 - macOS 14 or later.
 - Xcode Command Line Tools with Swift 6.2 (`xcode-select --install`). Xcode itself is not needed.
-- The `claude` CLI for Claude seats, the `codex` CLI for a Codex seat, both on your `PATH`.
+- The `claude` CLI for Claude seats, the `codex` CLI for a Codex seat. The app finds each wherever your login shell does: it asks the shell for its `PATH` once per launch, then looks in the usual install folders too, which are all it has when the shell takes longer than 3 seconds or gives no answer (Homebrew on Apple silicon or Intel, `/usr/local/bin`, `~/.local/bin`, `~/.claude/local`, `~/.npm-global/bin`, volta, bun and nvm).
 
 ## Build and install
 

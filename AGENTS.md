@@ -21,6 +21,7 @@ Three SwiftPM targets, Command Line Tools only (no Xcode project).
 | `Fetchers.swift` | The `SeatFetching` seam, and one fetcher per seat kind that runs the seat's CLI. |
 | `ChildEnvironment.swift` | The allowlist of variables each CLI child gets, proxy settings included. Nothing else the app inherited reaches it. |
 | `ProcessRunner.swift` | The `ProcessRunning` seam: `RealProcessRunner` spawns the CLI. In tests, `ScriptedRunner` (`Tests/Support/`) replays fixture lines instead. |
+| `SearchPath.swift` | Where a CLI child looks for `claude` and `codex`: the login shell's `PATH`, asked once with a timeout, then a fixed list of the usual installs. Only `PATH` comes from the shell. |
 | `ClaudeUsageParser.swift`, `ClaudeRateLimitEventParser.swift`, `CodexRateLimitsParser.swift` | Turn one CLI transcript into windows. Each wire format is known in exactly one parser. |
 | `AccountPlan.swift` | Reads the exact plan tier from a seat's own login file. |
 | `ProviderMark.swift` | `MarkCache`: fetches each provider's favicon once, when none is cached, and keeps it in Application Support. |

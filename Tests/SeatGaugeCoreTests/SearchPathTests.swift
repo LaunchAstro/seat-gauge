@@ -80,16 +80,19 @@ import SeatGaugeCore
         let directory = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
         // The directory name is in the argv of the shell and of the child it
-        // starts, so pgrep finds both.
+        // starts, so pgrep finds both. The child leaves a file once it runs. The
+        // timeout leaves room for macOS to scan the new script before it starts.
+        let child = directory.appendingPathComponent("child")
         let file = try Self.shell(in: directory, profile: """
-            /bin/sh -c 'sleep 30; : \(directory.lastPathComponent)' &
+            /bin/sh -c 'echo up > "\(child.path)"; sleep 30; : \(directory.lastPathComponent)' &
             sleep 30
             """)
 
         let started = ContinuousClock.now
-        let path = Self.shell(file, home: directory, timeout: .milliseconds(300)).path()
+        let path = Self.shell(file, home: directory, timeout: .seconds(3)).path()
         #expect(path == nil)
-        #expect(ContinuousClock.now - started < .seconds(3))
+        #expect(ContinuousClock.now - started < .seconds(6))
+        #expect(FileManager.default.fileExists(atPath: child.path))
 
         var left = 1
         for _ in 0 ..< 30 {
@@ -113,6 +116,15 @@ import SeatGaugeCore
             eval "$last"
             """)
         #expect(Self.shell(flood, home: directory).path() == nil)
+
+        // An answer of more than one line is not a PATH.
+        let split = try Self.script("split-shell", in: directory, """
+            export PATH="/invented/one
+            /invented/two:$PATH"
+            for last; do :; done
+            eval "$last"
+            """)
+        #expect(Self.shell(split, home: directory).path() == nil)
     }
 
     @Test("the shell starts from the allowlist, so no seat's token or profile reaches it")
@@ -129,7 +141,9 @@ import SeatGaugeCore
         let shell = try #require(LoginShell.user(parent: parent))
         #expect(shell.executable == file)
         let path = try #require(shell.path())
-        #expect(path.prefix(3) == ["/seen-token-none", "/seen-dir-none", "/seen-key-none"])
+        // Compared through a Bool, so a leak never prints a planted value.
+        let clean = Array(path.prefix(3)) == ["/seen-token-none", "/seen-dir-none", "/seen-key-none"]
+        #expect(clean)
 
         // A SHELL that is not an absolute path is never run as one.
         let relative = LoginShell.user(parent: ["SHELL": "fake-shell", "HOME": directory.path])
@@ -162,6 +176,22 @@ import SeatGaugeCore
             // Found, and nothing but PATH came over from the profile.
             #expect(lines == ["found clean"])
         }
+        let asked = try String(contentsOf: directory.appendingPathComponent("asked"), encoding: .utf8)
+        #expect(asked.split(separator: "\n").count == 1)
+    }
+
+    @Test("polls that start together still ask the shell once")
+    func askedOnceTogether() async throws {
+        let directory = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = try Self.shell(in: directory, profile: "sleep 0.2")
+        let search = SearchPath(shell: Self.shell(file, home: directory), home: directory.path)
+
+        let answers = await withTaskGroup(of: [String].self) { group in
+            for _ in 0 ..< 4 { group.addTask { search.directories() } }
+            return await group.reduce(into: []) { $0.append($1) }
+        }
+        #expect(Set(answers).count == 1)
         let asked = try String(contentsOf: directory.appendingPathComponent("asked"), encoding: .utf8)
         #expect(asked.split(separator: "\n").count == 1)
     }
