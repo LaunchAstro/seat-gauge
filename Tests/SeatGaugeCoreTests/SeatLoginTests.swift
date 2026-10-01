@@ -17,7 +17,7 @@ import SeatGaugeCore
         var home: URL { root.appendingPathComponent("home", isDirectory: true) }
         var calls: URL { root.appendingPathComponent("calls", isDirectory: true) }
         var bin: URL { root.appendingPathComponent("bin", isDirectory: true) }
-        func profile(_ id: String) -> URL { home.appendingPathComponent(".claude-seat-\(id)", isDirectory: true) }
+        func profile(_ id: String) -> URL { home.appendingPathComponent("profiles/\(id)", isDirectory: true) }
         var parent: [String: String] { ["PATH": bin.path + ":/usr/bin:/bin", "HOME": home.path] }
         var ran: Bool { FileManager.default.fileExists(atPath: calls.appendingPathComponent("args").path) }
         func read(_ name: String) -> String {
@@ -85,7 +85,7 @@ import SeatGaugeCore
                        parent: [String: String]? = nil, code: String?, said: Said) throws -> SeatLogin.SignedIn {
         try SeatLogin.signIn(name, email: email, seats: seats, home: scratch.home,
                              parent: parent ?? scratch.parent, timeout: .seconds(20),
-                             code: { code }, say: said.add)
+                             code: { code }, link: said.add)
     }
 
     static func refusal(_ body: () throws -> Any) -> String? {
@@ -110,6 +110,7 @@ import SeatGaugeCore
         #expect(token == "token signs in with a token. Give it \"login\": \"own\" in seats.json first, or its card will never read this login.")
         #expect(!scratch.ran)
         #expect(said.all.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: scratch.profile("token").path))
     }
 
     @Test func aProfileThatIsHomeTheDefaultLoginOrAnotherSeatsIsRefusedWithNothingRun() throws {
@@ -150,6 +151,7 @@ import SeatGaugeCore
             #expect(reason == "the --email value is not an email address, so nothing was started.")
         }
         #expect(!scratch.ran)
+        #expect(!FileManager.default.fileExists(atPath: scratch.profile("work").path))
     }
 
     // MARK: Signed in through a terminal
@@ -188,6 +190,9 @@ import SeatGaugeCore
         // The fake printed the code back on stdout and stderr; none of it is said.
         let leaked = said.all.contains("PLANTED-CODE")
         #expect(!leaked, "the pasted code reached the command's output")
+        // A fresh machine has no profile yet: it is made, for this user only.
+        let made = try FileManager.default.attributesOfItem(atPath: scratch.profile("work").path)
+        #expect((made[.posixPermissions] as? Int) == 0o700)
     }
 
     @Test func oneSeatsSignInNeverReachesAnother() throws {
@@ -207,7 +212,7 @@ import SeatGaugeCore
             #expect(env.contains("CLAUDE_CONFIG_DIR=\(scratch.profile("work").path)\n"), "\(call)")
             #expect(!env.contains("MARKER"), "\(call) carried a token or key it was not given")
             #expect(!env.contains("CLAUDE_CODE_OAUTH_TOKEN"), "\(call)")
-            #expect(!env.contains(".claude-seat-personal"), "\(call)")
+            #expect(!env.contains(scratch.profile("personal").path), "\(call)")
         }
         #expect(FileManager.default.fileExists(atPath: scratch.profile("work").appendingPathComponent(".signed-in").path))
         #expect(!FileManager.default.fileExists(atPath: scratch.profile("personal").path))
@@ -254,7 +259,7 @@ import SeatGaugeCore
             try Self.signIn("work", seats: [Self.seat("work", profile: scratch.profile("work"))],
                             scratch: scratch, code: "c", said: Said())
         }
-        #expect(reason == "claude auth login stopped with status 2 before asking for a code: OAuth error: no route")
+        #expect(reason == "claude auth login stopped with status 2 before a code was sent, so work was not signed in: OAuth error: no route")
     }
 
     // MARK: The command line
