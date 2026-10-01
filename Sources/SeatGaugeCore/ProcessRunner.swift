@@ -54,11 +54,12 @@ public protocol ProcessRunning: Sendable {
 /// augmented, because an app launched at login has a bare environment and
 /// neither `claude` nor `codex` sits in it.
 public struct RealProcessRunner: ProcessRunning {
-    static let extraPath = ["/opt/homebrew/bin",
-                            NSHomeDirectory() + "/.local/bin",
-                            NSHomeDirectory() + "/.bun/bin"]
+    let searchPath: SearchPath
 
-    public init() { signal(SIGPIPE, SIG_IGN) }
+    public init(searchPath: SearchPath = .shared) {
+        self.searchPath = searchPath
+        signal(SIGPIPE, SIG_IGN)
+    }
 
     public func launch(_ spec: ProcessSpec) throws -> any ProcessSession {
         let process = Process()
@@ -66,8 +67,7 @@ public struct RealProcessRunner: ProcessRunning {
         process.arguments = spec.arguments
         process.currentDirectoryURL = spec.currentDirectory
         var environment = spec.environment
-        let path = environment["PATH"].map { [$0] } ?? []
-        environment["PATH"] = (path + Self.extraPath).joined(separator: ":")
+        environment["PATH"] = searchPath.joined(after: environment["PATH"])
         process.environment = environment
 
         let input = Pipe(), output = Pipe()
