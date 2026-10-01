@@ -129,6 +129,20 @@ import SeatGaugeCore
             #expect(reason == "work has the default login's directory as its profile, so signing it in would sign ~/.claude in instead. Give it a directory of its own.",
                     "\(profile.path)")
         }
+        // On a volume that ignores case, another spelling is the same place.
+        let shouted = scratch.home.appendingPathComponent(".CLAUDE", isDirectory: true)
+        if FileManager.default.fileExists(atPath: shouted.path) {
+            let reason = Self.refusal {
+                try Self.signIn("work", seats: [Self.seat("work", profile: shouted)], scratch: scratch,
+                                code: "c", said: said)
+            }
+            #expect(reason?.contains("default login") == true, "\(reason ?? "accepted")")
+            try FileManager.default.createDirectory(at: scratch.profile("personal"), withIntermediateDirectories: true)
+            let other = [Self.seat("personal", profile: scratch.profile("personal")),
+                         Self.seat("work", profile: scratch.home.appendingPathComponent("PROFILES/PERSONAL"))]
+            #expect(Self.refusal { try Self.signIn("work", seats: other, scratch: scratch, code: "c", said: said) }?
+                .contains("same profile as personal") == true)
+        }
         // Built by hand, since seats.json refuses two seats on one directory.
         let shared = [Self.seat("personal", profile: scratch.profile("personal")),
                       Self.seat("work", profile: scratch.profile("personal").appendingPathComponent("."))]
