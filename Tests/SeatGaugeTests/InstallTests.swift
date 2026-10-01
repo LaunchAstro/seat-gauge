@@ -243,7 +243,7 @@ import SeatGaugeCore
     // MARK: - The CLI
 
     @Test("build-app.sh puts seatgauge-cli in the bundle, where install.sh links it from")
-    func theBundleCarriesTheCLI() throws {
+    @MainActor func theBundleCarriesTheCLI() throws {
         let built = try AppIconTests.buildApp()
         defer { try? FileManager.default.removeItem(at: built.app.deletingLastPathComponent().deletingLastPathComponent()) }
         #expect(built.status == 0, "\(built.out)")

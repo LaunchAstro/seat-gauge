@@ -9,7 +9,15 @@
 # `--identifier` is passed explicitly because usernoted names a notification
 # client by the code-signing identifier of the calling process, and a signature
 # whose identifier does not match CFBundleIdentifier fails silently later.
-# Signing is ad-hoc.
+# Signing is ad-hoc. `seatgauge-cli` ships inside the bundle, in
+# Contents/Helpers where it takes no bundle identity of its own, and is signed
+# first so the app's signature seals it.
+#
+# The bundle is put together and signed in a scratch folder, then copied into
+# `dist/` without extended attributes. A checkout in a synced folder such as
+# iCloud Drive gets Finder and file provider attributes on a new bundle within
+# seconds, and codesign refuses to sign or verify a bundle carrying them. `cp -X`
+# keeps any such attributes on the sources out of the bundle too.
 #
 # The identifier is the argument: the real one by default, which is what
 # `make install` builds, or the `.dev` one `make app` passes, which gives a
@@ -28,18 +36,17 @@ VER="$(tr -d '[:space:]' < VERSION)"
 APP="dist/Seat Gauge.app"
 
 swift build -c release
-rm -rf "$APP"
-mkdir -p dist
-# Before the bundle exists, not after it: Spotlight indexes a new bundle as
-# soon as it is written, and a marker that arrives later does not take the
-# entry back. The installed copy should be the only one Spotlight finds.
-touch dist/.metadata_never_index
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp ".build/release/$NAME" "$APP/Contents/MacOS/"
-cp -R Resources/Fonts "$APP/Contents/Resources/Fonts"
-cp Resources/AppIcon.icns "$APP/Contents/Resources/"
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/seat-gauge-build.XXXXXX")"
+trap 'rm -rf "$scratch"' EXIT
+touch "$scratch/.metadata_never_index"
+BUNDLE="$scratch/Seat Gauge.app"
+mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Helpers" "$BUNDLE/Contents/Resources"
+cp -X ".build/release/$NAME" "$BUNDLE/Contents/MacOS/"
+cp -X .build/release/seatgauge-cli "$BUNDLE/Contents/Helpers/"
+cp -RX Resources/Fonts "$BUNDLE/Contents/Resources/Fonts"
+cp -X Resources/AppIcon.icns "$BUNDLE/Contents/Resources/"
 
-cat > "$APP/Contents/Info.plist" <<PLIST
+cat > "$BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -55,5 +62,15 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 
-codesign --force --deep --sign - --identifier "$ID" "$APP"
+codesign --force --sign - --identifier seatgauge-cli "$BUNDLE/Contents/Helpers/seatgauge-cli"
+codesign --force --sign - --identifier "$ID" "$BUNDLE"
+codesign --verify --strict "$BUNDLE"
+
+rm -rf "$APP"
+mkdir -p dist
+# Before the bundle exists, not after it: Spotlight indexes a new bundle as
+# soon as it is written, and a marker that arrives later does not take the
+# entry back. The installed copy should be the only one Spotlight finds.
+touch dist/.metadata_never_index
+ditto --norsrc --noextattr --noacl "$BUNDLE" "$APP"
 printf 'built %s\n' "$APP"
