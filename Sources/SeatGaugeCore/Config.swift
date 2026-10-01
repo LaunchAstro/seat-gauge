@@ -18,7 +18,11 @@ public struct ConfigProblem: Error, Equatable, Sendable, CustomStringConvertible
 /// What was last read, and when, belongs to `ConfigWatcher` instead.
 public struct ConfigLoader: Sendable {
     public let file: URL
-    public init(file: URL = ConfigLoader.defaultFile) { self.file = file }
+    public let machine: SeatDiscovery
+    public init(file: URL = ConfigLoader.defaultFile, machine: SeatDiscovery = SeatDiscovery()) {
+        self.file = file
+        self.machine = machine
+    }
 
     public static var defaultFile: URL { AppPaths.support.appendingPathComponent("seats.json") }
 
@@ -55,6 +59,10 @@ public struct ConfigLoader: Sendable {
         }
 
         """
+
+    public static func seeded(with found: [SeatDiscovery.Found]) -> String { template }
+
+    public func seed() -> String { Self.seeded(with: machine.seats()) }
 
     public var modifiedAt: Date? {
         try? FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date
