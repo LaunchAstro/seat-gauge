@@ -8,7 +8,7 @@ Three SwiftPM targets, Command Line Tools only (no Xcode project).
 
 - `Sources/SeatGaugeCore/` imports Foundation only, so every type in it is testable without a screen. All the rules live here.
 - `Sources/SeatGauge/` is the Mac app: AppKit window, SwiftUI cards, menus, login item, notifications. It turns core values into pixels and holds no rules of its own.
-- `Sources/seatgauge-cli/` drives the core headless: `read`, `record`, `watch`, `spend`, `state`, `attribute`.
+- `Sources/seatgauge-cli/` drives the core headless: `read`, `record`, `watch`, `spend`, `state`, `attribute`, `import-codex`, `login`.
 - `Tests/Support/` is a library both test targets share: `ScriptedRunner` and the `Fixture` loader. Nothing in it ships.
 
 ### Core modules and their one job
@@ -26,6 +26,7 @@ Three SwiftPM targets, Command Line Tools only (no Xcode project).
 | `ClaudeUsageParser.swift`, `ClaudeRateLimitEventParser.swift`, `CodexRateLimitsParser.swift` | Turn one CLI transcript into windows. Each wire format is known in exactly one parser. |
 | `AccountPlan.swift` | Reads the exact plan tier from a seat's own login file. |
 | `ProviderMark.swift` | `MarkCache`: fetches each provider's favicon once, when none is cached, and keeps it in Application Support. |
+| `SeatLogin.swift` | Signs one seat in: `claude auth login` on a pseudo-terminal under the seat's own profile, the link out, the pasted code in, and `claude auth status` as the proof. Every front end signs in through it. |
 | `SeatToken.swift` | Where a token seat's token file is, read at fetch time and handed to one child process. |
 | `RefreshService.swift`, `Poller.swift`, `GaugeStore.swift` | Fetch the seats one after another, loop on the poll interval, and keep the last readings on disk. |
 | `Pace.swift`, `Alerts.swift` | The pace verdict and countdown text, and when a reset alert is due. |

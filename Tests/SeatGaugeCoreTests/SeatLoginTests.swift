@@ -229,7 +229,9 @@ import SeatGaugeCore
             try Self.signIn("work", seats: [Self.seat("work", profile: scratch.profile("work"))],
                             scratch: scratch, code: marker, said: said)
         } ?? ""
-        #expect(reason == "claude auth login stopped with status 1 after the code was sent, so work was not signed in. What it printed after the code is not shown, since it may repeat the code.")
+        // Compared as a flag, so a failure here cannot print the code either.
+        let worded = reason == "claude auth login stopped with status 1 after the code was sent, so work was not signed in. What it printed after the code is not shown, since it may repeat the code."
+        #expect(worded, "the refusal is worded otherwise\(reason.contains("PLANTED-CODE") ? " and carries the code" : ": \(reason)")")
         let leaked = reason.contains("PLANTED-CODE") || said.all.contains("PLANTED-CODE")
         #expect(!leaked, "the pasted code reached an error or a line")
         #expect(!scratch.read("args").contains("status"))

@@ -59,11 +59,13 @@ Every Claude seat needs its own `profile` directory, so no card reads whatever `
 
 ### Signing a Claude seat in
 
-A seat with `"login": "own"` has its own login, and reads the 5-hour, weekly and Fable windows plus its exact plan. Give a seat its own login in one line, then type `/login`:
+A seat with `"login": "own"` has its own login, and reads the 5-hour, weekly and Fable windows plus its exact plan. Sign it in by its id:
 
 ```sh
-env -u CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR="$HOME/.seat-gauge/profiles/work" claude
+swift run seatgauge-cli login work
 ```
+
+This runs `claude auth login` under the seat's own profile, which it creates for you, readable by you alone, if it is not there yet. It prints a link: open it in any browser, sign in to the account this seat is for, and paste the code the page shows. `claude auth status` then says whether the seat is signed in. `--email <address>` fills the address in on the sign-in page. The code goes to `claude` and nowhere else, so it is never printed or logged. A Codex seat, a token seat, an unknown id, or a profile that is `~`, `~/.claude` or another seat's is refused before anything runs.
 
 Leave `login` out and the seat signs in with an OAuth token instead, read from the file its `token` key names or from `~/.config/claude-seats/<id>.token`. A token seat shows 5h and 7d only, because no token reports Fable or the exact plan.
 
@@ -80,6 +82,7 @@ swift run seatgauge-cli read          # read every seat once and print it
 swift run seatgauge-cli watch         # run the poll loop headless
 swift run seatgauge-cli spend         # roll up spend once and say what it found
 swift run seatgauge-cli record work   # poll one seat, write its reply to Tests/Fixtures/
+swift run seatgauge-cli login work    # sign one seat in under its own profile
 ```
 
 `record` writes a local file of what the seat printed, with account ids, tokens and home paths taken out. It is still your real usage, so never commit it as is. The fixtures in the repository are hand-written; use a recording to see the shape, then write a synthetic transcript.
