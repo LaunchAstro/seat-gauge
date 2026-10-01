@@ -30,13 +30,14 @@ import SeatGaugeTestSupport
         return file
     }
 
-    /// An invented `.claude.json`: the one key the gauge reads, beside keys it
+    /// An invented `.claude.json`: the keys the gauge reads, beside keys it
     /// must leave alone.
-    static func claudeJSON(tier: String) -> String {
-        """
+    static func claudeJSON(tier: String, type: String? = nil) -> String {
+        let type = type.map { #", "organizationType": "\#($0)""# } ?? ""
+        return """
         { "numStartups": 3, "userID": "invented-user",
           "oauthAccount": { "emailAddress": "invented account",
-                            "organizationRateLimitTier": "\(tier)" } }
+                            "organizationRateLimitTier": "\(tier)"\(type) } }
         """
     }
 
@@ -108,6 +109,47 @@ import SeatGaugeTestSupport
                        #"{"oauthAccount": {"organizationRateLimitTier": "  "}}"#] {
             let file = try Self.write(broken, named: ".claude.json", into: home)
             #expect(ClaudePlanFile.plan(in: file) == nil)
+        }
+    }
+
+    // MARK: - A Pro login's tier is the generic `default_claude_ai`
+
+    @Test func aProLoginWithTheGenericTierReadsAsPro() async throws {
+        let home = try Self.temporary()
+        defer { try? FileManager.default.removeItem(at: home) }
+        func plan(_ contents: String) throws -> String? {
+            ClaudePlanFile.plan(in: try Self.write(contents, named: ".claude.json", into: home))
+        }
+        // The shape a Pro login writes: the tier names no plan, the type does.
+        #expect(try plan(Self.claudeJSON(tier: "default_claude_ai", type: "claude_pro")) == "Pro")
+        #expect(try plan(#"{"oauthAccount": {"organizationType": "claude_pro"}}"#) == "Pro")
+        // The generic tier on its own is no plan, so the card falls through, never "ai".
+        #expect(ClaudePlanFile.words(forTier: "default_claude_ai") == nil)
+        #expect(try plan(Self.claudeJSON(tier: "default_claude_ai")) == nil)
+        for broken in [#""organizationType": 7"#, #""organizationType": "  ""#, #""organizationType": null"#] {
+            #expect(try plan(#"{"oauthAccount": {"organizationRateLimitTier": "default_claude_ai", "# + broken + "}}") == nil)
+        }
+        // A tier that names a plan still wins over the type.
+        #expect(try plan(Self.claudeJSON(tier: "default_claude_max_5x", type: "claude_pro")) == "Max 5x")
+        // A type this app does not know keeps its own words, never "Free".
+        let unknown = try plan(Self.claudeJSON(tier: "default_claude_ai", type: "claude_team_premium"))
+        #expect(unknown == "team premium")
+        #expect(unknown?.lowercased().contains("free") != true)
+
+        // End to end: the card says Pro, not the tier's tail and not the wire's `max`,
+        // and nothing else in the file reaches the reading.
+        try Self.write(Self.claudeJSON(tier: "default_claude_ai", type: "claude_pro"),
+                       named: ".claude.json", into: home)
+        let seat = Seat(id: SeatID(rawValue: "personal"), label: "Personal", kind: .claude(profileDir: home))
+        let fetched = await Self.claude(seat, replies: try Self.claudeReplies())
+        #expect(Self.plan(fetched.fetched.state) == "Pro")
+        #expect(PlanText.shown(for: seat, state: fetched.fetched.state) == "Pro")
+        guard case let .live(reading) = fetched.fetched.state else { Issue.record("not live"); return }
+        let encoded = String(decoding: try JSONEncoder().encode(reading), as: UTF8.self)
+        for text in fetched.fetched.lines + [encoded, "\(fetched.fetched.state)"] {
+            for marker in ["invented account", "invented-user", "claude_pro", "default_claude_ai"] {
+                #expect(!text.contains(marker))
+            }
         }
     }
 
