@@ -4,7 +4,7 @@ import SeatGaugeCore
 // The app's core, headless. `read` prints every seat's outcome, `record`
 // writes one seat's raw reply to a fixture, `watch` runs the panel's own poll
 // loop with nothing drawn, and `spend` runs the roll-up once over the real
-// transcripts and says what it found.
+// transcripts and says what it found. `login` signs one seat in.
 
 /// The seats when there is no `seats.json` to follow: the template's, so the
 /// CLI never reads a seat without its own profile.
@@ -142,6 +142,29 @@ func spend() async throws {
     print("took: \(run.took.formattedSeconds) s")
 }
 
+/// One seat signed in through `claude auth login` under its own profile: the
+/// link printed, the code read from stdin, and `claude auth status` the proof.
+func login(_ arguments: ArraySlice<String>) throws {
+    let request = try SeatLogin.Request(arguments: Array(arguments))
+    let signed = try SeatLogin.signIn(request.seat, email: request.email, seats: try readSeats(request.seatsFile),
+                                      searchPath: .loginShell,
+                                      code: {
+                                          print("code> ", terminator: "")
+                                          fflush(stdout)
+                                          let code = readLine()
+                                          // A person's Return ends the line; a pipe's code does not.
+                                          if isatty(STDIN_FILENO) == 0 { print(""); fflush(stdout) }
+                                          return code
+                                      },
+                                      link: { link in
+                                          print("Open this link, sign in to the account for \(request.seat), and paste the code it shows:")
+                                          print(link)
+                                          fflush(stdout)
+                                      })
+    let account = [signed.email, signed.plan].compactMap(\.self).joined(separator: ", ")
+    print("\(request.seat) is signed in" + (account.isEmpty ? "." : " (\(account))."))
+}
+
 extension Decimal {
     /// Cents, for a figure a person reads rather than one the CSV keeps.
     var roundedToCents: Decimal {
@@ -163,7 +186,8 @@ do {
     case "state": try state(arguments.dropFirst())
     case "attribute": await attribute(arguments.dropFirst())
     case "import-codex": try await importCodex()
-    default: print("usage: seatgauge-cli read [seats.json] | record <seat> [seats.json] | watch | spend [file] | state [range <r>] [measure <m>] | attribute --seed <file> | import-codex")
+    case "login": try login(arguments.dropFirst())
+    default: print("usage: seatgauge-cli read [seats.json] | record <seat> [seats.json] | watch | spend [file] | state [range <r>] [measure <m>] | attribute --seed <file> | import-codex | login <seat> [--email <address>] [seats.json]")
     }
 } catch {
     FileHandle.standardError.write(Data("seatgauge-cli: \(error)\n".utf8))
