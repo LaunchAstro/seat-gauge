@@ -40,11 +40,12 @@ import SeatGaugeCore
     /// `iCloud` builds a bundle the real `codesign` signs, then tags it with
     /// the metadata an iCloud-synced folder adds. `cli` is what sits at the
     /// CLI's destination beforehand, and `onPath` puts that folder on `PATH`.
+    /// `folder` is what the CLI's folder, or the path above it, is to start with.
     @discardableResult
     static func install(indexing: String = "Indexing enabled.", signed: Bool = true,
                         bundle: Bool = true, helper: Bool = true, other: Bool = false,
                         iCloud: Bool = false, cli: Planted = .nothing,
-                        onPath: Bool = true) throws -> Ran {
+                        onPath: Bool = true, folder: Folder = .usable) throws -> Ran {
         let base = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("seat-gauge-install-\(UUID().uuidString)", isDirectory: true)
         let applications = base.appendingPathComponent("Applications", isDirectory: true)
@@ -68,6 +69,18 @@ import SeatGaugeCore
             }
         }
         if iCloud { try signAndTag(dist.appendingPathComponent("Seat Gauge.app")) }
+        switch folder {
+        case .usable: break
+        case .readOnly:
+            try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: cliBin.path)
+        case .file:
+            try FileManager.default.removeItem(at: cliBin)
+            try Data("a file".utf8).write(to: cliBin)
+        case .fileAbove:
+            let above = cliBin.deletingLastPathComponent()
+            try FileManager.default.removeItem(at: above)
+            try Data("a file".utf8).write(to: above)
+        }
         let link = cliBin.appendingPathComponent("seatgauge-cli")
         switch cli {
         case .nothing: break
@@ -117,6 +130,7 @@ import SeatGaugeCore
     }
 
     enum Planted { case nothing, file, link(String), ours }
+    enum Folder { case usable, readOnly, file, fileAbove }
 
     static func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath: url.path) }
 
@@ -299,6 +313,23 @@ import SeatGaugeCore
         #expect(ran.status == 0, "\(ran.out)")
         #expect(ran.out.contains("\(ran.bin.path) is not on your PATH"))
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: ran.link.path) == ran.helper.path)
+    }
+
+    @Test("a CLI folder the script cannot write to is a refusal before anything is removed or installed",
+          arguments: [Folder.readOnly, .file, .fileAbove])
+    func unusableBinFolderIsARefusal(folder: Folder) throws {
+        let ran = try Self.install(folder: folder)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ran.bin.path)
+            try? FileManager.default.removeItem(at: ran.applications.deletingLastPathComponent())
+        }
+        #expect(ran.status != 0)
+        #expect(ran.out.contains(ran.bin.path), "\(ran.out)")
+        #expect(ran.out.contains("Nothing has been removed"), "\(ran.out)")
+        #expect(Self.exists(ran.planted))
+        #expect(!Self.exists(ran.installed))
+        #expect(Self.exists(ran.source))
+        #expect(!ran.trace.contains("pkill"))
     }
 
     // MARK: - The login item path
