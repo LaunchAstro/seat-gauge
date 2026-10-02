@@ -109,13 +109,26 @@ public enum SeatLogin {
         return profile
     }
 
-    /// A profile's path as a Mac's default volume tells paths apart: resolved,
-    /// then folded for case and Unicode form, since `resolved` folds case only
-    /// for a path that already exists and a fresh machine's profiles do not.
-    /// On a case-sensitive volume this refuses two spellings that are really
-    /// two directories, which is the safe way to be wrong.
+    /// A profile's path as a Mac's default volume tells paths apart. A fresh
+    /// machine's profile does not exist yet, but a parent of it may be a link,
+    /// and the profile is made through that link. So `.` and `..` go by name,
+    /// the deepest part that exists is resolved through every link in it, the
+    /// rest is added as written, and the whole is folded for case and Unicode
+    /// form. On a case-sensitive volume this refuses two spellings that are
+    /// really two directories, which is the safe way to be wrong.
     static func key(_ url: URL) -> String {
-        ConfigLoader.resolved(url).decomposedStringWithCanonicalMapping.lowercased()
+        var existing = url.standardizedFileURL
+        var rest: [String] = []
+        while !FileManager.default.fileExists(atPath: existing.path), existing.pathComponents.count > 1 {
+            rest.insert(existing.lastPathComponent, at: 0)
+            existing = existing.deletingLastPathComponent()
+        }
+        let real = realpath(existing.path, nil).map { resolved in
+            defer { free(resolved) }
+            return String(cString: resolved)
+        } ?? existing.path
+        let path = rest.reduce(URL(fileURLWithPath: real)) { $0.appendingPathComponent($1) }.path
+        return path.decomposedStringWithCanonicalMapping.lowercased()
     }
 
     /// One address, handed to the CLI as a value it cannot take for a flag.
@@ -146,7 +159,7 @@ public enum SeatLogin {
         var asked = false, sent = false
         while true {
             guard ContinuousClock.now < deadline else {
-                throw ProcessFailure("claude auth login was still waiting after \(Int(timeout.seconds / 60)) minutes, so it was stopped and \(name) was not signed in.")
+                throw ProcessFailure("claude auth login was still waiting after \(max(1, Int((timeout.seconds / 60).rounded(.up)))) minutes, so it was stopped and \(name) was not signed in.")
             }
             guard let data = child.read() else { break }
             if data.isEmpty, !child.isRunning { break }
