@@ -195,7 +195,9 @@ import SeatGaugeCore
     @Test("a fetch that is ended leaves no child behind")
     func endedFetchLeavesNoChild() async throws {
         let marker = "seat-gauge-teardown-\(UUID().uuidString)"
-        let session = try RealProcessRunner().launch(ProcessSpec(
+        // No login shell is asked: the case is about teardown, not lookup.
+        let quiet = SearchPath(shell: nil, home: NSTemporaryDirectory())
+        let session = try RealProcessRunner(searchPath: quiet).launch(ProcessSpec(
             executable: URL(fileURLWithPath: "/bin/sh"),
             arguments: ["-c", "trap '' TERM; echo up; while :; do sleep 0.2; done # \(marker)"],
             environment: ["PATH": "/usr/bin:/bin"], currentDirectory: nil, timeout: .seconds(10)))

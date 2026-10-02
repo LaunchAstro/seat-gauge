@@ -48,13 +48,18 @@ func readSeats(_ path: String?) throws -> [Seat] {
     return try ConfigLoader(file: file).load().seats
 }
 
+/// A seat's fetcher, with its CLI found wherever the user's login shell would.
+@Sendable func liveFetcher(_ seat: Seat) -> any SeatFetching {
+    seatFetcher(for: seat, runner: RealProcessRunner(searchPath: .loginShell))
+}
+
 /// Each seat's plan beside its name, from its own login first. A seat
 /// with none says so, and is never called free.
 func read(_ path: String?) async throws {
     try makePrimer()
     let started = Date()
     for seat in try readSeats(path) {
-        let outcome = await seatFetcher(for: seat).fetch(seat, now: Date(), last: nil)
+        let outcome = await liveFetcher(seat).fetch(seat, now: Date(), last: nil)
         let now = Date()
         let plan = PlanText.shown(for: seat, state: outcome.state) ?? "no plan"
         print(PlanText.column(seat.id.rawValue, width: 8)
@@ -71,7 +76,7 @@ func record(_ name: String, from path: String?) async throws {
                              + seats.map(\.id.rawValue).joined(separator: ", "))
     }
     try makePrimer()
-    let outcome = await seatFetcher(for: seat).fetch(seat, now: Date(), last: nil)
+    let outcome = await liveFetcher(seat).fetch(seat, now: Date(), last: nil)
     guard !outcome.lines.isEmpty else {
         throw ProcessFailure("\(name) printed nothing to record: \(describe(outcome.state, now: Date()))")
     }
@@ -97,7 +102,7 @@ func watch() async throws {
     // The same roll-up the panel runs, on the same schedule, so `watch` is the
     // headless twin of a launch rather than a poll loop with a piece missing.
     let roller = SpendCoordinator(log: say)
-    let poller = Poller(watcher: watcher, service: RefreshService(clock: clock),
+    let poller = Poller(watcher: watcher, service: RefreshService(clock: clock, fetcher: liveFetcher),
                         store: GaugeStore(), clock: clock,
                         rollup: {
                             let seats = await watcher.config.seats
