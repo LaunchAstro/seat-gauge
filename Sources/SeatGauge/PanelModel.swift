@@ -142,6 +142,7 @@ struct CardModel: Identifiable, Equatable {
     var dated: String?
     /// True while a sync or poll is reading this seat.
     var isSyncing = false
+    var signsIn = false
 
     var isDimmed: Bool { stale != nil }
 

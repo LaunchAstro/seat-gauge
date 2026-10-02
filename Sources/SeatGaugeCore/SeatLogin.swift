@@ -52,7 +52,11 @@ public enum SeatLogin {
             self.email = email
             self.plan = plan
         }
+
+        public func sentence(_ seat: String) -> String { "" }
     }
+
+    public static func offers(_ seat: Seat?, _ state: SeatState?) -> Bool { false }
 
     /// Everything is checked before anything starts. `code` is asked once,
     /// on its own thread, when the CLI prompts for it, and may block until a
