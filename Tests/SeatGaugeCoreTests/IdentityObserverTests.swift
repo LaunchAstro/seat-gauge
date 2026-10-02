@@ -12,22 +12,22 @@ import SeatGaugeCore
         init() throws {
             root = URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("seat-gauge-identity-\(UUID().uuidString)", isDirectory: true)
-            for name in [".claude-seat-work", ".claude-seat-personal"] {
+            for name in ["profiles/work", "profiles/personal"] {
                 try FileManager.default.createDirectory(at: root.appendingPathComponent(name),
                                                         withIntermediateDirectories: true)
             }
         }
         func remove() { try? FileManager.default.removeItem(at: root) }
         var main: URL { root.appendingPathComponent(".claude.json") }
-        func profile(_ seat: String) -> URL { root.appendingPathComponent(".claude-seat-\(seat)/.claude.json") }
+        func profile(_ seat: String) -> URL { root.appendingPathComponent("profiles/\(seat)/.claude.json") }
         func write(_ text: String?, to file: URL) throws {
             if let text { try Data(text.utf8).write(to: file) } else { try? FileManager.default.removeItem(at: file) }
         }
         var seats: [Seat] {
             [Seat(id: SeatID(rawValue: "work"), label: "Work",
-                  kind: .claude(profileDir: root.appendingPathComponent(".claude-seat-work"))),
+                  kind: .claude(profileDir: root.appendingPathComponent("profiles/work"))),
              Seat(id: SeatID(rawValue: "personal"), label: "Personal",
-                  kind: .claude(profileDir: root.appendingPathComponent(".claude-seat-personal"))),
+                  kind: .claude(profileDir: root.appendingPathComponent("profiles/personal"))),
              Seat(id: SeatID(rawValue: "codex"), label: "Codex", kind: .codex)]
         }
         func observe() -> IdentityObservation { IdentityObserver.observe(seats: seats, home: root) }
@@ -129,8 +129,8 @@ import SeatGaugeCore
 
     static func poller(_ home: Home) throws -> (Poller<ContinuousClock, ContinuousClock>, Lines, URL) {
         let config = home.root.appendingPathComponent("seats.json")
-        let seats = [#"{ "id": "work", "label": "Work", "kind": "claude", "profile": "\#(home.root.path)/.claude-seat-work", "login": "own" }"#,
-                     #"{ "id": "personal", "label": "Personal", "kind": "claude", "profile": "\#(home.root.path)/.claude-seat-personal", "login": "own" }"#,
+        let seats = [#"{ "id": "work", "label": "Work", "kind": "claude", "profile": "\#(home.root.path)/profiles/work", "login": "own" }"#,
+                     #"{ "id": "personal", "label": "Personal", "kind": "claude", "profile": "\#(home.root.path)/profiles/personal", "login": "own" }"#,
                      #"{ "id": "codex", "label": "Codex", "kind": "codex" }"#]
         try Data("{ \"seats\": [ \(seats.joined(separator: ", ")) ] }".utf8).write(to: config)
         let record = home.root.appendingPathComponent("attribution.json")

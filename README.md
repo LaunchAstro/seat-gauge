@@ -65,7 +65,7 @@ A seat with `"login": "own"` has its own login, and reads the 5-hour, weekly and
 env -u CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR="$HOME/.seat-gauge/profiles/work" claude
 ```
 
-Leave `login` out and the seat signs in with an OAuth token instead, read from the file its `token` key names or from `~/.config/claude-seats/<id>.token`. A token seat shows 5h and 7d only, because no token reports Fable or the exact plan.
+Token seats are optional, and nobody needs one to get started. If a seat should sign in with an OAuth token instead, leave `login` out and give `token` the path of a file that holds the token, such as `"token": "~/tokens/work.token"`. Only that seat's `claude` is handed it. A token seat shows 5h and 7d only, because no token reports Fable or the exact plan.
 
 ### The plan on a card
 

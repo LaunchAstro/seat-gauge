@@ -140,10 +140,10 @@ import SeatGaugeTestSupport
 
         let file = """
             { "seats": [
-                { "id": "work", "label": "Work", "kind": "claude", "profile": "~/.claude-seat-work",
+                { "id": "work", "label": "Work", "kind": "claude", "profile": "~/profiles/work",
                   "login": "own" },
-                { "id": "personal", "label": "Personal", "kind": "claude", "profile": "~/.claude-seat-personal" },
-                { "id": "team", "label": "Team", "kind": "claude", "profile": "~/.claude-seat-team",
+                { "id": "personal", "label": "Personal", "kind": "claude", "profile": "~/profiles/personal" },
+                { "id": "team", "label": "Team", "kind": "claude", "profile": "~/profiles/team",
                   "token": "\(named.path)" },
                 { "id": "codex", "label": "Codex", "kind": "codex" } ] }
             """

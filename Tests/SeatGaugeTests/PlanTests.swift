@@ -87,7 +87,7 @@ import SeatGaugeTestSupport
     @Test func theClaudePlanIsReadFromTheConfigDirTier() throws {
         let home = try Self.temporary()
         defer { try? FileManager.default.removeItem(at: home) }
-        let profile = home.appendingPathComponent(".claude-seat-test", isDirectory: true)
+        let profile = home.appendingPathComponent("profiles/test", isDirectory: true)
         #expect(ClaudePlanFile.file(profileDir: nil, home: home).path
                 == home.appendingPathComponent(".claude.json").path)
         #expect(ClaudePlanFile.file(profileDir: profile, home: home).path
@@ -228,7 +228,7 @@ import SeatGaugeTestSupport
         }
         try Self.write(Self.dummy, named: "personal.token", into: tokens)
         try Self.write(Self.dummy, named: "team.token", into: tokens)
-        let profile = home.appendingPathComponent(".claude-seat-personal", isDirectory: true)
+        let profile = home.appendingPathComponent("profiles/personal", isDirectory: true)
         let config = try ConfigLoader.decode(Data("""
             { "seats": [
                 { "id": "personal", "label": "Personal", "kind": "claude", "profile": "\(profile.path)", "login": "own" },
