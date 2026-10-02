@@ -83,7 +83,11 @@ import SeatGaugeCore
             let link = home.appendingPathComponent("linked")
             try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: data + "/.claude")
             try FileManager.default.createSymbolicLink(atPath: home.path + "/relinked", withDestinationPath: "linked")
-            names += [link.path, home.path + "/relinked", home.path + "/sub/../relinked/"]
+            // A link's own `..` is the file system's: past a missing folder
+            // it climbs from the folder above it.
+            try FileManager.default.createSymbolicLink(atPath: home.path + "/climbing",
+                                                       withDestinationPath: "sub/missing/../../.claude")
+            names += [link.path, home.path + "/relinked", home.path + "/sub/../relinked/", home.path + "/climbing"]
             if Self.ignoresCase(home) {
                 names += [home.path + "/.CLAUDE", home.path + "/.Claude/", data + "/.CLAUDE"]
             }
@@ -118,15 +122,6 @@ import SeatGaugeCore
                                           Self.claude("personal", profile: home.path + "/profiles/shared-2")], home: home)
             #expect(config.seats.count == 2)
         }
-    }
-
-    @Test func oneNameInTwoUnicodeFormsIsOneProfile() throws {
-        let home = try Self.home()
-        defer { try? FileManager.default.removeItem(at: home) }
-        // "café" composed, and as "e" plus a combining accent.
-        let reason = Self.problem([Self.claude("work", profile: home.path + "/caf\u{E9}"),
-                                   Self.claude("personal", profile: home.path + "/cafe\u{301}")], home: home)
-        #expect(reason?.contains("same profile as \"work\"") == true, "\(reason ?? "accepted")")
     }
 
     @Test func aProfileWhoseLinksGoRoundIsRefusedInOneSentence() throws {

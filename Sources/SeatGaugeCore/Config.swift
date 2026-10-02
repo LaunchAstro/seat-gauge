@@ -273,7 +273,13 @@ public struct ConfigLoader: Sendable {
     /// Nil when the path cannot be followed: links that go round in a loop,
     /// or a `..` out of something that is not a folder.
     static func spot(_ url: URL) -> Spot? {
-        var names = url.path.split(separator: "/").map(String.init)
+        // The CLI is handed the path as written and joins names onto it,
+        // which undoes `..` by name, so do the same before the walk. A link's
+        // own target is followed as the file system follows it.
+        var names: [String] = []
+        for name in url.path.split(separator: "/").map(String.init) where name != "." {
+            if name == ".." { _ = names.popLast() } else { names.append(name) }
+        }
         for _ in 0..<64 {
             // The longest stretch from the root that is there. The file
             // system walks it, so a link or `..` in it lands where it goes.
