@@ -193,11 +193,13 @@ import SeatGaugeCore
         #expect(config.seats[1].plan == nil)
         #expect(config.seats[2].plan == "Pro Lite")
 
-        // The template the first launch writes carries both keys, so the user
+        // The file the first launch writes carries both keys, so the user
         // is told they exist without the app inventing a value for either.
-        let template = try ConfigLoader.decode(Data(ConfigLoader.template.utf8),
-                                               tokenDirectory: folder)
-        #expect(template.seats.isEmpty == false)
+        let found = SeatDiscovery.Found(id: "work", kind: .claude(profile: folder.appendingPathComponent("work")))
+        let seeded = try ConfigLoader.decode(Data(ConfigLoader.seeded(with: [found]).utf8),
+                                             tokenDirectory: folder)
+        #expect(seeded.seats.isEmpty == false)
+        #expect(seeded.seats.allSatisfy { $0.account == nil && $0.plan == nil })
         #expect(ConfigLoader.template.contains("account"))
         #expect(ConfigLoader.template.contains("plan"))
 

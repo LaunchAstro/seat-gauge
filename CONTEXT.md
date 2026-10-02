@@ -4,7 +4,7 @@ The words Seat Gauge uses, and what each one means. Terms only, no implementatio
 
 - **Seat**: one paid AI subscription login, run beside others. Seats are listed in `seats.json`, for example `personal`, `work` and `codex`.
 - **Seat kind**: which CLI reads a seat, `claude` or `codex`.
-- **Profile**: a Claude seat's own config directory, such as `~/.claude-seat-work`. Every Claude seat has one, so no card reads whatever `~/.claude` is signed into.
+- **Profile**: a Claude seat's own config directory, such as `~/.seat-gauge/profiles/work`, the folder first launch looks in. Every Claude seat has one, so no card reads whatever `~/.claude` is signed into.
 - **Own login**: a Claude seat that signs in from the login inside its profile. It reads every window and its exact plan.
 - **Token seat**: a Claude seat that signs in with an OAuth token read from a file. It reads the 5-hour and weekly windows only.
 - **Window**: a quota bucket on a seat. Every readable seat has a **weekly window**. A Claude seat also has a **5-hour window** and a model-scoped **Fable window**. A Codex seat may report the weekly window only. One to three windows per seat is normal.

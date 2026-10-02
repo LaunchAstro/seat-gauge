@@ -16,7 +16,8 @@ Three SwiftPM targets, Command Line Tools only (no Xcode project).
 | File | Job |
 | --- | --- |
 | `Domain.swift` | `Seat`, `Window`, `Reading`, `SeatState`, `Snapshot` (with the best-seat rule) and `PlanText` (which plan a card shows). |
-| `Config.swift` | Reads and validates `seats.json`, writes the template on first launch, and re-reads it when it changes. |
+| `Config.swift` | Reads and validates `seats.json`, seeds it on first launch from what `SeatDiscovery` finds, never over an existing file, and re-reads it when it changes. |
+| `SeatDiscovery.swift` | What first launch finds, by name and existence only: each profile under the app's profile root `~/.seat-gauge/profiles` (`SeatDiscovery.profileFolder`), and a signed-in Codex. With no profile, one fresh `claude` seat there. |
 | `AppPaths.swift` | The bundle ID and the folders the app keeps: Application Support and the primer directories its own polls run in. |
 | `Fetchers.swift` | The `SeatFetching` seam, and one fetcher per seat kind that runs the seat's CLI. |
 | `ChildEnvironment.swift` | The allowlist of variables each CLI child gets, proxy settings included. Nothing else the app inherited reaches it. |
@@ -74,7 +75,7 @@ The best-seat rule, pace and alerts read every window already.
 - **Seats are read through their own CLIs.** The gauge runs `claude` or `codex` headless and parses what they print. It never calls a usage endpoint, never reads the Keychain, and never refreshes a token. The only exceptions are three named fields read from login files, for identity and plan, listed in ADR 0005. See ADR 0001 before you reach for an API.
 - **No secrets in the repo.** Tokens, OAuth credentials, account ids and email addresses never go into code, fixtures, tests, docs or commits. Fixtures are hand-written. A recording from `seatgauge-cli record` stays on your machine.
 - **No personal data in the tree.** Seat names in examples and tests are neutral (`personal`, `work`, `codex`). No home paths.
-- **Every Claude seat has its own profile directory.** Never `~` or `~/.claude`, and never one another seat uses. `seats.json` refuses each at load time, so no card reads whatever the main login is signed into.
+- **Every Claude seat has its own profile directory.** Never `~` or `~/.claude`, and never one another seat uses. `seats.json` refuses each at load time, so no card reads whatever the main login is signed into. First launch looks for profiles only under `~/.seat-gauge/profiles`, never under anyone's own naming, and seeds every Claude seat with `"login": "own"`, so no seeded seat takes a token.
 - **Each CLI child gets a built environment.** `ChildEnvironment.swift` allowlists what reaches `claude` and `codex`; an inherited API key never does.
 - **`spend.csv` is a record, not a cache.** Sealed rows are never rewritten, and only `SpendCoordinator` writes the file (ADR 0004).
 - **Tests never touch the real home.** They run under `scripts/scratch-home.sh`. A dev build uses the `.dev` bundle id for the same reason.

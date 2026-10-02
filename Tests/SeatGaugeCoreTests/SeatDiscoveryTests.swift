@@ -112,7 +112,9 @@ import SeatGaugeCore
         #expect(config.seats.compactMap(Self.profile) == [team, work].map(Self.resolved))
         #expect(config.pollMinutes == 5)
         #expect(written.contains("// "))
-        #expect(!written.contains(Self.marker))
+        // Said as a flag, so a failure never prints the text the marker is in.
+        let leaked = written.contains(Self.marker)
+        #expect(!leaked)
         #expect(!written.contains(".claude-seat-other"))
         // The file passes the loader's own rules as it is, and no seat in it
         // takes a token, whatever lies in the token directory.
@@ -296,6 +298,8 @@ import SeatGaugeCore
         for name in odd + ["file", "gone", "loop", "filelink"] {
             #expect(!written.contains("profiles/\(name)"), "\(name) reached the file")
         }
+        // The file says why a folder is not in it.
+        #expect(written.contains("was left out: add it by hand"))
         // Digits, a dash and an underscore are a fine id.
         try machine.profile("team-2_b")
         #expect(machine.discovery.seats().map(\.id) == ["team-2_b", "work"])
@@ -347,6 +351,53 @@ import SeatGaugeCore
         // And no draft is left beside it.
         let left = try FileManager.default.contentsOfDirectory(atPath: machine.seats.deletingLastPathComponent().path)
         #expect(left == ["seats.json"])
+    }
+
+    @Test func launchesAtOnceOrAfterACrashSeedOneFileAndLeaveNoDraftOfTheirOwn() async throws {
+        let machine = try Machine()
+        defer { machine.remove() }
+        try machine.profile("work")
+        try machine.signInCodex()
+        let support = machine.seats.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        // What a launch that died between its draft and its link leaves.
+        let stale = support.appendingPathComponent(".seats.json.crashed")
+        try Data("{ not a seats file".utf8).write(to: stale)
+
+        let loader = machine.loader
+        let launched = await withTaskGroup(of: Result<Config, any Error>.self) { group in
+            for _ in 0..<8 { group.addTask { Result { try loader.loadOrCreate() } } }
+            return await group.reduce(into: []) { $0.append($1) }
+        }
+        let read = try launched.map { try $0.get() }
+        #expect(read.map { $0.seats.map(\.id.rawValue) } == Array(repeating: ["work", "codex"], count: 8))
+        #expect(try String(contentsOf: machine.seats, encoding: .utf8) == loader.seed())
+        #expect(try FileManager.default.contentsOfDirectory(atPath: support.path).sorted()
+                == [".seats.json.crashed", "seats.json"])
+    }
+
+    @Test func aLaunchUnderARefusedRootMakesNothingInTheDefaultLoginOrTheHome() throws {
+        // The profile root, or the folder above it, links to the default
+        // login or to the home: no fresh profile is made through it.
+        for (link, target) in [(".seat-gauge/profiles", ".claude"), (".seat-gauge", ".claude"),
+                               (".seat-gauge/profiles", ".")] {
+            let machine = try Machine()
+            defer { machine.remove() }
+            let main = machine.home.appendingPathComponent(".claude", isDirectory: true)
+            try FileManager.default.createDirectory(at: main.appendingPathComponent("projects"),
+                                                    withIntermediateDirectories: true)
+            let at = machine.home.appendingPathComponent(link)
+            try FileManager.default.createDirectory(at: at.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createSymbolicLink(atPath: at.path,
+                                                       withDestinationPath: machine.home.appendingPathComponent(target).path)
+            let before = try FileManager.default.subpathsOfDirectory(atPath: machine.home.path).sorted()
+
+            let config = try machine.loader.loadOrCreate()
+            #expect(config.seats.isEmpty, "\(link) to \(target)")
+            #expect(try FileManager.default.subpathsOfDirectory(atPath: machine.home.path).sorted() == before,
+                    "\(link) to \(target)")
+            #expect(try String(contentsOf: machine.seats, encoding: .utf8) == ConfigLoader.template)
+        }
     }
 
     // MARK: - A file refused at launch: the machine's seats stand in
