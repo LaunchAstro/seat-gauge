@@ -43,8 +43,12 @@ if [ -e "$LINK" ] || [ -L "$LINK" ]; then
   [ -L "$LINK" ] && [ "$(readlink "$LINK")" = "$DEST/$HELPER" ] ||
     refuse "$LINK is already there, and this script did not put it there. Move it away, then install again. Nothing has been removed."
 fi
-[ ! -e "$BIN" ] || [ -d "$BIN" ] ||
-  refuse "$BIN is a file, not a folder, so seatgauge-cli cannot go in it. Nothing has been removed."
+# The folder, or the nearest part of its path that is there, has to be a folder
+# this script can write in, or the link would fail after the app was replaced.
+up="$BIN"
+while [ ! -e "$up" ] && [ ! -L "$up" ]; do up="$(dirname "$up")"; done
+[ -d "$up" ] && [ -w "$up" ] ||
+  refuse "$BIN cannot take seatgauge-cli: $up is not a folder you can write in. Nothing has been removed."
 # mdfind is the only way another copy is found, and an index that is off
 # answers with silence rather than with an error. That silence would read as
 # no other copy, so it is a refusal. Recent macOS reports / as read-only, and
