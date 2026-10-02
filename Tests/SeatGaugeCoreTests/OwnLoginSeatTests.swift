@@ -74,32 +74,40 @@ import SeatGaugeCore
         #expect(config.seats[1].tokenFile?.lastPathComponent == "personal.token")
     }
 
-    // MARK: - The template names only profile seats that own their login
+    // MARK: - The seeded file names only profile seats that own their login
 
-    @Test func theTemplateNamesOnlyProfileSeatsThatOwnTheirLogin() throws {
+    @Test func theSeededFileNamesOnlyProfileSeatsThatOwnTheirLogin() throws {
         let root = try Self.folder()
         defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
         let tokens = root.appendingPathComponent("tokens", isDirectory: true)
+        let codex = root.appendingPathComponent("auth.json")
+        for id in ["personal", "work"] {
+            try FileManager.default.createDirectory(at: home.appendingPathComponent(".seat-gauge/profiles/\(id)"),
+                                                    withIntermediateDirectories: true)
+        }
         try FileManager.default.createDirectory(at: tokens, withIntermediateDirectories: true)
-        let declared = try ConfigLoader.decode(Data(ConfigLoader.template.utf8)).seats
+        try Data("{}".utf8).write(to: codex)
+        let file = root.appendingPathComponent("seats.json")
+        let loader = ConfigLoader(file: file, machine: SeatDiscovery(home: home, codexLogin: codex))
+        let declared = try ConfigLoader.decode(Data(loader.seed().utf8)).seats
         for seat in declared {
             try Data("not a real token".utf8).write(to: tokens.appendingPathComponent("\(seat.id.rawValue).token"))
         }
-        let file = root.appendingPathComponent("seats.json")
-        let loader = ConfigLoader(file: file)
         _ = try loader.loadOrCreate()
         let written = try String(contentsOf: file, encoding: .utf8)
-        #expect(written == ConfigLoader.template)
+        #expect(written == loader.seed())
         #expect(written.contains("//"))
         #expect(written.contains("},\n") || written.contains(",\n  ]") || written.contains(",\n}"))
 
-        let config = try ConfigLoader.decode(Data(written.utf8), tokenDirectory: tokens)
+        let config = try ConfigLoader.decode(Data(written.utf8), tokenDirectory: tokens, home: home)
         #expect(config.pollMinutes == 5)
         #expect(config.seats.map(\.id) == declared.map(\.id))
+        #expect(config.seats.map(\.id.rawValue) == ["personal", "work", "codex"])
         let claude = config.seats.filter { $0.kind != .codex }
         #expect(!claude.isEmpty)
         for seat in claude {
-            #expect(Self.profile(seat)?.lastPathComponent == ".claude-seat-\(seat.id.rawValue)")
+            #expect(Self.profile(seat)?.lastPathComponent == seat.id.rawValue)
             #expect(seat.tokenFile == nil, "\(seat.id.rawValue) pins a token")
         }
         #expect(config.seats.last?.kind == .codex)
@@ -166,11 +174,13 @@ import SeatGaugeCore
         #expect(throws: ConfigProblem.self) { try loader.loadOrCreate() }
         #expect(try Data(contentsOf: file) == refused)
 
-        // At launch the template's seats stand in, under their own names.
+        // At launch the seats first launch would seed stand in, under their
+        // own names.
         let watcher = try ConfigWatcher(loader: loader)
         let launch = await watcher.config
-        let template = try ConfigLoader.decode(Data(ConfigLoader.template.utf8)).seats
-        #expect(launch.seats.map(\.id) == template.map(\.id))
+        let seeded = try ConfigLoader.decode(Data(loader.seed().utf8)).seats
+        #expect(!seeded.isEmpty)
+        #expect(launch.seats.map(\.id) == seeded.map(\.id))
         #expect(await watcher.problem?.contains(#"give it a profile and "login": "own""#) == true)
         #expect(try Data(contentsOf: file) == refused)
 

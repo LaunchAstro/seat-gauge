@@ -40,11 +40,13 @@ The app writes `seats.json` into its own folder on first launch:
 
 The surest way to the right one is to right-click the window and choose "Reveal config", which opens the folder of the copy that is running. Edit the file and save; the window re-reads it within a minute.
 
+First launch fills it from what is on the Mac, found by name alone with no login read: each Claude profile folder in `~/.seat-gauge/profiles` named as a seat id (a lowercase letter or digit, then those, `-` or `_`; not `default` or `codex`), then Codex if the `codex` CLI is signed in. With no profile there, it names one new Claude seat, `claude`, and makes its profile folder, `~/.seat-gauge/profiles/claude`; its card says it is not logged in until you sign it in (below). A `seats.json` that is already there is never rewritten. To add a Claude seat, make a folder for it in `~/.seat-gauge/profiles` and add a line:
+
 ```json5
 {
   "seats": [
-    { "id": "personal", "label": "Personal", "kind": "claude", "profile": "~/.claude-seat-personal", "login": "own" },
-    { "id": "work",     "label": "Work",     "kind": "claude", "profile": "~/.claude-seat-work",     "login": "own", "plan": "Max 20x" },
+    { "id": "personal", "label": "Personal", "kind": "claude", "profile": "~/.seat-gauge/profiles/personal", "login": "own" },
+    { "id": "work",     "label": "Work",     "kind": "claude", "profile": "~/.seat-gauge/profiles/work",     "login": "own", "plan": "Max 20x" },
     { "id": "codex",    "label": "Codex",    "kind": "codex" },
   ],
   "pollMinutes": 5,
@@ -58,7 +60,7 @@ Every Claude seat needs its own `profile` directory, so no card reads whatever `
 A seat with `"login": "own"` has its own login, and reads the 5-hour, weekly and Fable windows plus its exact plan. Give a seat its own login in one line, then type `/login`:
 
 ```sh
-env -u CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR="$HOME/.claude-seat-work" claude
+env -u CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR="$HOME/.seat-gauge/profiles/work" claude
 ```
 
 Leave `login` out and the seat signs in with an OAuth token instead, read from the file its `token` key names or from `~/.config/claude-seats/<id>.token`. A token seat shows 5h and 7d only, because no token reports Fable or the exact plan.

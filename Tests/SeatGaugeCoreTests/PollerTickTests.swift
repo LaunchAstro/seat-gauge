@@ -143,14 +143,23 @@ import SeatGaugeCore
         let seats = directory.appendingPathComponent("seats.json")
         Self.write("{ \"seats\": [ { \"id\": ,, } ] }\n", to: seats, age: 0)
         let counter = Counter()
-        let watcher = try ConfigWatcher(loader: ConfigLoader(file: seats))
+        // A machine with two profiles and a signed-in codex.
+        let home = directory.appendingPathComponent("home", isDirectory: true)
+        for id in ["work", "team"] {
+            try FileManager.default.createDirectory(at: home.appendingPathComponent(".seat-gauge/profiles/\(id)"),
+                                                    withIntermediateDirectories: true)
+        }
+        let codex = directory.appendingPathComponent("auth.json")
+        try Data("{}".utf8).write(to: codex)
+        let loader = ConfigLoader(file: seats, machine: SeatDiscovery(home: home, codexLogin: codex))
+        let watcher = try ConfigWatcher(loader: loader)
 
         let problem = await watcher.problem ?? ""
         #expect(problem.contains("line"))
         #expect(problem.contains("column"))
-        // The template stands in, so there is a seat list to poll.
+        // The seats first launch would seed stand in, so there is a seat list to poll.
         #expect(await watcher.config.seats.map(\.id)
-                == (try ConfigLoader.decode(Data(ConfigLoader.template.utf8)).seats.map(\.id)))
+                == (try ConfigLoader.decode(Data(loader.seed().utf8)).seats.map(\.id)))
 
         let clock = TestClock()
         let poller = Poller(

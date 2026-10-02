@@ -18,56 +18,122 @@ public struct ConfigProblem: Error, Equatable, Sendable, CustomStringConvertible
 /// What was last read, and when, belongs to `ConfigWatcher` instead.
 public struct ConfigLoader: Sendable {
     public let file: URL
-    public init(file: URL = ConfigLoader.defaultFile) { self.file = file }
+    public let machine: SeatDiscovery
+    public init(file: URL = ConfigLoader.defaultFile, machine: SeatDiscovery = SeatDiscovery()) {
+        self.file = file
+        self.machine = machine
+    }
 
     public static var defaultFile: URL { AppPaths.support.appendingPathComponent("seats.json") }
 
-    /// What first launch writes. JSON5, so the comments stay in the file.
-    public static let template = """
-        {
-          // Seat Gauge seats. Save this file and the panel re-reads it within a minute.
-          // Cards appear in the order listed here. A seat that cannot be read stays listed and hidden.
-          //
-          // "id"      lowercase, unique. "label" is what the card shows.
-          // "kind"    "claude" or "codex".
-          // "profile" a claude seat's own config directory, any path. Required, and never ~/.claude or
-          //           another seat's, so no card reads a login that is not its own. Spend history reads
-          //           the transcripts in it.
-          // "login"   "own" when the seat signs in from its own login. It then reads 5h, 7d, fable and
-          //           its exact plan. Give a seat its own login with
-          //           env -u CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR="$HOME/.claude-seat-work" claude
-          //           then type /login inside it.
-          //           Leave "login" out to sign in with a token instead, read from "token" or from
-          //           ~/.config/claude-seats/<id>.token. A token seat shows 5h and 7d only: no token
-          //           reports fable or the exact plan.
-          // "account" optional display text, such as "Work".
-          // "plan"    optional, such as "Max 20x". A card's plan comes from three places, in this order:
-          //           the tier in the seat's own login file, then this "plan", then the plan the usage
-          //           reply names, which for Claude is only "max". With none of the three, the card
-          //           shows no plan. It never guesses "free".
-          // A "codex" seat reads whichever login the codex CLI has, and ignores "profile" and "token".
-          "seats": [
-            { "id": "personal", "label": "Personal", "kind": "claude", "profile": "~/.claude-seat-personal", "login": "own" },
-            { "id": "work",     "label": "Work",     "kind": "claude", "profile": "~/.claude-seat-work",     "login": "own", "plan": "Max 20x" },
-            { "id": "codex",    "label": "Codex",    "kind": "codex" },
-          ],
-          "pollMinutes": 5,
-        }
+    /// What first launch writes when it finds no seat at all. JSON5, so the
+    /// comments stay in the file.
+    public static let template = seeded(with: [])
 
-        """
+    /// The file first launch writes for the seats it found: the four steps
+    /// of the first run in the comments, then one line per seat. Only a
+    /// path needs quoting, since a found id is plain by construction.
+    public static func seeded(with found: [SeatDiscovery.Found]) -> String {
+        let root = "~/" + SeatDiscovery.profileFolder
+        let lines = found.map { seat -> String in
+            let label = seat.id.prefix(1).uppercased() + seat.id.dropFirst()
+            switch seat.kind {
+            case let .claude(profile):
+                return #"    { "id": "\#(seat.id)", "label": "\#(label)", "kind": "claude", "profile": \#(quoted(profile.path)), "login": "own" },"#
+            case .codex:
+                return #"    { "id": "\#(seat.id)", "label": "\#(label)", "kind": "codex" },"#
+            }
+        }
+        let none = found.isEmpty ? ["  // No seat was found on this Mac, so the list below is empty. Add one as above."] : []
+        return ([
+            "{",
+            "  // Seat Gauge seats, one card each, in the order listed. Save this file and the panel",
+            "  // re-reads it within a minute. A seat that cannot be read stays listed and hidden.",
+            "  //",
+            "  // A seat reaches its card in four steps:",
+            "  // 1. Install Seat Gauge.",
+            "  // 2. First launch wrote this list from what is on this Mac: a signed-in Codex, and each",
+            "  //    Claude profile folder in \(root). With no Claude profile there, it named one",
+            "  //    new seat, \"\(SeatDiscovery.freshSeat)\", with its own profile at \(root)/\(SeatDiscovery.freshSeat). Nothing was",
+            "  //    read from a login to do it. A folder whose name is not a plain id (a lowercase letter",
+            "  //    or digit, then those, - or _), or is \"default\" or \"codex\", was left out: add it by hand.",
+            "  // 3. Sign in each Claude seat that is new. Until then its card says it is not logged in.",
+            "  //    In Terminal, run this with the seat's own profile, then type /login:",
+            "  //      env -u CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR=\"$HOME/.seat-gauge/profiles/\(SeatDiscovery.freshSeat)\" claude",
+            "  //    A Codex seat signs in with the codex CLI itself and needs nothing more here.",
+            "  // 4. The cards read on the next poll, every \"pollMinutes\" minutes.",
+            "  //",
+            "  // To add a Claude seat, make it a folder in \(root) named its id, add a line such as",
+            #"  // { "id": "work", "label": "Work", "kind": "claude", "profile": "~/.seat-gauge/profiles/work", "login": "own" },"#,
+            "  // and sign it in as in step 3. To add Codex once the codex CLI is signed in:",
+            #"  // { "id": "codex", "label": "Codex", "kind": "codex" },"#,
+            "  //",
+            #"  // "id"      lowercase, unique. A claude seat cannot be "default" or "codex", which spend"#,
+            "  //           history keeps. \"label\" is what the card shows.",
+            #"  // "kind"    "claude" or "codex"."#,
+            #"  // "profile" a claude seat's own folder, any path. Required, and never ~/.claude or another"#,
+            "  //           seat's, so no card reads a login that is not its own. Spend history reads the",
+            "  //           transcripts in it.",
+            #"  // "login"   "own": the seat signs in from its own profile, and reads 5h, 7d, fable and its"#,
+            #"  //           exact plan. A seat can sign in with an OAuth token instead: leave "login" out"#,
+            #"  //           and give "token" the path of a file holding it. A token seat shows 5h and 7d"#,
+            "  //           only: no token reports fable or the exact plan.",
+            #"  // "account" optional display text, such as "Work"."#,
+            #"  // "plan"    optional, such as "Max 20x". A card's plan comes from three places, in this"#,
+            #"  //           order: the tier in the seat's own login file, then this "plan", then the plan"#,
+            #"  //           the usage reply names, which for Claude is only "max". With none of the three,"#,
+            #"  //           the card shows no plan. It never guesses "free"."#,
+            #"  // A "codex" seat reads whichever login the codex CLI has, and ignores "profile" and "token"."#,
+        ] + none + [
+            #"  "seats": ["#,
+        ] + lines + [
+            "  ],",
+            #"  "pollMinutes": 5,"#,
+            "}",
+            "",
+        ]).joined(separator: "\n")
+    }
+
+    /// A JSON string, escaped, for a path that may hold any character.
+    static func quoted(_ text: String) -> String {
+        let writer = JSONEncoder()
+        writer.outputFormatting = .withoutEscapingSlashes
+        return (try? writer.encode(text)).map { String(decoding: $0, as: UTF8.self) } ?? "\"\""
+    }
+
+    /// What first launch would write on this machine now.
+    public func seed() -> String { Self.seeded(with: machine.seats()) }
 
     public var modifiedAt: Date? {
         try? FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date
     }
 
-    /// First launch writes the default; an existing file is never rewritten.
+    /// First launch seeds the file from the machine; an existing file is
+    /// never rewritten.
     public func loadOrCreate() throws -> Config {
-        if !FileManager.default.fileExists(atPath: file.path) {
-            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
-                                                    withIntermediateDirectories: true)
-            try Data(Self.template.utf8).write(to: file, options: .atomic)
-        }
+        if !FileManager.default.fileExists(atPath: file.path) { try create() }
         return try load()
+    }
+
+    /// Writes a draft beside the file, then links it in. A link refuses a
+    /// name that is taken, a dangling link included, so a file the user or
+    /// another launch put there first is kept as it is.
+    private func create() throws {
+        let found = machine.seats()
+        let folder = file.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        // Only the fresh seat's profile is not there yet. Make it, private to
+        // the user, so step 3 has a folder to sign in to.
+        for case let .claude(profile) in found.map(\.kind) where SeatDiscovery.nothing(at: profile) {
+            try? FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true,
+                                                     attributes: [.posixPermissions: 0o700])
+        }
+        let draft = folder.appendingPathComponent(".\(file.lastPathComponent).\(UUID().uuidString)")
+        try Data(Self.seeded(with: found).utf8).write(to: draft)
+        defer { try? FileManager.default.removeItem(at: draft) }
+        guard link(draft.path, file.path) == 0 || errno == EEXIST else {
+            throw ConfigProblem("\(file.lastPathComponent) could not be written: \(String(cString: strerror(errno)))")
+        }
     }
 
     public func load() throws -> Config {
@@ -212,15 +278,15 @@ public actor ConfigWatcher {
 
     /// Fails closed at launch too: a `seats.json` that will not parse before
     /// anything good has been read is reported with the decoder's line and
-    /// column and the template's seats stand in, so `watch` keeps polling
-    /// instead of ending on the first read.
+    /// column, and the seats first launch would seed on this machine stand
+    /// in, so `watch` keeps polling instead of ending on the first read.
     public init(loader: ConfigLoader = ConfigLoader()) throws {
         self.loader = loader
         do {
             config = try loader.loadOrCreate()
         } catch {
             problem = (error as? ConfigProblem)?.reason ?? "\(error)"
-            config = (try? ConfigLoader.decode(Data(ConfigLoader.template.utf8)))
+            config = (try? ConfigLoader.decode(Data(loader.seed().utf8)))
                 ?? Config(seats: [], pollMinutes: 5)
         }
         readAt = loader.modifiedAt

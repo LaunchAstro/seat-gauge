@@ -142,8 +142,8 @@ import SwiftUI
         self.snapshot = snapshot
         self.seats = seats
         // A seat gone from the config leaves the saved arrangement. A config
-        // that did not read is the template's seats, not the user's, so it
-        // prunes nothing.
+        // that did not read is the seats first launch would seed, not the
+        // user's, so it prunes nothing.
         if configProblem == nil { try? arrange { $0 } }
     }
 
