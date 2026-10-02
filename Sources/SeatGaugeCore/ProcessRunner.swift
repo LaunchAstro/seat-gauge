@@ -52,11 +52,12 @@ public protocol ProcessRunning: Sendable {
 /// `SIGPIPE` is ignored, because a CLI that exits while a request is being
 /// written would otherwise kill this process instead of the write. `PATH` is
 /// extended from `SearchPath`, because an app launched at login has a bare
-/// environment and neither `claude` nor `codex` sits in it.
+/// environment and neither `claude` nor `codex` sits in it. Only a runner
+/// handed `SearchPath.loginShell` runs the user's profile.
 public struct RealProcessRunner: ProcessRunning {
     let searchPath: SearchPath
 
-    public init(searchPath: SearchPath = .shared) {
+    public init(searchPath: SearchPath = .installs) {
         self.searchPath = searchPath
         signal(SIGPIPE, SIG_IGN)
     }

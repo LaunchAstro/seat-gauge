@@ -80,12 +80,11 @@ public struct LoginShell: Sendable, CustomStringConvertible {
 
         let answer = read(from: readEnd)
         // The group goes while the shell is unreaped, so its id cannot have
-        // been reused. A shell that already exited keeps what it started.
+        // been reused, and whether or not the shell already exited, nothing
+        // its profile started is left running.
         var status: Int32 = 0
-        if waitpid(pid, &status, WNOHANG) == 0 {
-            kill(-pid, SIGKILL)
-            waitpid(pid, &status, 0)
-        }
+        kill(-pid, SIGKILL)
+        waitpid(pid, &status, 0)
         return answer
     }
 
@@ -131,7 +130,12 @@ public struct LoginShell: Sendable, CustomStringConvertible {
 /// all there is when the shell gives no answer. Only `PATH` comes from the
 /// shell; the rest of the child's environment is `ChildEnvironment`'s.
 public final class SearchPath: @unchecked Sendable {
-    public static let shared = SearchPath(shell: LoginShell.user(), home: NSHomeDirectory())
+    /// The fixed list alone: what a runner uses unless it is handed
+    /// `loginShell`, so no test runs a real profile by default.
+    public static let installs = SearchPath(shell: nil, home: NSHomeDirectory())
+    /// The user's login shell, then the fixed list. Only the app and
+    /// `seatgauge-cli` ask for it.
+    public static let loginShell = SearchPath(shell: LoginShell.user(), home: NSHomeDirectory())
 
     let shell: LoginShell?
     let home: String

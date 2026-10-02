@@ -54,7 +54,9 @@ if Alerter.wantsTestBanner(Array(CommandLine.arguments.dropFirst())) {
 if let watcher = try? ConfigWatcher() {
     let store = GaugeStore()
     let spend = SpendCoordinator()
-    let poller = Poller(watcher: watcher, service: RefreshService(), store: store,
+    // The one place the panel runs the user's login shell, to find the CLIs.
+    let service = RefreshService { seatFetcher(for: $0, runner: RealProcessRunner(searchPath: .loginShell)) }
+    let poller = Poller(watcher: watcher, service: service, store: store,
                         clock: ContinuousClock(),
                         rollup: {
                             // At launch and every sixth poll, off the main
