@@ -86,7 +86,13 @@ struct CardView: View {
             CardHeader(card: card)
             ForEach(card.lines) { line in lineView(line) }
             if let note = card.stale ?? card.dated {
-                Text(note).font(Type.mono(CardMetrics.Glance.note)).foregroundStyle(Tone.inkDim)
+                HStack(spacing: CardMetrics.headerSpacing) {
+                    Text(note).font(Type.mono(CardMetrics.Glance.note)).foregroundStyle(Tone.inkDim)
+                    if card.signsIn {
+                        Spacer(minLength: 0)
+                        SignInButton(card: card)
+                    }
+                }
             }
         }
     }
@@ -213,6 +219,23 @@ struct CardHeader: View {
             }
             SyncButton(busy: card.isSyncing, label: "Sync \(card.heading)") { GaugeMirror.shared.sync(card.id) }
         }
+    }
+}
+
+/// Sign in, on the stale line of a card whose seat says it is not logged
+/// in, waiting while one runs.
+struct SignInButton: View {
+    let card: CardModel
+
+    var body: some View {
+        let busy = GaugeMirror.shared.signingIn.contains(card.id)
+        Button(busy ? "Signing in" : "Sign in") { GaugeMirror.shared.signIn(card.id) }
+            .buttonStyle(.plain)
+            .font(Type.mono(CardMetrics.Glance.note))
+            .foregroundStyle(Tone.ink)
+            .fixedSize()
+            .disabled(busy)
+            .accessibilityLabel("Sign in \(card.heading)")
     }
 }
 

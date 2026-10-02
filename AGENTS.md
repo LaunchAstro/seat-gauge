@@ -37,7 +37,7 @@ Three SwiftPM targets, Command Line Tools only (no Xcode project).
 | `SpendChart.swift`, `SeatHistory.swift` | Series for the Spend tab and a card's history chart. |
 | `State.swift` | `state.json`: roll-up watermark and panel choices, under a file lock. |
 
-In the app, `PanelModel.swift` builds what each card shows from a `Snapshot`, `PanelRoot.swift` holds `GaugeMirror` (the main-actor copy of the latest state), `WindowController.swift` and `PanelHeight.swift` size the window, and `main.swift` wires it all together.
+In the app, `PanelModel.swift` builds what each card shows from a `Snapshot`, `PanelRoot.swift` holds `GaugeMirror` (the main-actor copy of the latest state), `WindowController.swift` and `PanelHeight.swift` size the window, `SignIn.swift` is a card's Sign in (the browser, the code prompt and the proof around `SeatLogin`), and `main.swift` wires it all together.
 
 ## Check a change
 

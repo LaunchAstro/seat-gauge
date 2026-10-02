@@ -161,8 +161,7 @@ func login(_ arguments: ArraySlice<String>) throws {
                                           print(link)
                                           fflush(stdout)
                                       })
-    let account = [signed.email, signed.plan].compactMap(\.self).joined(separator: ", ")
-    print("\(request.seat) is signed in" + (account.isEmpty ? "." : " (\(account))."))
+    print(signed.sentence(request.seat))
 }
 
 extension Decimal {

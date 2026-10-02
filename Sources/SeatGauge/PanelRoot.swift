@@ -46,6 +46,10 @@ import SwiftUI
     var syncAll: () -> Void = {}
     /// The seats a sync or poll is reading now, which draw their icon busy.
     var syncing: Set<SeatID> = []
+    /// Set by `main.swift`: one seat's Sign in from its card, through `SignIn`.
+    var signIn: (SeatID) -> Void = { _ in }
+    /// The seats a Sign in is running for, whose button waits.
+    var signingIn: Set<SeatID> = []
     /// The poll interval, which the synced line judges an age against.
     var pollMinutes = 5
     /// The card under the pointer and the bucket under it.

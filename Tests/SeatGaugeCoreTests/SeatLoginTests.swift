@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 import SeatGaugeCore
+import SeatGaugeTestSupport
 
 /// `seatgauge-cli login` against a fake `claude` that, like the real one,
 /// takes the pasted code only from a terminal. The fake writes down every
@@ -292,5 +293,34 @@ import SeatGaugeCore
             #expect(Self.refusal { try SeatLogin.Request(arguments: wrong) }
                     == "usage: seatgauge-cli login <seat> [--email <address>] [seats.json]")
         }
+    }
+
+    // MARK: Where a front end offers it
+
+    @Test func onlyAnOwnLoginClaudeSeatThatSaysItIsNotLoggedInIsOfferedSignIn() throws {
+        guard case let .dormant(said) = ClaudeUsageParser.windows(from: try Fixture.lines("personal"),
+                                                                  requestID: "2") else {
+            Issue.record("the Not logged in fixture did not read as dormant")
+            return
+        }
+        let profile = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("never-made")
+        let own = Self.seat("work", profile: profile)
+        let token = Self.seat("work", profile: profile, token: profile.appendingPathComponent("work.token"))
+        let codex = Seat(id: SeatID(rawValue: "codex"), label: "codex", kind: .codex)
+        let notLoggedIn = SeatState.dormant(reason: said)
+        #expect(SeatLogin.offers(own, notLoggedIn))
+        #expect(!SeatLogin.offers(token, notLoggedIn))
+        #expect(!SeatLogin.offers(codex, notLoggedIn))
+        #expect(!SeatLogin.offers(codex, .dormant(reason: "Codex needs a login")))
+        #expect(!SeatLogin.offers(nil, notLoggedIn))
+        #expect(!SeatLogin.offers(own, .dormant(reason: "switched off")))
+        #expect(!SeatLogin.offers(own, .unreadable(reason: said, last: nil)))
+        #expect(!SeatLogin.offers(own, nil))
+    }
+
+    @Test func theProofReadsTheSameToEveryFrontEnd() {
+        #expect(SeatLogin.SignedIn(email: nil, plan: "max").sentence("work") == "work is signed in (max).")
+        #expect(SeatLogin.SignedIn(email: "a", plan: "pro").sentence("work") == "work is signed in (a, pro).")
+        #expect(SeatLogin.SignedIn(email: nil, plan: nil).sentence("work") == "work is signed in.")
     }
 }

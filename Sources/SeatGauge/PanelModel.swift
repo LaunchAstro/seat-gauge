@@ -142,6 +142,8 @@ struct CardModel: Identifiable, Equatable {
     var dated: String?
     /// True while a sync or poll is reading this seat.
     var isSyncing = false
+    /// True when the card offers Sign in, by `SeatLogin.offers`.
+    var signsIn = false
 
     var isDimmed: Bool { stale != nil }
 
@@ -294,7 +296,8 @@ struct PanelModel: Equatable {
             guard let reading else {
                 cards.append(CardModel(id: id, label: name(id), isBest: false, lines: [], pace: nil, stale: stale,
                                        mark: seat?.kind.provider ?? .claude, account: PlanText.said(seat?.account),
-                                       plan: PlanText.resolve(tier: nil, declared: seat?.plan, wire: nil)))
+                                       plan: PlanText.resolve(tier: nil, declared: seat?.plan, wire: nil),
+                                       signsIn: SeatLogin.offers(seat, state)))
                 continue
             }
             let windows = reading.windows.sorted { $0.kind < $1.kind }
@@ -314,7 +317,8 @@ struct PanelModel: Equatable {
                 account: PlanText.said(seat?.account),
                 plan: PlanText.resolve(tier: reading.tier, declared: seat?.plan, wire: reading.plan),
                 dated: polls || stale != nil ? nil : "synced \(Countdown.text(until: now, now: reading.takenAt)) ago",
-                isSyncing: syncing.contains(id)))
+                isSyncing: syncing.contains(id),
+                signsIn: SeatLogin.offers(seat, state)))
         }
         let shown = cards.contains { $0.id == hovered } ? hovered : nil
         // Only the hovered card's detail is drawn, so only it has a status.

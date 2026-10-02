@@ -52,6 +52,22 @@ public enum SeatLogin {
             self.email = email
             self.plan = plan
         }
+
+        /// The proof as one sentence, worded the same by every front end.
+        public func sentence(_ seat: String) -> String {
+            let account = [email, plan].compactMap(\.self).joined(separator: ", ")
+            return "\(seat) is signed in" + (account.isEmpty ? "." : " (\(account)).")
+        }
+    }
+
+    /// Whether a front end offers Sign in: a Claude seat with its own login
+    /// whose CLI said it is not logged in, in `ClaudeUsageParser`'s words. A
+    /// token seat signs in with its token, and a seat dormant for any other
+    /// reason is not waiting on a login.
+    public static func offers(_ seat: Seat?, _ state: SeatState?) -> Bool {
+        guard let seat, case .claude = seat.kind, seat.tokenFile == nil,
+              case .dormant(reason: "not logged in")? = state else { return false }
+        return true
     }
 
     /// Everything is checked before anything starts. `code` is asked once,

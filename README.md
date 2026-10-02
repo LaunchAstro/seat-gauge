@@ -59,13 +59,13 @@ Every Claude seat needs its own `profile` directory, so no card reads whatever `
 
 ### Signing a Claude seat in
 
-A seat with `"login": "own"` has its own login, and reads the 5-hour, weekly and Fable windows plus its exact plan. Sign it in by its id:
+A seat with `"login": "own"` has its own login, and reads the 5-hour, weekly and Fable windows plus its exact plan. In the app, a seat that is not logged in has Sign in on its card (put the card on the panel from `+`): it opens the sign-in page in your default browser, asks for the code the page shows, and says whether the seat is signed in. From a terminal, sign it in by its id:
 
 ```sh
 swift run seatgauge-cli login work
 ```
 
-This runs `claude auth login` under the seat's own profile, which it creates for you, readable by you alone, if it is not there yet. It prints a link: open it in any browser, sign in to the account this seat is for, and paste the code the page shows. `claude auth status` then says whether the seat is signed in. `--email <address>` fills the address in on the sign-in page. The code goes to `claude` and nowhere else, so it is never printed or logged. A Codex seat, a token seat, an unknown id, or a profile that is `~`, `~/.claude` or another seat's is refused before anything runs.
+This runs `claude auth login` under the seat's own profile, which it creates for you, readable by you alone, if it is not there yet. It prints a link: open it in any browser, sign in to the account this seat is for, and paste the code the page shows. `claude auth status` then says whether the seat is signed in. The app's Sign in runs these same steps. `--email <address>` fills the address in on the sign-in page. The code goes to `claude` and nowhere else, so it is never printed or logged. A Codex seat, a token seat, an unknown id, or a profile that is `~`, `~/.claude` or another seat's is refused before anything runs.
 
 Leave `login` out and the seat signs in with an OAuth token instead, read from the file its `token` key names or from `~/.config/claude-seats/<id>.token`. A token seat shows 5h and 7d only, because no token reports Fable or the exact plan.
 
