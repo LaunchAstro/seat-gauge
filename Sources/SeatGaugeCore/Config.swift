@@ -191,8 +191,8 @@ public struct ConfigLoader: Sendable {
         }
         var seats: [Seat] = []
         var seen: Set<String> = []
-        var profiles: [String: String] = [:]
-        let defaults = [home, home.appendingPathComponent(".claude")].map(Self.resolved)
+        var profiles: [Spot: String] = [:]
+        let defaults = [home, home.appendingPathComponent(".claude")].compactMap(Self.spot)
         for seat in stored.seats {
             guard seat.id == seat.id.lowercased(), !seat.id.isEmpty else {
                 throw ConfigProblem("seats.json: the id \"\(seat.id)\" is not lowercase.")
@@ -208,10 +208,13 @@ public struct ConfigLoader: Sendable {
                     throw ConfigProblem("seats.json: the claude seat \"\(seat.id)\" has no profile, so it would read whichever account ~/.claude is signed into; give it a profile and \"login\": \"own\".")
                 }
                 let directory = URL(fileURLWithPath: NSString(string: profile).expandingTildeInPath, isDirectory: true)
-                guard !defaults.contains(Self.resolved(directory)) else {
+                guard let spot = Self.spot(directory) else {
+                    throw ConfigProblem("seats.json: the claude seat \"\(seat.id)\" has a profile whose path cannot be followed to a folder, since its links go round in a loop or it climbs out of a file; give it a directory of its own.")
+                }
+                guard !defaults.contains(spot) else {
                     throw ConfigProblem("seats.json: the claude seat \"\(seat.id)\" has the default login's directory as its profile, so it would read whichever account ~/.claude is signed into; give it a directory of its own.")
                 }
-                if let other = profiles.updateValue(seat.id, forKey: Self.resolved(directory)) {
+                if let other = profiles.updateValue(seat.id, forKey: spot) {
                     throw ConfigProblem("seats.json: \"\(seat.id)\" has the same profile as \"\(other)\", so both cards would read one login; give each seat a directory of its own.")
                 }
                 // Spend history files a seat under its id, and keeps these two
@@ -255,6 +258,63 @@ public struct ConfigLoader: Sendable {
     /// to it and `~/./.claude` are one place.
     static func resolved(_ url: URL) -> String {
         url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    /// Where a folder is, or will be once something makes it: the nearest
+    /// folder on its path that is there, by device and inode, then the names
+    /// below that one. Its data-volume path, a link (a dangling one too),
+    /// another Unicode form and, on a volume that ignores case, another case
+    /// all land on one `Spot`, where comparing paths would tell them apart.
+    struct Spot: Hashable {
+        let place: Place
+        let below: [String]
+    }
+
+    /// Nil when the path cannot be followed: links that go round in a loop,
+    /// or a `..` out of something that is not a folder.
+    static func spot(_ url: URL) -> Spot? {
+        var names = url.path.split(separator: "/").map(String.init)
+        for _ in 0..<64 {
+            // The longest stretch from the root that is there. The file
+            // system walks it, so a link or `..` in it lands where it goes.
+            var there = 0
+            while there < names.count, Place(URL(fileURLWithPath: "/" + names[...there].joined(separator: "/"))) != nil {
+                there += 1
+            }
+            let base = "/" + names[..<there].joined(separator: "/")
+            guard let place = Place(URL(fileURLWithPath: base)) else { return nil }
+            let after = names[there...]
+            // A dangling link is made where it points, so follow it.
+            if let next = after.first,
+               let target = try? FileManager.default.destinationOfSymbolicLink(atPath: base + "/" + next) {
+                names = (target.hasPrefix("/") ? [] : Array(names[..<there]))
+                    + target.split(separator: "/").map(String.init) + after.dropFirst()
+                continue
+            }
+            // Nothing past the base is there, so nothing past it is a link,
+            // and `..` undoes the name before it. Once undone, what is left
+            // may be there after all, so look again. A `..` that climbs above
+            // the base goes back to the file system.
+            if after.contains(where: { $0 == "." || $0 == ".." }) {
+                var below: [String] = []
+                for (index, name) in zip(after.indices, after) where name != "." {
+                    if name != ".." {
+                        below.append(name)
+                    } else if below.popLast() == nil {
+                        below = [".."] + names[(index + 1)...]
+                        break
+                    }
+                }
+                names = Array(names[..<there]) + below
+                continue
+            }
+            let below = Array(after)
+            let ignoresCase = pathconf(base, _PC_CASE_SENSITIVE) == 0
+            // A Swift string already equals its other Unicode forms.
+            return Spot(place: place, below: ignoresCase
+                ? below.map { $0.folding(options: .caseInsensitive, locale: nil) } : below)
+        }
+        return nil
     }
 
     /// The decoder's own words: for a malformed file they carry the line and
