@@ -16,10 +16,12 @@ It reads Claude seats through the `claude` CLI and ChatGPT seats through the `co
 make build      # debug build of the app and seatgauge-cli
 make test       # the test suite, under a scratch home
 make run        # build dist/Seat Gauge.app with the .dev bundle id and open it
-make install    # release build, signed ad hoc, copied to /Applications
+make install    # release build, signed ad hoc, copied to /Applications, CLI linked into ~/.local/bin
 ```
 
 `make run` builds `com.launchastro.seatgauge.dev`, which keeps its own settings and data, so it never touches an installed copy. `make install` builds `com.launchastro.seatgauge` and leaves exactly one copy on the machine, because the login item follows whichever copy registered it.
+
+`make install` works from a checkout in any folder, iCloud Drive included, and needs no sudo. It also links `seatgauge-cli` into `~/.local/bin`, pointing at the copy inside the installed app, and says so if that folder is not on your `PATH`. It never replaces a `seatgauge-cli` it did not put there: it stops and asks you to move that file first. When it finishes it opens the app, and the next step is the first launch.
 
 ### What running it does
 

@@ -94,6 +94,7 @@ import SeatGaugeCore
             try fm.copyItem(at: root.appendingPathComponent(path), to: tree.appendingPathComponent(path))
         }
         try Data("built".utf8).write(to: tree.appendingPathComponent(".build/release/SeatGauge"))
+        try Data("built-cli".utf8).write(to: tree.appendingPathComponent(".build/release/seatgauge-cli"))
         for stub in ["swift", "codesign"] {
             let file = tree.appendingPathComponent("bin/\(stub)")
             try Data("#!/bin/sh\nexit 0\n".utf8).write(to: file)

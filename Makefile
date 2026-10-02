@@ -36,7 +36,8 @@ app:
 	scripts/build-app.sh $(APP_ID)
 
 # The release build and the bundle first, so the copy that lands in
-# /Applications is the one this run just built.
+# /Applications, and the seatgauge-cli linked into ~/.local/bin, are the ones
+# this run just built.
 install:
 	scripts/build-app.sh
 	scripts/install.sh

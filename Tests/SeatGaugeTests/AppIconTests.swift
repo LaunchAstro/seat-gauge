@@ -80,7 +80,7 @@ import SeatGaugeCore
 
     /// `build-app.sh` in a copy of the repository's layout: the script, the
     /// fonts, the version and, unless told not to, the icns, with a `swift`
-    /// that writes the executable and a `codesign` that says yes.
+    /// that writes both executables and a `codesign` that says yes.
     static func buildApp(icon: Bool = true) throws -> Built {
         let base = try scratch("build-app")
         let fm = FileManager.default
@@ -97,7 +97,8 @@ import SeatGaugeCore
                             to: base.appendingPathComponent("Resources/AppIcon.icns"))
         }
         let stubs = [
-            "swift": "mkdir -p .build/release && printf built > .build/release/SeatGauge",
+            "swift": "mkdir -p .build/release && printf built > .build/release/SeatGauge"
+                + " && printf built-cli > .build/release/seatgauge-cli",
             "codesign": "exit 0",
         ]
         for (name, body) in stubs {
