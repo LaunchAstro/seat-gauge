@@ -147,6 +147,7 @@ func spend() async throws {
 func login(_ arguments: ArraySlice<String>) throws {
     let request = try SeatLogin.Request(arguments: Array(arguments))
     let signed = try SeatLogin.signIn(request.seat, email: request.email, seats: try readSeats(request.seatsFile),
+                                      searchPath: .loginShell,
                                       code: {
                                           print("code> ", terminator: "")
                                           fflush(stdout)

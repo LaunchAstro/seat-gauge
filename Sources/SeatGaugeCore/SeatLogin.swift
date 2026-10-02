@@ -62,6 +62,7 @@ public enum SeatLogin {
                               home: URL = URL(fileURLWithPath: NSHomeDirectory()),
                               parent: [String: String] = ProcessInfo.processInfo.environment,
                               timeout: Duration = .seconds(900),
+                              searchPath: SearchPath = .installs,
                               code: @escaping @Sendable () -> String?,
                               link: (String) -> Void) throws -> SignedIn {
         let profile = try profile(of: name, in: seats, home: home)
@@ -74,9 +75,11 @@ public enum SeatLogin {
                                                 attributes: [.posixPermissions: 0o700])
         // Neither a token nor another config directory is inherited, so the
         // CLI signs this profile in and no other.
-        let environment = ChildEnvironment.make(from: parent, keeping: ["TERM"],
+        var environment = ChildEnvironment.make(from: parent, keeping: ["TERM"],
                                                 setting: ClaudeFetcher.noUpdate.merging(
                                                     ["CLAUDE_CONFIG_DIR": profile.path]) { $1 })
+        // The same PATH a poll gets, so the CLI is found wherever a poll finds it.
+        environment["PATH"] = searchPath.joined(after: environment["PATH"])
         try login(name, email: email, environment: environment, timeout: timeout, code: code, link: link)
         return try status(name, environment: environment)
     }
@@ -223,10 +226,6 @@ final class TerminalChild {
             throw ProcessFailure("no terminal could be opened for claude: \(String(cString: strerror(errno)))")
         }
         defer { close(slave) }
-        var environment = environment
-        // The same PATH a poll gets, so the CLI is found wherever a poll finds it.
-        environment["PATH"] = ((environment["PATH"].map { [$0] } ?? []) + RealProcessRunner.extraPath)
-            .joined(separator: ":")
         process.executableURL = Fetch.env
         process.arguments = arguments
         process.environment = environment
