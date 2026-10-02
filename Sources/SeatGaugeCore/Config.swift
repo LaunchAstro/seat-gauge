@@ -192,7 +192,7 @@ public struct ConfigLoader: Sendable {
         var seats: [Seat] = []
         var seen: Set<String> = []
         var profiles: [Spot: String] = [:]
-        let defaults = [home, home.appendingPathComponent(".claude")].compactMap(Self.spot)
+        let defaults = [home, home.appendingPathComponent(".claude")].flatMap { Self.spots($0) ?? [] }
         for seat in stored.seats {
             guard seat.id == seat.id.lowercased(), !seat.id.isEmpty else {
                 throw ConfigProblem("seats.json: the id \"\(seat.id)\" is not lowercase.")
@@ -208,14 +208,16 @@ public struct ConfigLoader: Sendable {
                     throw ConfigProblem("seats.json: the claude seat \"\(seat.id)\" has no profile, so it would read whichever account ~/.claude is signed into; give it a profile and \"login\": \"own\".")
                 }
                 let directory = URL(fileURLWithPath: NSString(string: profile).expandingTildeInPath, isDirectory: true)
-                guard let spot = Self.spot(directory) else {
+                guard let spots = Self.spots(directory) else {
                     throw ConfigProblem("seats.json: the claude seat \"\(seat.id)\" has a profile whose path cannot be followed to a folder, since its links go round in a loop or it climbs out of a file; give it a directory of its own.")
                 }
-                guard !defaults.contains(spot) else {
+                guard !spots.contains(where: defaults.contains) else {
                     throw ConfigProblem("seats.json: the claude seat \"\(seat.id)\" has the default login's directory as its profile, so it would read whichever account ~/.claude is signed into; give it a directory of its own.")
                 }
-                if let other = profiles.updateValue(seat.id, forKey: spot) {
-                    throw ConfigProblem("seats.json: \"\(seat.id)\" has the same profile as \"\(other)\", so both cards would read one login; give each seat a directory of its own.")
+                for spot in spots {
+                    if let other = profiles.updateValue(seat.id, forKey: spot) {
+                        throw ConfigProblem("seats.json: \"\(seat.id)\" has the same profile as \"\(other)\", so both cards would read one login; give each seat a directory of its own.")
+                    }
                 }
                 // Spend history files a seat under its id, and keeps these two
                 // names for the default login and for Codex.
@@ -270,15 +272,23 @@ public struct ConfigLoader: Sendable {
         let below: [String]
     }
 
+    /// Both places a profile path can mean. The CLI is handed it as written
+    /// and joins names onto it, which undoes a `..` by name; the gauge's own
+    /// reads append to it and the file system walks `link/..` from where the
+    /// link points. A seat is refused when either one collides. Nil when
+    /// either cannot be followed.
+    static func spots(_ url: URL) -> [Spot]? {
+        guard let named = spot(url, byName: true), let walked = spot(url, byName: false) else { return nil }
+        return named == walked ? [named] : [named, walked]
+    }
+
     /// Nil when the path cannot be followed: links that go round in a loop,
-    /// or a `..` out of something that is not a folder.
-    static func spot(_ url: URL) -> Spot? {
-        // The CLI is handed the path as written and joins names onto it,
-        // which undoes `..` by name, so do the same before the walk. A link's
-        // own target is followed as the file system follows it.
+    /// or a `..` out of something that is not a folder. A link's own target
+    /// is followed as the file system follows it, whatever `byName` says.
+    static func spot(_ url: URL, byName: Bool) -> Spot? {
         var names: [String] = []
-        for name in url.path.split(separator: "/").map(String.init) where name != "." {
-            if name == ".." { _ = names.popLast() } else { names.append(name) }
+        for name in url.path.split(separator: "/").map(String.init) where !byName || name != "." {
+            if byName, name == ".." { _ = names.popLast() } else { names.append(name) }
         }
         for _ in 0..<64 {
             // The longest stretch from the root that is there. The file
