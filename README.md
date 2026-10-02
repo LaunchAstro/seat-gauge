@@ -67,7 +67,7 @@ swift run seatgauge-cli login work
 
 This runs `claude auth login` under the seat's own profile, which it creates for you, readable by you alone, if it is not there yet. It prints a link: open it in any browser, sign in to the account this seat is for, and paste the code the page shows. `claude auth status` then says whether the seat is signed in. The app's Sign in runs these same steps. `--email <address>` fills the address in on the sign-in page. The code goes to `claude` and nowhere else, so it is never printed or logged. A Codex seat, a token seat, an unknown id, or a profile that is `~`, `~/.claude` or another seat's is refused before anything runs.
 
-Leave `login` out and the seat signs in with an OAuth token instead, read from the file its `token` key names or from `~/.config/claude-seats/<id>.token`. A token seat shows 5h and 7d only, because no token reports Fable or the exact plan.
+Token seats are optional, and nobody needs one to get started. If a seat should sign in with an OAuth token instead, leave `login` out and give `token` the path of a file that holds the token, such as `"token": "~/tokens/work.token"`. Only that seat's `claude` is handed it. A token seat shows 5h and 7d only, because no token reports Fable or the exact plan.
 
 ### The plan on a card
 

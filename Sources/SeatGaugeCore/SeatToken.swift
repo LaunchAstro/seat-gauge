@@ -3,16 +3,19 @@ import Foundation
 /// Where a seat's OAuth token is read from, and how it is read.
 ///
 /// A token seat's login does not live in its profile directory: it lives in an
-/// OAuth token that the seat's launcher exports, so the gauge has to export it
-/// too or the CLI is simply not logged in. Only the path is ever held or
-/// said. The value goes from the file straight into one child's environment,
-/// and nowhere else: not to stdout, not to a recorded fixture, not into a
-/// reason a seat is drawn with.
+/// OAuth token handed to the CLI in its environment, so the gauge has to hand
+/// it over too or the CLI is simply not logged in. Token seats are optional,
+/// and a seat names its file with `token` in `seats.json`. Only the path is
+/// ever held or said. The value goes from the file straight into one child's
+/// environment, and nowhere else: not to stdout, not to a recorded fixture,
+/// not into a reason a seat is drawn with.
 public enum SeatToken {
     /// The variable the Claude CLI reads a seat's login from.
     public static let variable = "CLAUDE_CODE_OAUTH_TOKEN"
 
-    /// `~/.config/claude-seats/`, where the seat launchers keep their tokens.
+    /// Where a seat with neither `token` nor `"login": "own"` looks for
+    /// `<id>.token`. Kept so a token seat already set up this way keeps
+    /// working; nothing needs a file here to get started.
     public static var directory: URL {
         URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent(".config/claude-seats", isDirectory: true)

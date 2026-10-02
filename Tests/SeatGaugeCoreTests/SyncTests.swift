@@ -8,7 +8,7 @@ import SeatGaugeCore
 extension ConfigAndPollTests {
 
     /// A token seat: it names the file its token is read from.
-    static let tokenLine = "{ \"id\": \"personal\", \"label\": \"Personal\", \"kind\": \"claude\", \"profile\": \"~/.claude-seat-personal\", \"token\": \"~/personal.token\" }"
+    static let tokenLine = "{ \"id\": \"personal\", \"label\": \"Personal\", \"kind\": \"claude\", \"profile\": \"~/profiles/personal\", \"token\": \"~/personal.token\" }"
 
     /// What the poller said it was about to read, in order.
     final class Syncing: @unchecked Sendable {

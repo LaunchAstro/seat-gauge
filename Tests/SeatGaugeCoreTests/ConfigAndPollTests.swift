@@ -158,7 +158,7 @@ import SeatGaugeCore
         "{ \"seats\": [\(seats)], \"pollMinutes\": \(minutes) }"
     }
 
-    static let workLine = "{ \"id\": \"work\", \"label\": \"Work\", \"kind\": \"claude\", \"profile\": \"~/.claude-seat-work\" }"
+    static let workLine = "{ \"id\": \"work\", \"label\": \"Work\", \"kind\": \"claude\", \"profile\": \"~/profiles/work\" }"
     static let codexLine = "{ \"id\": \"codex\", \"label\": \"Codex\", \"kind\": \"codex\" }"
 
     static func profile(_ seat: Seat) -> URL? {
@@ -172,7 +172,7 @@ import SeatGaugeCore
     func rejectsABadSeatList() throws {
         let scratch = Scratch()
         let loader = ConfigLoader(file: scratch.seats)
-        let twice = "\(Self.workLine), { \"id\": \"work\", \"label\": \"Again\", \"kind\": \"claude\", \"profile\": \"~/.claude-seat-two\" }"
+        let twice = "\(Self.workLine), { \"id\": \"work\", \"label\": \"Again\", \"kind\": \"claude\", \"profile\": \"~/profiles/two\" }"
         let shouted = "{ \"id\": \"Work\", \"label\": \"Work\", \"kind\": \"claude\" }"
         let unknown = "{ \"id\": \"gemini\", \"label\": \"Gemini\", \"kind\": \"gemini\" }"
         let twoDefaults = "\(Self.workLine), { \"id\": \"second\", \"label\": \"Second\", \"kind\": \"claude\" }"
@@ -183,12 +183,12 @@ import SeatGaugeCore
             #expect(throws: ConfigProblem.self, "\(name) is not a seat list") { try loader.load() }
         }
 
-        let tilde = "{ \"id\": \"personal\", \"label\": \"Personal\", \"kind\": \"claude\", \"profile\": \"~/.claude-seat-personal\" }"
+        let tilde = "{ \"id\": \"personal\", \"label\": \"Personal\", \"kind\": \"claude\", \"profile\": \"~/profiles/personal\" }"
         let codexWithProfile = "{ \"id\": \"codex\", \"label\": \"Codex\", \"kind\": \"codex\", \"profile\": \"~/.codex-seat\" }"
         scratch.write(Self.config("\(tilde), \(codexWithProfile)"), to: scratch.seats)
         let config = try loader.load()
         let expanded = Self.profile(config.seats[0])
-        #expect(expanded?.path == NSHomeDirectory() + "/.claude-seat-personal")
+        #expect(expanded?.path == NSHomeDirectory() + "/profiles/personal")
         #expect(expanded?.path.contains("~") == false)
         #expect(config.seats[1].kind == .codex)
     }
