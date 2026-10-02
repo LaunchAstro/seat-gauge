@@ -71,7 +71,7 @@ The best-seat rule, pace and alerts read every window already.
 
 ## Rules
 
-- **Seats are read through their own CLIs.** The gauge runs `claude` or `codex` headless and parses what they print. It never calls a usage endpoint, never reads the Keychain, and never refreshes a token. The only exceptions are three named fields read from login files, for identity and plan, listed in ADR 0005. See ADR 0001 before you reach for an API.
+- **Seats are read through their own CLIs.** The gauge runs `claude` or `codex` headless and parses what they print. It never calls a usage endpoint, never reads the Keychain, and never refreshes a token. The only exceptions are four named fields read from login files, for identity and plan, listed in ADR 0005. See ADR 0001 before you reach for an API.
 - **No secrets in the repo.** Tokens, OAuth credentials, account ids and email addresses never go into code, fixtures, tests, docs or commits. Fixtures are hand-written. A recording from `seatgauge-cli record` stays on your machine.
 - **No personal data in the tree.** Seat names in examples and tests are neutral (`personal`, `work`, `codex`). No home paths.
 - **Every Claude seat has its own profile directory.** Never `~` or `~/.claude`, and never one another seat uses. `seats.json` refuses each at load time, so no card reads whatever the main login is signed into.
