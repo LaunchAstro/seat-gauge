@@ -81,6 +81,9 @@ if let watcher = try? ConfigWatcher() {
                         syncing: { ids in Task { @MainActor in GaugeMirror.shared.syncing = ids } })
     GaugeMirror.shared.sync = { id in Task { await poller.sync([id]) } }
     GaugeMirror.shared.syncAll = { Task { await poller.syncAll() } }
+    GaugeMirror.shared.signIn = { id in
+        SignIn.start(id, seats: GaugeMirror.shared.seats) { Task { await poller.sync([id]) } }
+    }
     Task {
         // The store restores `readings.json` as it is built, so a cold
         // start is instant: last night's cards are
