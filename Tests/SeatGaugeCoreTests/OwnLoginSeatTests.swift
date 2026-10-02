@@ -19,9 +19,9 @@ import SeatGaugeCore
     }
 
     static let bare = #"{ "id": "work", "label": "Work", "kind": "claude" }"#
-    static let work = #"{ "id": "work", "label": "Work", "kind": "claude", "profile": "~/.claude-seat-work", "login": "own" }"#
-    static let personal = #"{ "id": "personal", "label": "Personal", "kind": "claude", "profile": "~/.claude-seat-personal", "login": "own" }"#
-    static let team = #"{ "id": "team", "label": "Team", "kind": "claude", "profile": "~/.claude-seat-team" }"#
+    static let work = #"{ "id": "work", "label": "Work", "kind": "claude", "profile": "~/profiles/work", "login": "own" }"#
+    static let personal = #"{ "id": "personal", "label": "Personal", "kind": "claude", "profile": "~/profiles/personal", "login": "own" }"#
+    static let team = #"{ "id": "team", "label": "Team", "kind": "claude", "profile": "~/profiles/team" }"#
     static let codex = #"{ "id": "codex", "label": "Codex", "kind": "codex" }"#
 
     static func profile(_ seat: Seat) -> URL? {
@@ -68,7 +68,7 @@ import SeatGaugeCore
                 #expect(!problem.reason.contains("\n"), "\(name): one sentence")
             }
         }
-        let token = #"{ "id": "personal", "label": "Personal", "kind": "claude", "profile": "~/.claude-seat-personal", "token": "~/personal.token" }"#
+        let token = #"{ "id": "personal", "label": "Personal", "kind": "claude", "profile": "~/profiles/personal", "token": "~/personal.token" }"#
         let config = try ConfigLoader.decode(Self.seats(Self.work, token, Self.codex), tokenDirectory: tokens)
         #expect(config.seats.map(\.id.rawValue) == ["work", "personal", "codex"])
         #expect(config.seats[1].tokenFile?.lastPathComponent == "personal.token")

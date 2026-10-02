@@ -24,7 +24,7 @@ Three SwiftPM targets, Command Line Tools only (no Xcode project).
 | `ProcessRunner.swift` | The `ProcessRunning` seam: `RealProcessRunner` spawns the CLI. In tests, `ScriptedRunner` (`Tests/Support/`) replays fixture lines instead. |
 | `SearchPath.swift` | Where a CLI child looks for `claude` and `codex`: the login shell's `PATH`, asked once with a timeout, then a fixed list of the usual installs. Only `PATH` comes from the shell, and only the app and `seatgauge-cli` ask it (`SearchPath.loginShell`); a runner's default is the fixed list. |
 | `ClaudeUsageParser.swift`, `ClaudeRateLimitEventParser.swift`, `CodexRateLimitsParser.swift` | Turn one CLI transcript into windows. Each wire format is known in exactly one parser. |
-| `AccountPlan.swift` | Reads the exact plan tier from a seat's own login file. |
+| `AccountPlan.swift` | Reads the exact plan from a seat's own login file: the plan tier, or the organisation type when the tier names no plan. |
 | `ProviderMark.swift` | `MarkCache`: fetches each provider's favicon once, when none is cached, and keeps it in Application Support. |
 | `SeatLogin.swift` | Signs one seat in: `claude auth login` on a pseudo-terminal under the seat's own profile, the link out, the pasted code in, and `claude auth status` as the proof. Every front end signs in through it. |
 | `SeatToken.swift` | Where a token seat's token file is, read at fetch time and handed to one child process. |

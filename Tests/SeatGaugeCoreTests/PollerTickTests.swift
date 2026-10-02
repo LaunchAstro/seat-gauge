@@ -82,7 +82,7 @@ import SeatGaugeCore
             [.modificationDate: Date().addingTimeInterval(age)], ofItemAtPath: file.path)
     }
 
-    static let work = "{ \"id\": \"work\", \"label\": \"Work\", \"kind\": \"claude\", \"profile\": \"~/.claude-seat-work\" }"
+    static let work = "{ \"id\": \"work\", \"label\": \"Work\", \"kind\": \"claude\", \"profile\": \"~/profiles/work\" }"
     static let codex = "{ \"id\": \"codex\", \"label\": \"Codex\", \"kind\": \"codex\" }"
     static func config(_ seats: String) -> String { "{ \"seats\": [\(seats)], \"pollMinutes\": 5 }" }
 

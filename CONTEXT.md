@@ -13,7 +13,7 @@ The words Seat Gauge uses, and what each one means. Terms only, no implementatio
 - **Reset**: the moment a window refills, shown as a countdown.
 - **Best seat now**: the readable seat whose tightest window has the most headroom. A tie goes to the seat listed first.
 - **Pace**: whether the weekly window is on course to be fully used by its reset, judged from usage so far against time elapsed. Shown as a plain-English verdict and never part of the best-seat pick.
-- **Plan**: what a seat pays for, such as `Max 20x` or `Pro`. Taken from the login file's tier, then the plan written in `seats.json`, then the usage reply's own word. Never guessed as free.
+- **Plan**: what a seat pays for, such as `Max 20x` or `Pro`. Taken from the login file's tier, or its organisation type when the tier names no plan (as a Pro login's does), then the plan written in `seats.json`, then the usage reply's own word. Never guessed as free.
 - **Dormant**: a seat that cannot be read right now, because it is switched off or not logged in. Hidden until it reads again.
 - **Stale**: a seat whose last read failed. Its last reading stays on the card, dimmed and dated.
 - **Headroom file**: `headroom.json`, the seats and their windows as the cards show them, written after every poll or sync for an agent to read. Data per seat, with no single seat picked.
