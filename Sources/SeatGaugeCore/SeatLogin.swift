@@ -94,16 +94,25 @@ public enum SeatLogin {
         }
         // seats.json refuses these too; a seat list built any other way is
         // checked again here, before anything is written.
-        let place = ConfigLoader.resolved(profile)
-        guard ![home, home.appendingPathComponent(".claude")].map(ConfigLoader.resolved).contains(place) else {
+        let place = key(profile)
+        guard ![home, home.appendingPathComponent(".claude")].map(key).contains(place) else {
             throw ProcessFailure("\(name) has the default login's directory as its profile, so signing it in would sign ~/.claude in instead. Give it a directory of its own.")
         }
         for other in seats where other.id != seat.id {
-            if case let .claude(theirs) = other.kind, ConfigLoader.resolved(theirs) == place {
+            if case let .claude(theirs) = other.kind, key(theirs) == place {
                 throw ProcessFailure("\(name) has the same profile as \(other.id.rawValue), so signing one in would sign both in. Give each seat a directory of its own.")
             }
         }
         return profile
+    }
+
+    /// A profile's path as a Mac's default volume tells paths apart: resolved,
+    /// then folded for case and Unicode form, since `resolved` folds case only
+    /// for a path that already exists and a fresh machine's profiles do not.
+    /// On a case-sensitive volume this refuses two spellings that are really
+    /// two directories, which is the safe way to be wrong.
+    static func key(_ url: URL) -> String {
+        ConfigLoader.resolved(url).decomposedStringWithCanonicalMapping.lowercased()
     }
 
     /// One address, handed to the CLI as a value it cannot take for a flag.
@@ -177,6 +186,10 @@ public enum SeatLogin {
         var said = Data()
         while ContinuousClock.now < deadline, let data = child.read(), !data.isEmpty || child.isRunning {
             said.append(data)
+        }
+        // A status that never answers is stopped by the deferred stop, not waited on.
+        guard ContinuousClock.now < deadline || !child.isRunning else {
+            throw ProcessFailure("claude auth status did not answer within a minute, so \(name) was not signed in.")
         }
         let text = String(decoding: said, as: UTF8.self)
         let reply = text.firstIndex(of: "{").flatMap { start in
