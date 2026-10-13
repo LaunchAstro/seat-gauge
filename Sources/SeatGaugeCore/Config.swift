@@ -104,6 +104,7 @@ public struct ConfigLoader: Sendable {
             #"  //           is this Mac; one with "ssh" is read over ssh, which needs a key that signs in"#,
             #"  //           without a prompt, such as [{ "id": "here", "label": "Laptop" },"#,
             #"  //           { "id": "studio", "label": "Studio", "ssh": "studio.local" }]."#,
+            #"  //           `seatgauge-cli machines add studio.local Studio` checks one answers, then adds it."#,
             #"  //           "machineSeconds": seconds between reads, 5 unless set, never under 2."#,
         ] + none + [
             #"  "seats": ["#,

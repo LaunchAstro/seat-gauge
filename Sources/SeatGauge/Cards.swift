@@ -278,6 +278,8 @@ struct SyncButton: View {
     let busy: Bool
     let label: String
     var side = SeatMark.side(TextScale.current)
+    /// The cards' icons are dim; the title bar's is a step lighter.
+    var tone: Color?
     let action: () -> Void
 
     static let symbol = "arrow.triangle.2.circlepath"
@@ -288,7 +290,7 @@ struct SyncButton: View {
                 if busy {
                     ProgressView().controlSize(.mini).scaleEffect(side / 16)
                 } else {
-                    Image(systemName: Self.symbol).resizable().scaledToFit().foregroundStyle(Tone.inkDim)
+                    Image(systemName: Self.symbol).resizable().scaledToFit().foregroundStyle(tone ?? Tone.inkDim)
                 }
             }
             .frame(width: side, height: side)

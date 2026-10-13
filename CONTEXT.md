@@ -27,5 +27,6 @@ The words Seat Gauge uses, and what each one means. Terms only, no implementatio
 - **Sealed**: a spend cell 48 hours past its hour. It is never rewritten, because the transcripts behind it may be gone.
 - **Attribution**: which seat the default `~/.claude` login was at a given hour, so spend under `default` lands on the right account.
 - **Machine**: a computer whose load the LOAD tab shows, this Mac or another read over ssh. Listed under `machines` in `seats.json`.
-- **Room** (of a machine): `free`, `busy` or `full`, from its CPU and memory against the 60 and 85 percent lines, or its disk running under 25 or 10 GB free.
+- **Room** (of a machine): `free`, `busy` or `full`, from CPU and memory averaged over 30 seconds against the 60 and 85 percent lines, load per core against 2 and 3, and disk under 25 or 10 GB free.
+- **Trend**: whether a machine's CPU or memory is `rising`, `steady` or `falling`, its last 30 seconds against the 30 before.
 - **Machines file**: `machines.json`, each machine's CPU, memory, disk, room and agent count, written every read (5 seconds by default) for an agent to read.

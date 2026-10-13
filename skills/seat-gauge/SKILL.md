@@ -3,7 +3,7 @@ name: seat-gauge
 description: Read how much room each subscription seat (Claude and Codex) has left, and how loaded each machine is (CPU, memory, disk, agents working), from Seat Gauge's live files. Use when choosing which seat or machine to run work on, when asked how much of a seat's 5-hour or weekly usage is left, or when checking whether a machine has capacity for more agents.
 metadata:
   owner: Launch Astro
-  version: 0.2.0
+  version: 0.3.0
   updated: 2026-10-14
 ---
 
@@ -27,10 +27,13 @@ jq -r '"updated \(.updated)", (.seats[] | "\(.id) \(.kind) stale=\(.stale) 5h_le
 `machines.json` beside it holds each machine's load, refreshed every 5 seconds. Also free to read.
 
 ```sh
-jq -r '"updated \(.updated)", (.machines[] | "\(.id) room=\(.room // "-") stale=\(.stale) cpu=\(.cpu.used // "-")% ram=\(.ram.used // "-")% disk_free=\(.disk.free_gb // "-")GB agents_working=\(.agents.working // "-") idle=\(.agents.idle // "-") blocked=\(.agents.blocked // "-")")' \
+jq -r '"updated \(.updated)", (.machines[] | "\(.id) room=\(.room // "-") why=\(.why | join("; ")) stale=\(.stale) cpu=\(.cpu.used // "-")% (\(.cpu.trend // "-")) load/core=\(.cpu.load_per_core // "-") ram=\(.ram.used // "-")% (\(.ram.trend // "-")) disk_free=\(.disk.free_gb // "-")GB disk_10m=\(.disk.change_10m_gb // "-")GB agents working=\(.agents.working // "-") idle=\(.agents.idle // "-") blocked=\(.agents.blocked // "-")")' \
   "$HOME/Library/Application Support/com.launchastro.seatgauge/machines.json"
 ```
 
-- `room`: `free` takes more agents, `busy` takes a few, `full` takes none until it eases.
+- CPU and RAM are 30-second averages; `trend` says whether they are rising, steady or falling.
+- `room`: `free` takes more agents, `busy` takes a few, `full` takes none until it eases. `why` names the cause.
+- Load per core above 1 means work is queueing; 3 is the build method's ceiling.
+- Disk under 25 GB free, or `disk_10m` falling by gigabytes: time to clear caches and old build output.
 - `stale=true` or a `problem`: the machine could not be read; do not send it work blind.
 - `blocked` agents are waiting on a person.
