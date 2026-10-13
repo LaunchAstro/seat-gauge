@@ -19,6 +19,8 @@ import SwiftUI
     /// machine loop in `main.swift`.
     var machines: [Machine] = []
     var machineStates: [String: MachineState] = [:]
+    /// Each machine's last ten minutes of CPU and memory, for the hover chart.
+    var machineHistory: [String: [LoadSample]] = [:]
     /// The size the whole panel is drawn at. It is held here rather than in a
     /// global because a view body that reads it is a view body that redraws
     /// when the user changes it: `Type` and `CardMetrics` both read it

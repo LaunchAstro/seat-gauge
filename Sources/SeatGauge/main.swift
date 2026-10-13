@@ -83,7 +83,7 @@ if let watcher = try? ConfigWatcher() {
     // LOAD tab and `machines.json`.
     let machineMonitor = MachineMonitor(prober: MachineProber(runner: RealProcessRunner()),
                                         config: { await watcher.config },
-                                        notify: { machines, states in
+                                        notify: { machines, states, history in
                                             Task { @MainActor in
                                                 let mirror = GaugeMirror.shared
                                                 // A card that gains or loses its meters
@@ -94,6 +94,7 @@ if let watcher = try? ConfigWatcher() {
                                                     || shape(mirror.machineStates) != shape(states)
                                                 mirror.machines = machines
                                                 mirror.machineStates = states
+                                                mirror.machineHistory = history
                                                 if reshaped { controller.refit(.drawn) }
                                             }
                                         })

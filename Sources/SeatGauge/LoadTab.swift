@@ -90,32 +90,61 @@ struct LoadTab: View {
 
     private func row(_ cards: [MachineCard]) -> some View {
         CardRow {
-            ForEach(cards) { MachineCardView(card: $0).id($0.id) }
+            ForEach(cards) { MachineCardView(card: $0, history: mirror.machineHistory[$0.id] ?? []).id($0.id) }
         }
         .fixedSize(horizontal: false, vertical: true)
     }
 }
 
+/// The glance face, and on hover the chart over it at the same size, so a
+/// hover never moves the card.
 struct MachineCardView: View {
     let card: MachineCard
+    var history: [LoadSample] = []
+    @State private var hovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CardMetrics.rowSpacing) {
-            HStack(spacing: CardMetrics.headerSpacing) {
+        glance
+            .opacity(hovering ? 0 : 1)
+            .overlay(alignment: .top) {
+                if hovering {
+                    VStack(alignment: .leading, spacing: CardMetrics.rowSpacing) {
+                        header(legend: true)
+                        LoadChart(samples: history, now: Date())
+                    }
+                }
+            }
+            .animation(.easeInOut(duration: CardDetailMetrics.fade), value: hovering)
+            .modifier(CardBox())
+            .opacity(card.dimmed ? 0.6 : 1)
+            .onHover { hovering = $0 }
+    }
+
+    private func header(legend: Bool) -> some View {
+        HStack(spacing: CardMetrics.headerSpacing) {
                 Text(card.label.uppercased())
                     .font(Type.display(CardMetrics.Header.provider))
                     .tracking(CardMetrics.scaled(CardMetrics.Header.providerTracking))
                     .foregroundStyle(Tone.ink)
                     .lineLimit(1)
                 Spacer(minLength: CardMetrics.Header.spacer)
-                if let room = card.room {
+                if legend {
+                    Text("CPU \(card.lines.first?.used ?? 0)%").foregroundStyle(LoadChart.cpuColor)
+                    Text("RAM \(card.lines.dropFirst().first?.used ?? 0)%").foregroundStyle(LoadChart.ramColor)
+                    Text("10 MIN").foregroundStyle(Tone.inkDim)
+                } else if let room = card.room {
                     Text(room.word)
-                        .font(Type.mono(CardMetrics.Header.pickSize))
-                        .tracking(CardMetrics.Header.pickTracking)
                         .foregroundStyle(room.color)
                 }
             }
+            .font(Type.mono(CardMetrics.Header.pickSize))
+            .tracking(CardMetrics.Header.pickTracking)
             .frame(minHeight: SeatMark.side(TextScale.current))
+    }
+
+    private var glance: some View {
+        VStack(alignment: .leading, spacing: CardMetrics.rowSpacing) {
+            header(legend: false)
             ForEach(card.lines) { line in
                 CardLine {
                     Label(text: line.name, size: CardMetrics.Glance.label)
@@ -139,7 +168,46 @@ struct MachineCardView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
-        .modifier(CardBox())
-        .opacity(card.dimmed ? 0.6 : 1)
+    }
+}
+
+/// CPU and memory over the last ten minutes, 0 to 100 percent, newest at
+/// the right edge. A gap in the reads draws as a straight line across it.
+struct LoadChart: View {
+    let samples: [LoadSample]
+    let now: Date
+
+    static var cpuColor: Color { Tone.current.accent }
+    static var ramColor: Color { Tone.ink }
+
+    var body: some View {
+        GeometryReader { space in
+            let size = space.size
+            ZStack {
+                ForEach([25, 50, 75], id: \.self) { line in
+                    Path { path in
+                        let y = size.height * (1 - Double(line) / 100)
+                        path.move(to: CGPoint(x: 0, y: y))
+                        path.addLine(to: CGPoint(x: size.width, y: y))
+                    }
+                    .stroke(Tone.meterTrack.opacity(0.6), lineWidth: 1)
+                }
+                trace(\.ram, in: size).stroke(Self.ramColor, lineWidth: 1)
+                trace(\.cpu, in: size).stroke(Self.cpuColor, lineWidth: 1.5)
+            }
+        }
+        .frame(minHeight: 20, maxHeight: .infinity)
+        .accessibilityLabel("CPU and memory over the last ten minutes")
+    }
+
+    private func trace(_ value: KeyPath<LoadSample, Int>, in size: CGSize) -> Path {
+        Path { path in
+            for (index, sample) in samples.enumerated() {
+                let age = now.timeIntervalSince(sample.at)
+                let point = CGPoint(x: size.width * max(0, 1 - age / LoadSample.span),
+                                    y: size.height * (1 - Double(sample[keyPath: value]) / 100))
+                if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+            }
+        }
     }
 }

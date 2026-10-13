@@ -76,6 +76,7 @@ import SeatGaugeTestSupport
                                          file: scratch, config: { config }).read()
         #expect(answering.sent == MachineProbe.script)
         #expect(first[Machine.here.id]?.reading?.cpuUsed == 40)
+        // A failed read adds no chart point; a live one does.
         let written = try JSONSerialization.jsonObject(with: Data(contentsOf: scratch)) as! [String: Any]
         let row = (written["machines"] as! [[String: Any]])[0]
         #expect(row["room"] as? String == "free")
@@ -86,6 +87,7 @@ import SeatGaugeTestSupport
         let monitor = MachineMonitor(prober: MachineProber(runner: silent, environment: [:]), file: scratch,
                                      config: { config })
         let gone = await monitor.read()
+        #expect(await monitor.samples[Machine.here.id] == [])
         guard case let .unreachable(reason, last) = gone[Machine.here.id] else { Issue.record("not unreachable"); return }
         #expect(reason == "ssh would not start")
         #expect(last == nil)
@@ -95,14 +97,14 @@ import SeatGaugeTestSupport
     func config() throws {
         let none = try ConfigLoader.decode(Data(#"{ "seats": [] }"#.utf8))
         #expect(none.machines == [.here])
-        #expect(none.machineSeconds == 30)
+        #expect(none.machineSeconds == 5)
         let two = try ConfigLoader.decode(Data(#"""
-            { "seats": [], "machineSeconds": 3,
+            { "seats": [], "machineSeconds": 1,
               "machines": [{ "id": "here", "label": "Laptop" }, { "id": "studio", "label": "Studio", "ssh": "studio.local" }] }
             """#.utf8))
         #expect(two.machines == [Machine(id: "here", label: "Laptop"),
                                  Machine(id: "studio", label: "Studio", ssh: "studio.local")])
-        #expect(two.machineSeconds == 10)
+        #expect(two.machineSeconds == 2)
         #expect(throws: ConfigProblem.self) {
             try ConfigLoader.decode(Data(#"{ "seats": [], "machines": [{ "id": "x", "label": "X", "ssh": "-oProxyCommand=boom" }] }"#.utf8))
         }

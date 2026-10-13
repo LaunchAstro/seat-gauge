@@ -6,9 +6,9 @@ public struct Config: Equatable, Sendable {
     public let seats: [Seat]
     public let pollMinutes: Int
     public var machines: [Machine] = [.here]
-    public var machineSeconds: Int = 30
+    public var machineSeconds: Int = 5
 
-    public init(seats: [Seat], pollMinutes: Int, machines: [Machine] = [.here], machineSeconds: Int = 30) {
+    public init(seats: [Seat], pollMinutes: Int, machines: [Machine] = [.here], machineSeconds: Int = 5) {
         self.seats = seats
         self.pollMinutes = pollMinutes
         self.machines = machines
@@ -104,7 +104,7 @@ public struct ConfigLoader: Sendable {
             #"  //           is this Mac; one with "ssh" is read over ssh, which needs a key that signs in"#,
             #"  //           without a prompt, such as [{ "id": "here", "label": "Laptop" },"#,
             #"  //           { "id": "studio", "label": "Studio", "ssh": "studio.local" }]."#,
-            #"  //           "machineSeconds": seconds between reads, 30 unless set, never under 10."#,
+            #"  //           "machineSeconds": seconds between reads, 5 unless set, never under 2."#,
         ] + none + [
             #"  "seats": ["#,
         ] + lines + [
@@ -288,7 +288,7 @@ public struct ConfigLoader: Sendable {
         }
         return Config(seats: seats, pollMinutes: max(1, stored.pollMinutes ?? 5),
                       machines: try Self.machines(stored.machines),
-                      machineSeconds: max(10, stored.machineSeconds ?? 30))
+                      machineSeconds: max(2, stored.machineSeconds ?? 5))
     }
 
     /// The `machines` list: absent is this Mac alone. An entry without

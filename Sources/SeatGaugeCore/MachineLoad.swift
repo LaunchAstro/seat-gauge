@@ -45,7 +45,7 @@ public enum Room: String, Equatable, Sendable, Codable {
 /// One read of one machine.
 public struct MachineReading: Equatable, Sendable, Codable {
     public let takenAt: Date
-    /// The share of the CPU busy over a three-second sample, in percent.
+    /// The share of the CPU busy over a one-second sample, in percent.
     public let cpuUsed: Int
     /// Load averages over 1, 5 and 15 minutes.
     public let load: [Double]
@@ -92,7 +92,7 @@ public enum MachineProbe {
         #"echo "load $(sysctl -n vm.loadavg)""#,
         #"d=/System/Volumes/Data; [ -d "$d" ] || d=/"#,
         #"echo "disk $(df -k "$d" | tail -1)""#,
-        #"echo "cpu $(top -l 2 -n 0 -s 3 | grep 'CPU usage' | tail -1)""#,
+        #"echo "cpu $(top -l 2 -n 0 -s 1 | grep 'CPU usage' | tail -1)""#,
         #"h=$(command -v herdr || echo "$HOME/.local/bin/herdr")"#,
         #"[ -x "$h" ] && echo "agents $("$h" agent list 2>/dev/null | tr -d '\n')""#,
         #"echo end"#,
@@ -156,6 +156,23 @@ public enum MachineProbe {
     static func clamp(_ percent: Double) -> Int { min(100, max(0, Int(percent.rounded()))) }
 }
 
+/// One point on a machine's load chart.
+public struct LoadSample: Equatable, Sendable {
+    public let at: Date
+    public let cpu: Int
+    public let ram: Int
+
+    public init(at: Date, cpu: Int, ram: Int) {
+        self.at = at
+        self.cpu = cpu
+        self.ram = ram
+    }
+
+    /// How far back the chart reaches. Held in memory only, so a relaunch
+    /// starts it again.
+    public static let span: TimeInterval = 600
+}
+
 /// A machine as the gauge last found it.
 public enum MachineState: Equatable, Sendable {
     case live(MachineReading)
@@ -175,7 +192,7 @@ public enum MachineState: Equatable, Sendable {
 public struct MachineProber: Sendable {
     let runner: any ProcessRunning
     let environment: [String: String]
-    public static let timeout: Duration = .seconds(25)
+    public static let timeout: Duration = .seconds(20)
 
     public init(runner: any ProcessRunning,
                 environment: [String: String] = ChildEnvironment.make(
@@ -185,7 +202,9 @@ public struct MachineProber: Sendable {
     }
 
     /// The command for one machine. Batch mode, so a missing key fails at
-    /// once rather than waiting on a password prompt nobody can see.
+    /// once rather than waiting on a password prompt nobody can see. One
+    /// connection per machine is kept open between reads, so a read every
+    /// few seconds is a new channel on it rather than a new sign-in.
     public static func spec(_ machine: Machine, environment: [String: String]) -> ProcessSpec {
         guard let host = machine.ssh else {
             return ProcessSpec(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-s"],
@@ -193,6 +212,8 @@ public struct MachineProber: Sendable {
         }
         return ProcessSpec(executable: URL(fileURLWithPath: "/usr/bin/ssh"),
                            arguments: ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+                                       "-o", "ControlMaster=auto", "-o", "ControlPath=~/.ssh/seatgauge-%C",
+                                       "-o", "ControlPersist=120",
                                        "--", host, "/bin/sh", "-s"],
                            environment: environment, timeout: timeout)
     }
@@ -319,19 +340,21 @@ public struct MachinesFile: Encodable, Equatable, Sendable {
 
 /// The machine loop: every listed machine read at once, the file written,
 /// the panel told, then a sleep. Apart from the seat poll, since a machine
-/// read is cheap and its figures go old in seconds rather than minutes.
+/// read is cheap and its figures go old in seconds rather than minutes. It
+/// also keeps the last ten minutes of CPU and memory for the hover chart.
 public actor MachineMonitor {
     let prober: MachineProber
     let config: @Sendable () async -> Config
     let file: URL
     let activity: PollActivity
-    let notify: @Sendable ([Machine], [String: MachineState]) -> Void
+    let notify: @Sendable ([Machine], [String: MachineState], [String: [LoadSample]]) -> Void
     private var states: [String: MachineState] = [:]
+    private var history: [String: [LoadSample]] = [:]
 
     public init(prober: MachineProber, file: URL = MachinesFile.defaultFile,
                 activity: PollActivity = PollActivity(),
                 config: @escaping @Sendable () async -> Config,
-                notify: @escaping @Sendable ([Machine], [String: MachineState]) -> Void = { _, _ in }) {
+                notify: @escaping @Sendable ([Machine], [String: MachineState], [String: [LoadSample]]) -> Void = { _, _, _ in }) {
         self.prober = prober
         self.file = file
         self.activity = activity
@@ -346,6 +369,9 @@ public actor MachineMonitor {
             try? await Task.sleep(for: .seconds(seconds), tolerance: .seconds(2))
         }
     }
+
+    /// The chart points kept for each machine, oldest first.
+    public var samples: [String: [LoadSample]] { history }
 
     /// One round: each machine in parallel, so a slow ssh never holds up
     /// this Mac's figures.
@@ -373,12 +399,22 @@ public actor MachineMonitor {
             }
         }
         states = next
+        let now = Date()
+        var kept: [String: [LoadSample]] = [:]
+        for machine in current.machines {
+            var samples = (history[machine.id] ?? []).filter { now.timeIntervalSince($0.at) <= LoadSample.span }
+            if case let .live(reading) = next[machine.id] {
+                samples.append(LoadSample(at: reading.takenAt, cpu: reading.cpuUsed, ram: reading.ramUsed))
+            }
+            kept[machine.id] = samples
+        }
+        history = kept
         let written = MachinesFile(machines: current.machines, states: next, seconds: current.machineSeconds, now: Date())
         if let data = try? written.data() {
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? data.write(to: file, options: .atomic)
         }
-        notify(current.machines, next)
+        notify(current.machines, next, kept)
         return next
     }
 }
