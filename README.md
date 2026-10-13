@@ -110,11 +110,11 @@ After every poll or sync the app writes `headroom.json` beside `readings.json` i
 
 Dates are ISO 8601 with the local offset. The file names no single seat to use, so the reader spreads its work across the seats with room rather than sending it all to one.
 
-Beside it, `machines.json` holds each machine's load, read every 30 seconds: this Mac, and any other listed under `machines` in `seats.json` with an `ssh` destination (a key that signs in without a prompt). The panel shows the same figures on its LOAD tab.
+Beside it, `machines.json` holds each machine's load, read every 5 seconds: this Mac, and any other listed under `machines` in `seats.json` with an `ssh` destination (a key that signs in without a prompt). The panel shows the same figures on its LOAD tab, and hovering a machine card draws its CPU and memory over the last ten minutes. Other machines are reached over one ssh connection kept open between reads (its socket is `~/.ssh/seatgauge-*`).
 
 - `machines`: one object per machine, with `id`, `label`, `reachable`, `stale`, `problem` (why the last read failed, or `null`) and `read_at`.
 - `room`: `free`, `busy` or `full`. Busy from 60 percent CPU or memory or under 25 GB of disk free, full from 85 percent or under 10 GB.
-- `cpu` (`used` percent over a three-second sample, `load` averages over 1, 5 and 15 minutes, `cores`), `ram` (`used` percent by macOS memory pressure, `total_gb`) and `disk` (`used` percent, `free_gb`).
+- `cpu` (`used` percent over a one-second sample, `load` averages over 1, 5 and 15 minutes, `cores`), `ram` (`used` percent by macOS memory pressure, `total_gb`) and `disk` (`used` percent, `free_gb`).
 - `agents`: the agents herdr runs on that machine, as `working`, `blocked` (waiting on a person), `idle` and `total`, or `null` when the machine has no herdr. Agents outside herdr are not counted.
 
 `seatgauge-cli machines` reads every machine once and prints the same shape.

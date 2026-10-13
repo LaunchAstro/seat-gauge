@@ -28,4 +28,4 @@ The words Seat Gauge uses, and what each one means. Terms only, no implementatio
 - **Attribution**: which seat the default `~/.claude` login was at a given hour, so spend under `default` lands on the right account.
 - **Machine**: a computer whose load the LOAD tab shows, this Mac or another read over ssh. Listed under `machines` in `seats.json`.
 - **Room** (of a machine): `free`, `busy` or `full`, from its CPU and memory against the 60 and 85 percent lines, or its disk running under 25 or 10 GB free.
-- **Machines file**: `machines.json`, each machine's CPU, memory, disk, room and agent count, written every read (30 seconds by default) for an agent to read.
+- **Machines file**: `machines.json`, each machine's CPU, memory, disk, room and agent count, written every read (5 seconds by default) for an agent to read.

@@ -24,7 +24,7 @@ jq -r '"updated \(.updated)", (.seats[] | "\(.id) \(.kind) stale=\(.stale) 5h_le
 
 ## Machine load
 
-`machines.json` beside it holds each machine's load, refreshed every 30 seconds. Also free to read.
+`machines.json` beside it holds each machine's load, refreshed every 5 seconds. Also free to read.
 
 ```sh
 jq -r '"updated \(.updated)", (.machines[] | "\(.id) room=\(.room // "-") stale=\(.stale) cpu=\(.cpu.used // "-")% ram=\(.ram.used // "-")% disk_free=\(.disk.free_gb // "-")GB agents_working=\(.agents.working // "-") idle=\(.agents.idle // "-") blocked=\(.agents.blocked // "-")")' \
