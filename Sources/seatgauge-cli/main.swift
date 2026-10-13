@@ -131,6 +131,41 @@ func machines(_ path: String?) async throws {
     print(String(decoding: try printed.data(), as: UTF8.self))
 }
 
+/// Another machine onto the LOAD tab: read once over ssh to prove it
+/// answers, then added to `seats.json`. Nothing is written when it does not.
+func addMachine(_ arguments: ArraySlice<String>) async throws {
+    guard let destination = arguments.first else {
+        throw ProcessFailure("usage: seatgauge-cli machines add <ssh destination> [label], such as: machines add studio.local Studio")
+    }
+    let label = arguments.dropFirst().joined(separator: " ")
+    let named = label.isEmpty ? String(destination.split(separator: "@").last ?? "").split(separator: ".").first.map(String.init) ?? destination : label
+    let machine = Machine(id: MachineList.id(from: named), label: named, ssh: destination)
+    let file = ConfigLoader.defaultFile
+    guard let text = try? String(contentsOf: file, encoding: .utf8) else {
+        throw ProcessFailure("no seats.json at \(file.path) yet; open Seat Gauge once first.")
+    }
+    _ = try ConfigLoader.decode(Data("{ \"seats\": [], \"machines\": [\(MachineList.entry(machine))] }".utf8))
+    print("reading \(destination) over ssh…")
+    switch await MachineProber(runner: RealProcessRunner()).read(machine) {
+    case let .failure(failure):
+        throw ProcessFailure("""
+            \(destination) did not answer: \(failure.reason). Nothing was added.
+            On that Mac, turn on System Settings > General > Sharing > Remote Login. Then, on this one,
+            run `ssh-copy-id \(destination)` so it signs in with a key, and check `ssh \(destination) true`
+            returns with no password prompt before trying again.
+            """)
+    case let .success(reading):
+        let hostName = Host.current().localizedName ?? "This Mac"
+        let here = Machine(id: MachineList.id(from: hostName), label: hostName)
+        let edited = try MachineList.adding(machine, here: here, to: text)
+        try Data(edited.utf8).write(to: file, options: .atomic)
+        print("added \(machine.label) (\(machine.id)): CPU \(reading.cpuUsed)%, memory \(reading.ramUsed)%, "
+              + "\(Int((Double(reading.diskFreeBytes) / 1e9).rounded())) GB disk left, "
+              + (reading.agents.map { "\($0.working) agent(s) working" } ?? "no herdr")
+              + ". The LOAD tab shows it within a minute.")
+    }
+}
+
 /// One named transcript's distinct responses, the figure to hold the dedupe
 /// to against `jq ... | sort -u | wc -l`.
 func spend(file path: String) {
@@ -203,8 +238,10 @@ do {
     case "attribute": await attribute(arguments.dropFirst())
     case "import-codex": try await importCodex()
     case "login": try login(arguments.dropFirst())
-    case "machines": try await machines(arguments.dropFirst().first)
-    default: print("usage: seatgauge-cli read [seats.json] | machines [seats.json] | record <seat> [seats.json] | watch | spend [file] | state [range <r>] [measure <m>] | attribute --seed <file> | import-codex | login <seat> [--email <address>] [seats.json]")
+    case "machines":
+        if arguments.dropFirst().first == "add" { try await addMachine(arguments.dropFirst(2)) }
+        else { try await machines(arguments.dropFirst().first) }
+    default: print("usage: seatgauge-cli read [seats.json] | machines [seats.json] | machines add <ssh destination> [label] | record <seat> [seats.json] | watch | spend [file] | state [range <r>] [measure <m>] | attribute --seed <file> | import-codex | login <seat> [--email <address>] [seats.json]")
     }
 } catch {
     FileHandle.standardError.write(Data("seatgauge-cli: \(error)\n".utf8))

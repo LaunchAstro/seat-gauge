@@ -110,12 +110,24 @@ After every poll or sync the app writes `headroom.json` beside `readings.json` i
 
 Dates are ISO 8601 with the local offset. The file names no single seat to use, so the reader spreads its work across the seats with room rather than sending it all to one.
 
-Beside it, `machines.json` holds each machine's load, read every 5 seconds: this Mac, and any other listed under `machines` in `seats.json` with an `ssh` destination (a key that signs in without a prompt). The panel shows the same figures on its LOAD tab, and hovering a machine card draws its CPU and memory over the last ten minutes. Other machines are reached over one ssh connection kept open between reads (its socket is `~/.ssh/seatgauge-*`).
+Beside it, `machines.json` holds each machine's load, read every 5 seconds: this Mac, and any other added as below. The panel shows the same figures on its LOAD tab, and hovering a machine card draws its CPU and memory over the last ten minutes.
 
 - `machines`: one object per machine, with `id`, `label`, `reachable`, `stale`, `problem` (why the last read failed, or `null`) and `read_at`.
-- `room`: `free`, `busy` or `full`. Busy from 60 percent CPU or memory or under 25 GB of disk free, full from 85 percent or under 10 GB.
-- `cpu` (`used` percent over a one-second sample, `load` averages over 1, 5 and 15 minutes, `cores`), `ram` (`used` percent by macOS memory pressure, `total_gb`) and `disk` (`used` percent, `free_gb`).
+- `room`: `free`, `busy` or `full`, and `why`, the lines that set it (empty when free). Busy from 60 percent CPU or memory over 30 seconds, a load of 2 per core, or under 25 GB of disk left; full from 85 percent, 3 per core, or under 10 GB.
+- `cpu`: `used`, the average over the last 30 seconds, and `now`, the last one-second sample; `trend`, `rising`, `steady` or `falling` against the 30 seconds before (`null` until there is a minute of reads); `load` averages over 1, 5 and 15 minutes, `cores` and `load_per_core`. Load counts the tasks running or waiting for a core, so a load above the core count means work is queueing.
+- `ram`: `used` (30-second average, by macOS memory pressure), `now`, `trend` and `total_gb`.
+- `disk`: `used` percent, `free_gb`, and `change_10m_gb`, the space gained or lost over the last ten minutes (negative is filling).
 - `agents`: the agents herdr runs on that machine, as `working`, `blocked` (waiting on a person), `idle` and `total`, or `null` when the machine has no herdr. Agents outside herdr are not counted.
+
+### Add a machine
+
+Any Mac you can reach over ssh with a key:
+
+1. On that Mac, turn on System Settings > General > Sharing > Remote Login.
+2. On this one, give it your key: `ssh-copy-id studio.local` (its name or address), and check `ssh studio.local true` returns with no password prompt.
+3. Run `seatgauge-cli machines add studio.local Studio`. It reads the machine once to prove it answers, then adds it to `seats.json`; nothing is written if it does not answer. The LOAD tab shows it within a minute.
+
+Nothing is installed on the other Mac. The gauge keeps one ssh connection to it open between reads (its socket is `~/.ssh/seatgauge-*`).
 
 `seatgauge-cli machines` reads every machine once and prints the same shape.
 

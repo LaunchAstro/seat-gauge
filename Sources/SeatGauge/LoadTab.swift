@@ -21,14 +21,18 @@ struct MachineCard: Equatable, Identifiable {
     let note: String
     let dimmed: Bool
 
-    static func make(_ machine: Machine, state: MachineState?, now: Date) -> MachineCard {
+    /// CPU and memory are the 30-second averages, with an arrow when they
+    /// are rising or falling; the hover chart has the second-by-second.
+    static func make(_ machine: Machine, state: MachineState?, samples: [LoadSample] = [], now: Date) -> MachineCard {
         let reading = state?.reading
-        let lines = reading.map { reading in
-            [Line(name: "CPU", used: reading.cpuUsed,
-                  detail: "load \(Int((reading.load.first ?? 0).rounded()))"),
-             Line(name: "RAM", used: reading.ramUsed, detail: "of \(gigabytes(reading.ramBytes, binary: true))"),
+        let summary = reading.map { MachineSummary(reading: $0, samples: samples, now: now) }
+        let lines = reading.flatMap { reading in summary.map { summary in
+            [Line(name: "CPU", used: summary.cpu,
+                  detail: arrow(summary.cpuTrend) + "load \(Int((reading.load.first ?? 0).rounded()))/\(reading.cores)"),
+             Line(name: "RAM", used: summary.ram,
+                  detail: arrow(summary.ramTrend) + "of \(gigabytes(reading.ramBytes, binary: true))"),
              Line(name: "DISK", used: reading.diskUsed, detail: "\(gigabytes(reading.diskFreeBytes)) left")]
-        } ?? []
+        } } ?? []
         let note: String
         switch state {
         case .none:
@@ -39,8 +43,16 @@ struct MachineCard: Equatable, Identifiable {
             note = last.map { "unreachable, read \(Countdown.text(until: now, now: $0.takenAt)) ago" } ?? reason
         }
         let live: Bool = if case .live = state { true } else { false }
-        return MachineCard(id: machine.id, label: machine.label, room: live ? reading?.room : nil,
+        return MachineCard(id: machine.id, label: machine.label, room: live ? summary?.room : nil,
                            lines: lines, note: note, dimmed: state != nil && !live)
+    }
+
+    static func arrow(_ trend: Trend?) -> String {
+        switch trend {
+        case .rising: "↑ "
+        case .falling: "↓ "
+        case .steady, .none: ""
+        }
     }
 
     /// What herdr says the agents are doing. Blocked ones come first, since
@@ -78,7 +90,9 @@ struct LoadTab: View {
     var mirror = GaugeMirror.shared
 
     var body: some View {
-        let cards = mirror.machines.map { MachineCard.make($0, state: mirror.machineStates[$0.id], now: Date()) }
+        let cards = mirror.machines.map {
+            MachineCard.make($0, state: mirror.machineStates[$0.id], samples: mirror.machineHistory[$0.id] ?? [], now: Date())
+        }
         // As the seat row does: the cards fill the width while they fit, and
         // scroll sideways at their minimum when they do not.
         ViewThatFits(in: .horizontal) {

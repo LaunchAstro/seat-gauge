@@ -71,13 +71,79 @@ public struct MachineReading: Equatable, Sendable, Codable {
         self.agents = agents
     }
 
-    /// The same 60 and 85 percent lines the seat meters use. Disk counts by
-    /// gigabytes left, since a percent of a big disk can still be plenty.
-    public var room: Room {
-        let gigabytesFree = Double(diskFreeBytes) / 1e9
-        if cpuUsed >= 85 || ramUsed >= 85 || gigabytesFree < 10 { return .full }
-        if cpuUsed >= 60 || ramUsed >= 60 || gigabytesFree < 25 { return .busy }
-        return .free
+    public var loadPerCore: Double { cores > 0 ? (load.first ?? 0) / Double(cores) : 0 }
+}
+
+/// Which way a figure is heading: the last 30 seconds against the 30 before.
+public enum Trend: String, Equatable, Sendable, Codable {
+    case rising, steady, falling
+}
+
+/// A machine as an agent should judge it: CPU and memory averaged over the
+/// last 30 seconds, so one busy second does not read as a busy machine,
+/// which way each is heading, how fast the disk is filling, and the room
+/// verdict with the reasons for it.
+public struct MachineSummary: Equatable, Sendable {
+    public let cpu: Int
+    public let cpuTrend: Trend?
+    public let ram: Int
+    public let ramTrend: Trend?
+    /// Disk space gained (positive) or lost over the chart's ten minutes,
+    /// in gigabytes. Nil until there are two reads to compare.
+    public let diskChangeGB: Double?
+    public let room: Room
+    /// Each line that set the room, such as "load 2.1 per core".
+    public let why: [String]
+
+    /// How long the average reaches back.
+    public static let window: TimeInterval = 30
+    /// A trend moves at ten points between one window and the last.
+    static let shift = 10.0
+
+    /// `samples` are the machine's chart points, oldest first, the reading's
+    /// own among them. With none in the window, the reading alone stands.
+    public init(reading: MachineReading, samples: [LoadSample], now: Date) {
+        func average(_ value: KeyPath<LoadSample, Int>, from: TimeInterval, to: TimeInterval) -> Double? {
+            let inside = samples.filter {
+                let age = now.timeIntervalSince($0.at)
+                return age >= from && age < to
+            }
+            guard !inside.isEmpty else { return nil }
+            return Double(inside.map { $0[keyPath: value] }.reduce(0, +)) / Double(inside.count)
+        }
+        func trend(_ value: KeyPath<LoadSample, Int>) -> Trend? {
+            guard let last = average(value, from: 0, to: Self.window),
+                  let before = average(value, from: Self.window, to: 2 * Self.window) else { return nil }
+            return last - before >= Self.shift ? .rising : before - last >= Self.shift ? .falling : .steady
+        }
+        cpu = average(\.cpu, from: 0, to: Self.window).map { Int($0.rounded()) } ?? reading.cpuUsed
+        ram = average(\.ram, from: 0, to: Self.window).map { Int($0.rounded()) } ?? reading.ramUsed
+        cpuTrend = trend(\.cpu)
+        ramTrend = trend(\.ram)
+        if let first = samples.first, first.at < reading.takenAt {
+            diskChangeGB = ((Double(reading.diskFreeBytes) - Double(first.diskFree)) / 1e8).rounded() / 10
+        } else {
+            diskChangeGB = nil
+        }
+        (room, why) = Self.room(cpu: cpu, ram: ram, loadPerCore: reading.loadPerCore,
+                                diskFreeGB: Double(reading.diskFreeBytes) / 1e9)
+    }
+
+    /// CPU and memory on the seat meters' 60 and 85 percent lines. Load per
+    /// core busy from 2 and full from 3, about the 50 on 16 cores the build
+    /// method allows. Disk by gigabytes left, since a percent of a big disk
+    /// can still be plenty.
+    static func room(cpu: Int, ram: Int, loadPerCore: Double, diskFreeGB: Double) -> (Room, [String]) {
+        let checks: [(busy: Bool, full: Bool, text: String)] = [
+            (cpu >= 60, cpu >= 85, "CPU \(cpu)% over 30 s"),
+            (ram >= 60, ram >= 85, "memory \(ram)% over 30 s"),
+            (loadPerCore >= 2, loadPerCore >= 3, String(format: "load %.1f per core", loadPerCore)),
+            (diskFreeGB < 25, diskFreeGB < 10, "\(Int(diskFreeGB.rounded())) GB disk left"),
+        ]
+        let full = checks.filter(\.full)
+        if !full.isEmpty { return (.full, full.map(\.text)) }
+        let busy = checks.filter(\.busy)
+        return busy.isEmpty ? (.free, []) : (.busy, busy.map(\.text))
     }
 }
 
@@ -161,11 +227,13 @@ public struct LoadSample: Equatable, Sendable {
     public let at: Date
     public let cpu: Int
     public let ram: Int
+    public let diskFree: Int64
 
-    public init(at: Date, cpu: Int, ram: Int) {
+    public init(at: Date, cpu: Int, ram: Int, diskFree: Int64 = 0) {
         self.at = at
         self.cpu = cpu
         self.ram = ram
+        self.diskFree = diskFree
     }
 
     /// How far back the chart reaches. Held in memory only, so a relaunch
@@ -253,13 +321,14 @@ public struct MachinesFile: Encodable, Equatable, Sendable {
         public let problem: String?
         public let readAt: String?
         public let room: Room?
+        public let why: [String]
         public let cpu: CPU?
         public let ram: Memory?
         public let disk: Disk?
         public let agents: AgentCount?
 
         enum CodingKeys: String, CodingKey {
-            case id, label, reachable, stale, problem, readAt = "read_at", room, cpu, ram, disk, agents
+            case id, label, reachable, stale, problem, readAt = "read_at", room, why, cpu, ram, disk, agents
         }
 
         // Every key written, `null` included, so a reader never has to ask
@@ -273,6 +342,7 @@ public struct MachinesFile: Encodable, Equatable, Sendable {
             try keys.encode(problem, forKey: .problem)
             try keys.encode(readAt, forKey: .readAt)
             try keys.encode(room, forKey: .room)
+            try keys.encode(why, forKey: .why)
             try keys.encode(cpu, forKey: .cpu)
             try keys.encode(ram, forKey: .ram)
             try keys.encode(disk, forKey: .disk)
@@ -280,22 +350,53 @@ public struct MachinesFile: Encodable, Equatable, Sendable {
         }
     }
 
+    /// `used` is the 30-second average and `now` the last one-second sample.
     public struct CPU: Encodable, Equatable, Sendable {
         public let used: Int
+        public let now: Int
+        public let trend: Trend?
         public let load: [Double]
         public let cores: Int
+        public let loadPerCore: Double
+        enum CodingKeys: String, CodingKey { case used, now, trend, load, cores, loadPerCore = "load_per_core" }
+        public func encode(to encoder: Encoder) throws {
+            var keys = encoder.container(keyedBy: CodingKeys.self)
+            try keys.encode(used, forKey: .used)
+            try keys.encode(now, forKey: .now)
+            try keys.encode(trend, forKey: .trend)
+            try keys.encode(load, forKey: .load)
+            try keys.encode(cores, forKey: .cores)
+            try keys.encode(loadPerCore, forKey: .loadPerCore)
+        }
     }
 
     public struct Memory: Encodable, Equatable, Sendable {
         public let used: Int
+        public let now: Int
+        public let trend: Trend?
         public let totalGB: Int
-        enum CodingKeys: String, CodingKey { case used, totalGB = "total_gb" }
+        enum CodingKeys: String, CodingKey { case used, now, trend, totalGB = "total_gb" }
+        public func encode(to encoder: Encoder) throws {
+            var keys = encoder.container(keyedBy: CodingKeys.self)
+            try keys.encode(used, forKey: .used)
+            try keys.encode(now, forKey: .now)
+            try keys.encode(trend, forKey: .trend)
+            try keys.encode(totalGB, forKey: .totalGB)
+        }
     }
 
     public struct Disk: Encodable, Equatable, Sendable {
         public let used: Int
         public let freeGB: Int
-        enum CodingKeys: String, CodingKey { case used, freeGB = "free_gb" }
+        /// Gigabytes gained or lost over the last ten minutes; negative is filling.
+        public let change10mGB: Double?
+        enum CodingKeys: String, CodingKey { case used, freeGB = "free_gb", change10mGB = "change_10m_gb" }
+        public func encode(to encoder: Encoder) throws {
+            var keys = encoder.container(keyedBy: CodingKeys.self)
+            try keys.encode(used, forKey: .used)
+            try keys.encode(freeGB, forKey: .freeGB)
+            try keys.encode(change10mGB, forKey: .change10mGB)
+        }
     }
 
     struct Agents: Encodable {
@@ -307,8 +408,8 @@ public struct MachinesFile: Encodable, Equatable, Sendable {
 
     /// A machine is stale when its last read failed or its figures are older
     /// than three read intervals.
-    public init(machines: [Machine], states: [String: MachineState], seconds: Int, now: Date,
-                timeZone: TimeZone = .current) {
+    public init(machines: [Machine], states: [String: MachineState], samples: [String: [LoadSample]] = [:],
+                seconds: Int, now: Date, timeZone: TimeZone = .current) {
         let dates = ISO8601DateFormatter()
         dates.timeZone = timeZone
         updated = dates.string(from: now)
@@ -319,12 +420,20 @@ public struct MachinesFile: Encodable, Equatable, Sendable {
             var problem: String?
             if case let .unreachable(reason, _) = state { problem = reason }
             let fresh = state.map { if case .live = $0 { true } else { false } } ?? false
+            let summary = reading.map { MachineSummary(reading: $0, samples: samples[machine.id] ?? [], now: now) }
             return Row(id: machine.id, label: machine.label, reachable: fresh, stale: !fresh || (reading?.takenAt ?? .distantPast) < oldest,
                        problem: problem, readAt: reading.map { dates.string(from: $0.takenAt) },
-                       room: reading?.room,
-                       cpu: reading.map { CPU(used: $0.cpuUsed, load: $0.load.map { ($0 * 10).rounded() / 10 }, cores: $0.cores) },
-                       ram: reading.map { Memory(used: $0.ramUsed, totalGB: Int((Double($0.ramBytes) / 1_073_741_824).rounded())) },
-                       disk: reading.map { Disk(used: $0.diskUsed, freeGB: Int((Double($0.diskFreeBytes) / 1e9).rounded())) },
+                       room: summary?.room, why: summary?.why ?? [],
+                       cpu: reading.flatMap { reading in summary.map {
+                           CPU(used: $0.cpu, now: reading.cpuUsed, trend: $0.cpuTrend,
+                               load: reading.load.map { ($0 * 10).rounded() / 10 }, cores: reading.cores,
+                               loadPerCore: (reading.loadPerCore * 10).rounded() / 10) } },
+                       ram: reading.flatMap { reading in summary.map {
+                           Memory(used: $0.ram, now: reading.ramUsed, trend: $0.ramTrend,
+                                  totalGB: Int((Double(reading.ramBytes) / 1_073_741_824).rounded())) } },
+                       disk: reading.flatMap { reading in summary.map {
+                           Disk(used: reading.diskUsed, freeGB: Int((Double(reading.diskFreeBytes) / 1e9).rounded()),
+                                change10mGB: $0.diskChangeGB) } },
                        agents: reading?.agents)
         }
     }
@@ -404,12 +513,14 @@ public actor MachineMonitor {
         for machine in current.machines {
             var samples = (history[machine.id] ?? []).filter { now.timeIntervalSince($0.at) <= LoadSample.span }
             if case let .live(reading) = next[machine.id] {
-                samples.append(LoadSample(at: reading.takenAt, cpu: reading.cpuUsed, ram: reading.ramUsed))
+                samples.append(LoadSample(at: reading.takenAt, cpu: reading.cpuUsed, ram: reading.ramUsed,
+                                          diskFree: reading.diskFreeBytes))
             }
             kept[machine.id] = samples
         }
         history = kept
-        let written = MachinesFile(machines: current.machines, states: next, seconds: current.machineSeconds, now: Date())
+        let written = MachinesFile(machines: current.machines, states: next, samples: kept,
+                                   seconds: current.machineSeconds, now: now)
         if let data = try? written.data() {
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? data.write(to: file, options: .atomic)

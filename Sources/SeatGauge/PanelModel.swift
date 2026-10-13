@@ -194,7 +194,7 @@ struct SummaryModel: Equatable {
 }
 
 enum Tab: CaseIterable {
-    case seats, spend, load
+    case seats, load, spend
     var title: String {
         switch self {
         case .seats: "SEATS"

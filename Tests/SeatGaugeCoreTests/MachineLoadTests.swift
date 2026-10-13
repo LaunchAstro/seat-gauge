@@ -30,7 +30,7 @@ import SeatGaugeTestSupport
         #expect(reading.diskUsed == 80)
         #expect(reading.diskFreeBytes == 200_000_000 * 1024)
         #expect(reading.agents == AgentCount(working: 1, blocked: 1, idle: 2))
-        #expect(reading.room == .free)
+        #expect(reading.loadPerCore == 0.4)
     }
 
     @Test("no herdr is no count, and a cut-off answer is no reading")
@@ -42,17 +42,70 @@ import SeatGaugeTestSupport
         #expect(MachineProbe.parse(Self.printed.filter { $0 != "end" }, at: Self.now) == nil)
     }
 
-    @Test("room turns busy at 60 percent and full at 85, or when the disk runs low")
+    static func reading(cpu: Int = 10, ram: Int = 10, load: Double = 1, freeGB: Double = 500,
+                        at: Date = now) -> MachineReading {
+        MachineReading(takenAt: at, cpuUsed: cpu, load: [load, 1, 1], cores: 8, ramUsed: ram,
+                       ramBytes: 1, diskUsed: 50, diskFreeBytes: Int64(freeGB * 1e9), agents: nil)
+    }
+
+    @Test("room turns busy at 60 percent, 2 load per core or 25 GB left, full at 85, 3 per core or 10 GB, and says why")
     func room() {
-        func reading(cpu: Int = 10, ram: Int = 10, freeGB: Double = 500) -> MachineReading {
-            MachineReading(takenAt: Self.now, cpuUsed: cpu, load: [1, 1, 1], cores: 8, ramUsed: ram,
-                           ramBytes: 1, diskUsed: 50, diskFreeBytes: Int64(freeGB * 1e9), agents: nil)
+        func summary(_ reading: MachineReading) -> MachineSummary {
+            MachineSummary(reading: reading, samples: [], now: Self.now)
         }
-        #expect(reading().room == .free)
-        #expect(reading(cpu: 60).room == .busy)
-        #expect(reading(ram: 85).room == .full)
-        #expect(reading(freeGB: 20).room == .busy)
-        #expect(reading(freeGB: 5).room == .full)
+        #expect(summary(Self.reading()).room == .free)
+        #expect(summary(Self.reading()).why == [])
+        #expect(summary(Self.reading(cpu: 60)).room == .busy)
+        #expect(summary(Self.reading(ram: 85)).room == .full)
+        #expect(summary(Self.reading(load: 16)).room == .busy)
+        #expect(summary(Self.reading(load: 16)).why == ["load 2.0 per core"])
+        #expect(summary(Self.reading(load: 24)).room == .full)
+        #expect(summary(Self.reading(freeGB: 20)).room == .busy)
+        #expect(summary(Self.reading(cpu: 90, freeGB: 5)).why == ["CPU 90% over 30 s", "5 GB disk left"])
+    }
+
+    @Test("CPU is judged on its 30-second average, and the trend compares it with the 30 seconds before")
+    func average() {
+        func sample(_ secondsAgo: Double, cpu: Int, freeGB: Double = 100) -> LoadSample {
+            LoadSample(at: Self.now.addingTimeInterval(-secondsAgo), cpu: cpu, ram: 20, diskFree: Int64(freeGB * 1e9))
+        }
+        // One spike in the last 30 seconds does not make the machine busy.
+        let spike = [sample(50, cpu: 10), sample(40, cpu: 10), sample(20, cpu: 10), sample(10, cpu: 10), sample(0, cpu: 95)]
+        let calm = MachineSummary(reading: Self.reading(cpu: 95, freeGB: 98), samples: spike, now: Self.now)
+        #expect(calm.cpu == 38)
+        #expect(calm.room == .free)
+        #expect(calm.cpuTrend == .rising)
+        #expect(calm.ramTrend == .steady)
+        #expect(calm.diskChangeGB == -2)
+        let easing = [sample(50, cpu: 80), sample(35, cpu: 80), sample(20, cpu: 30), sample(0, cpu: 30)]
+        #expect(MachineSummary(reading: Self.reading(cpu: 30), samples: easing, now: Self.now).cpuTrend == .falling)
+        // Too little history for a trend is none.
+        #expect(MachineSummary(reading: Self.reading(), samples: [sample(0, cpu: 10)], now: Self.now).cpuTrend == nil)
+    }
+
+    @Test("machines add appends to the list, or makes it with this Mac first, and keeps the comments")
+    func add() throws {
+        let studio = Machine(id: "studio", label: "Studio", ssh: "studio.local")
+        let here = Machine(id: "desk", label: "Desk")
+        let bare = """
+            {
+              // the seats
+              "seats": [],
+              "pollMinutes": 5
+            }
+            """
+        let made = try MachineList.adding(studio, here: here, to: bare)
+        #expect(made.contains("// the seats"))
+        #expect(try ConfigLoader.decode(Data(made.utf8)).machines == [here, studio])
+        let listed = """
+            { "seats": [], "machines": [
+                { "id": "desk", "label": "Desk [main]" }
+              ] }
+            """
+        let added = try MachineList.adding(studio, here: here, to: listed)
+        #expect(try ConfigLoader.decode(Data(added.utf8)).machines == [Machine(id: "desk", label: "Desk [main]"), studio])
+        #expect(throws: ConfigProblem.self) { try MachineList.adding(studio, here: here, to: added) }
+        #expect(MachineList.id(from: "Studio-Two.local") == "studio-two")
     }
 
     @Test("this Mac runs the probe in sh; another runs it over ssh in batch mode")

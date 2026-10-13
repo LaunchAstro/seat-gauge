@@ -98,7 +98,8 @@ struct StatusText: View {
 
     var body: some View {
         Text(status.text).font(Type.titleMono(TitleBarMetrics.textSize))
-            .foregroundStyle(status.isProblem ? Tone.warning : Tone.inkDim)
+            // A step lighter than the cards' dim notes, so it reads on the dark ground.
+            .foregroundStyle(status.isProblem ? Tone.warning : Tone.inkMuted)
     }
 }
 
@@ -194,11 +195,11 @@ struct TitleControls: View {
         HStack(spacing: TitleBarMetrics.gap) {
             ShowSeatMenu(offstage: mirror.model(at: Date()).offstage)
             SyncButton(busy: !mirror.syncing.isEmpty, label: "Sync all",
-                       side: TitleBarMetrics.points(TitleBarMetrics.textSize)) { mirror.syncAll() }
+                       side: TitleBarMetrics.points(TitleBarMetrics.textSize), tone: Tone.inkMuted) { mirror.syncAll() }
             ForEach(Tab.allCases, id: \.title) { one in
                 if one != Tab.allCases.first { Text("·").foregroundStyle(Tone.inkDim) }
                 Text(one.title)
-                    .foregroundStyle(one == mirror.tab ? Tone.ink : Tone.inkDim)
+                    .foregroundStyle(one == mirror.tab ? Tone.ink : Tone.inkMuted)
                     .onTapGesture { mirror.tab = one }
             }
         }
