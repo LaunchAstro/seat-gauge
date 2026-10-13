@@ -144,6 +144,12 @@ struct CardModel: Identifiable, Equatable {
     var isSyncing = false
     /// True when the card offers Sign in, by `SeatLogin.offers`.
     var signsIn = false
+    /// True when the seat has an `open` command, which a click on the
+    /// header's mark or name runs.
+    var opens = false
+
+    /// What VoiceOver reads for that click.
+    var openLabel: String { "Open \(label)" }
 
     var isDimmed: Bool { stale != nil }
 
@@ -297,7 +303,8 @@ struct PanelModel: Equatable {
                 cards.append(CardModel(id: id, label: name(id), isBest: false, lines: [], pace: nil, stale: stale,
                                        mark: seat?.kind.provider ?? .claude, account: PlanText.said(seat?.account),
                                        plan: PlanText.resolve(tier: nil, declared: seat?.plan, wire: nil),
-                                       signsIn: SeatLogin.offers(seat, state)))
+                                       signsIn: SeatLogin.offers(seat, state),
+                                       opens: seat?.open != nil))
                 continue
             }
             let windows = reading.windows.sorted { $0.kind < $1.kind }
@@ -318,7 +325,8 @@ struct PanelModel: Equatable {
                 plan: PlanText.resolve(tier: reading.tier, declared: seat?.plan, wire: reading.plan),
                 dated: polls || stale != nil ? nil : "synced \(Countdown.text(until: now, now: reading.takenAt)) ago",
                 isSyncing: syncing.contains(id),
-                signsIn: SeatLogin.offers(seat, state)))
+                signsIn: SeatLogin.offers(seat, state),
+                opens: seat?.open != nil))
         }
         let shown = cards.contains { $0.id == hovered } ? hovered : nil
         // Only the hovered card's detail is drawn, so only it has a status.

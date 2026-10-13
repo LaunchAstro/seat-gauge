@@ -198,7 +198,8 @@ struct CardHeader: View {
                 }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(card.heading)
+            .accessibilityLabel(card.opens ? card.openLabel : card.heading)
+            .modifier(OpensSeat(card: card))
             // Laid out first, so a narrow card cuts the plan before the seat.
             .layoutPriority(1)
             Spacer(minLength: CardMetrics.Header.spacer)
@@ -236,6 +237,30 @@ struct SignInButton: View {
             .fixedSize()
             .disabled(busy)
             .accessibilityLabel("Sign in \(card.heading)")
+    }
+}
+
+/// The header's mark and name as the way to open the seat, when it has an
+/// `open` command: a pointing hand over them, a click that runs it, and a
+/// button VoiceOver can press. A tap rather than a `Button`, so a drag that
+/// starts on the name still moves the card. The cursor is set on every move
+/// rather than pushed, so a face that fades out mid hover leaves no stack.
+struct OpensSeat: ViewModifier {
+    let card: CardModel
+
+    func body(content: Content) -> some View {
+        if card.opens {
+            content
+                .contentShape(Rectangle())
+                .onTapGesture { GaugeMirror.shared.open(card.id) }
+                .onContinuousHover { phase in
+                    if case .active = phase { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+                }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { GaugeMirror.shared.open(card.id) }
+        } else {
+            content
+        }
     }
 }
 

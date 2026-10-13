@@ -27,6 +27,7 @@ Three SwiftPM targets, Command Line Tools only (no Xcode project).
 | `AccountPlan.swift` | Reads the exact plan from a seat's own login file: the plan tier, or the organisation type when the tier names no plan. |
 | `ProviderMark.swift` | `MarkCache`: fetches each provider's favicon once, when none is cached, and keeps it in Application Support. |
 | `SeatLogin.swift` | Signs one seat in: `claude auth login` on a pseudo-terminal under the seat's own profile, the link out, the pasted code in, and `claude auth status` as the proof. Every front end signs in through it. |
+| `SeatOpener.swift` | Runs a seat's `open` command when its card is clicked: no shell, a built environment, detached after a short start check. |
 | `SeatToken.swift` | Where a token seat's token file is, read at fetch time and handed to one child process. |
 | `RefreshService.swift`, `Poller.swift`, `GaugeStore.swift` | Fetch the seats one after another, loop on the poll interval, and keep the last readings on disk. |
 | `Pace.swift`, `Alerts.swift` | The pace verdict and countdown text, and when a reset alert is due. |

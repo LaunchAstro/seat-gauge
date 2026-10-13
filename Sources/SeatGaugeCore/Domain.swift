@@ -58,15 +58,19 @@ public struct Seat: Identifiable, Equatable, Sendable {
     /// beats it, because a declaration goes stale when the user switches
     /// plans; it beats the wire's `max`, which cannot tell 5x from 20x.
     public let plan: String?
+    /// The command a click on the card's mark or name runs, as an argv with
+    /// no shell, its program's `~` already expanded. Nil draws no click.
+    public let open: [String]?
 
     public init(id: SeatID, label: String, kind: SeatKind, tokenFile: URL? = nil,
-                account: String? = nil, plan: String? = nil) {
+                account: String? = nil, plan: String? = nil, open: [String]? = nil) {
         self.id = id
         self.label = label
         self.kind = kind
         self.tokenFile = tokenFile
         self.account = account
         self.plan = plan
+        self.open = open
     }
 }
 
