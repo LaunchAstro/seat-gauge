@@ -110,11 +110,20 @@ After every poll or sync the app writes `headroom.json` beside `readings.json` i
 
 Dates are ISO 8601 with the local offset. The file names no single seat to use, so the reader spreads its work across the seats with room rather than sending it all to one.
 
+Beside it, `machines.json` holds each machine's load, read every 30 seconds: this Mac, and any other listed under `machines` in `seats.json` with an `ssh` destination (a key that signs in without a prompt). The panel shows the same figures on its LOAD tab.
+
+- `machines`: one object per machine, with `id`, `label`, `reachable`, `stale`, `problem` (why the last read failed, or `null`) and `read_at`.
+- `room`: `free`, `busy` or `full`. Busy from 60 percent CPU or memory or under 25 GB of disk free, full from 85 percent or under 10 GB.
+- `cpu` (`used` percent over a three-second sample, `load` averages over 1, 5 and 15 minutes, `cores`), `ram` (`used` percent by macOS memory pressure, `total_gb`) and `disk` (`used` percent, `free_gb`).
+- `agents`: the agents herdr runs on that machine, as `working`, `blocked` (waiting on a person), `idle` and `total`, or `null` when the machine has no herdr. Agents outside herdr are not counted.
+
+`seatgauge-cli machines` reads every machine once and prints the same shape.
+
 `skills/seat-gauge/` is a ready-made agent skill that reads this file. Copy or link the folder into your agent's skills folder, such as `~/.claude/skills/` for Claude Code or `~/.agents/skills/` for Codex, and an agent asked which seat has room reads the file instead of spending a seat to check.
 
 ## Working on it
 
-`AGENTS.md` says where things live and how to change them. `CONTEXT.md` is the glossary, and `docs/adr/` holds the decisions. Run `scripts/check.sh` before you push.
+`AGENTS.md` says where things live and how to change them. `CONTEXT.md` is the glossary, and `docs/adr/` holds the decisions. Before you push, run `scripts/check.sh` with the tests for what you changed.
 
 ## Licence
 

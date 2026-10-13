@@ -4,7 +4,8 @@ import SeatGaugeCore
 // The app's core, headless. `read` prints every seat's outcome, `record`
 // writes one seat's raw reply to a fixture, `watch` runs the panel's own poll
 // loop with nothing drawn, and `spend` runs the roll-up once over the real
-// transcripts and says what it found. `login` signs one seat in.
+// transcripts and says what it found. `login` signs one seat in. `machines`
+// reads each machine's load once.
 
 /// The seats when there is no `seats.json` to follow: the template's, so the
 /// CLI never reads a seat without its own profile.
@@ -114,6 +115,22 @@ func watch() async throws {
     await poller.run()
 }
 
+/// Every listed machine read once, printed in `machines.json`'s shape.
+/// The file itself is the app's to write.
+func machines(_ path: String?) async throws {
+    let file = path.map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) }
+        ?? ConfigLoader.defaultFile
+    let config = FileManager.default.fileExists(atPath: file.path)
+        ? try ConfigLoader(file: file).load() : Config(seats: [], pollMinutes: 5)
+    let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("machines-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: scratch) }
+    let monitor = MachineMonitor(prober: MachineProber(runner: RealProcessRunner()), file: scratch,
+                                 config: { config })
+    let states = await monitor.read()
+    let printed = MachinesFile(machines: config.machines, states: states, seconds: config.machineSeconds, now: Date())
+    print(String(decoding: try printed.data(), as: UTF8.self))
+}
+
 /// One named transcript's distinct responses, the figure to hold the dedupe
 /// to against `jq ... | sort -u | wc -l`.
 func spend(file path: String) {
@@ -186,7 +203,8 @@ do {
     case "attribute": await attribute(arguments.dropFirst())
     case "import-codex": try await importCodex()
     case "login": try login(arguments.dropFirst())
-    default: print("usage: seatgauge-cli read [seats.json] | record <seat> [seats.json] | watch | spend [file] | state [range <r>] [measure <m>] | attribute --seed <file> | import-codex | login <seat> [--email <address>] [seats.json]")
+    case "machines": try await machines(arguments.dropFirst().first)
+    default: print("usage: seatgauge-cli read [seats.json] | machines [seats.json] | record <seat> [seats.json] | watch | spend [file] | state [range <r>] [measure <m>] | attribute --seed <file> | import-codex | login <seat> [--email <address>] [seats.json]")
     }
 } catch {
     FileHandle.standardError.write(Data("seatgauge-cli: \(error)\n".utf8))

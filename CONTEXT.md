@@ -26,3 +26,6 @@ The words Seat Gauge uses, and what each one means. Terms only, no implementatio
 - **Spend**: tokens and list-price dollars per account per hour, rolled up from local Claude Code transcripts and Codex rollouts into `spend.csv`. A floor, since some billed calls are never transcribed.
 - **Sealed**: a spend cell 48 hours past its hour. It is never rewritten, because the transcripts behind it may be gone.
 - **Attribution**: which seat the default `~/.claude` login was at a given hour, so spend under `default` lands on the right account.
+- **Machine**: a computer whose load the LOAD tab shows, this Mac or another read over ssh. Listed under `machines` in `seats.json`.
+- **Room** (of a machine): `free`, `busy` or `full`, from its CPU and memory against the 60 and 85 percent lines, or its disk running under 25 or 10 GB free.
+- **Machines file**: `machines.json`, each machine's CPU, memory, disk, room and agent count, written every read (30 seconds by default) for an agent to read.

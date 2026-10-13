@@ -1,9 +1,19 @@
 import Foundation
 
-/// The seat list from `seats.json`, and how often to poll it.
+/// The seat list from `seats.json`, and how often to poll it, then the
+/// machines whose load the LOAD tab shows and how often to read them.
 public struct Config: Equatable, Sendable {
     public let seats: [Seat]
     public let pollMinutes: Int
+    public var machines: [Machine] = [.here]
+    public var machineSeconds: Int = 30
+
+    public init(seats: [Seat], pollMinutes: Int, machines: [Machine] = [.here], machineSeconds: Int = 30) {
+        self.seats = seats
+        self.pollMinutes = pollMinutes
+        self.machines = machines
+        self.machineSeconds = machineSeconds
+    }
 }
 
 /// Something wrong with the config file, in one sentence the title bar can
@@ -88,6 +98,13 @@ public struct ConfigLoader: Sendable {
             #"  //           click the card's mark or name, such as ["~/bin/open-seat", "work"]. A leading ~"#,
             "  //           in the first word is your home. It runs with HOME, USER and LANG and a standard",
             "  //           PATH, and none of the keys the app was launched with.",
+            "  //",
+            #"  // "machines" optional: the computers the LOAD tab shows, with CPU, memory, disk and"#,
+            #"  //           the agents running on each. Left out, this Mac alone. An entry with no "ssh""#,
+            #"  //           is this Mac; one with "ssh" is read over ssh, which needs a key that signs in"#,
+            #"  //           without a prompt, such as [{ "id": "here", "label": "Laptop" },"#,
+            #"  //           { "id": "studio", "label": "Studio", "ssh": "studio.local" }]."#,
+            #"  //           "machineSeconds": seconds between reads, 30 unless set, never under 10."#,
         ] + none + [
             #"  "seats": ["#,
         ] + lines + [
@@ -179,8 +196,14 @@ public struct ConfigLoader: Sendable {
                 open = values.contains(.open) ? .some(try? values.decode([String].self, forKey: .open)) : nil
             }
         }
+        struct StoredMachine: Decodable {
+            let id, label: String
+            let ssh: String?
+        }
         let seats: [StoredSeat]
         let pollMinutes: Int?
+        let machines: [StoredMachine]?
+        let machineSeconds: Int?
     }
 
     /// `tokenDirectory` is where a seat with no `token` of its own is looked
@@ -263,7 +286,29 @@ public struct ConfigLoader: Sendable {
                 throw ConfigProblem("seats.json: \"\(seat.id)\" has kind \"\(seat.kind)\", which is neither claude nor codex.")
             }
         }
-        return Config(seats: seats, pollMinutes: max(1, stored.pollMinutes ?? 5))
+        return Config(seats: seats, pollMinutes: max(1, stored.pollMinutes ?? 5),
+                      machines: try Self.machines(stored.machines),
+                      machineSeconds: max(10, stored.machineSeconds ?? 30))
+    }
+
+    /// The `machines` list: absent is this Mac alone. An entry without
+    /// `ssh` is this Mac. A destination that opens with `-` would read as
+    /// an ssh option, so it is refused.
+    private static func machines(_ stored: [Stored.StoredMachine]?) throws -> [Machine] {
+        guard let stored else { return [.here] }
+        var seen: Set<String> = []
+        return try stored.map { machine in
+            guard machine.id == machine.id.lowercased(), !machine.id.isEmpty else {
+                throw ConfigProblem("seats.json: the machine id \"\(machine.id)\" is not lowercase.")
+            }
+            guard seen.insert(machine.id).inserted else {
+                throw ConfigProblem("seats.json: the machine id \"\(machine.id)\" is used twice.")
+            }
+            if let ssh = machine.ssh, ssh.isEmpty || ssh.hasPrefix("-") || ssh.contains(where: \.isWhitespace) {
+                throw ConfigProblem("seats.json: the machine \"\(machine.id)\" has an \"ssh\" that is not a host name or ssh alias.")
+            }
+            return Machine(id: machine.id, label: machine.label, ssh: machine.ssh)
+        }
     }
 
     /// A seat's `open`: absent is no command, and anything but a non-empty

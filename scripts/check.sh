@@ -4,7 +4,8 @@
 # `check: <step> pass` or `check: <step> FAIL`, and the run exits 1 if any
 # step failed.
 #
-#   scripts/check.sh
+#   scripts/check.sh                   every test: only when the owner asks
+#   scripts/check.sh MachineLoadTests  the tests for what the change builds
 set -u
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 2
 
@@ -49,7 +50,9 @@ privacy() {
 
 step "swift build" swift build "${SWIFT_FLAGS[@]}"
 # Serial, because the panel suites share one `GaugeMirror`.
-step "swift test" scripts/scratch-home.sh swift test --no-parallel "${SWIFT_FLAGS[@]}"
+FILTER=()
+[ -n "${1:-}" ] && FILTER=(--filter "$1")
+step "swift test" scripts/scratch-home.sh swift test --no-parallel ${FILTER[@]+"${FILTER[@]}"} "${SWIFT_FLAGS[@]}"
 
 step "privacy" privacy
 

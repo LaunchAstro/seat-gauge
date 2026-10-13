@@ -70,7 +70,7 @@ import SeatGaugeCore
 
         // The ported pieces are built over those lines.
         #expect(ComboLayout(cards: [card]).cards.count == 1)
-        #expect(Meter(line: card.lines[0]).line.usedPercent == 42)
+        #expect(Meter(line: card.lines[0]).fill == 0.42)
         #expect(SeatGauge.Label(text: "5h").text == "5h")
     }
 

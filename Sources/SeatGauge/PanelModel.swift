@@ -194,8 +194,14 @@ struct SummaryModel: Equatable {
 }
 
 enum Tab: CaseIterable {
-    case seats, spend
-    var title: String { self == .seats ? "SEATS" : "SPEND" }
+    case seats, spend, load
+    var title: String {
+        switch self {
+        case .seats: "SEATS"
+        case .spend: "SPEND"
+        case .load: "LOAD"
+        }
+    }
 }
 
 /// A configured seat not on the window, as the title bar's `+` offers it:
