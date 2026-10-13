@@ -84,6 +84,10 @@ public struct ConfigLoader: Sendable {
             #"  //           the usage reply names, which for Claude is only "max". With none of the three,"#,
             #"  //           the card shows no plan. It never guesses "free"."#,
             #"  // A "codex" seat reads whichever login the codex CLI has, and ignores "profile" and "token"."#,
+            #"  // "open"    optional, any seat. A command as a list of words, run with no shell when you"#,
+            #"  //           click the card's mark or name, such as ["~/bin/open-seat", "work"]. A leading ~"#,
+            "  //           in the first word is your home. It runs with HOME, USER and LANG and a standard",
+            "  //           PATH, and none of the keys the app was launched with.",
         ] + none + [
             #"  "seats": ["#,
         ] + lines + [
@@ -155,8 +159,12 @@ public struct ConfigLoader: Sendable {
             /// rather than thrown, so one mistyped field does not cost the
             /// seats that are fine.
             let account, plan: String?
+            /// The click's argv, checked below. A key that is there but not
+            /// a list of strings reads as `.some(nil)`, so it is refused
+            /// rather than taken as no command.
+            let open: [String]??
 
-            enum Key: String, CodingKey { case id, label, kind, profile, token, login, account, plan }
+            enum Key: String, CodingKey { case id, label, kind, profile, token, login, account, plan, open }
 
             init(from decoder: any Decoder) throws {
                 let values = try decoder.container(keyedBy: Key.self)
@@ -168,6 +176,7 @@ public struct ConfigLoader: Sendable {
                 login = try values.decodeIfPresent(String.self, forKey: .login)
                 account = try? values.decode(String.self, forKey: .account)
                 plan = try? values.decode(String.self, forKey: .plan)
+                open = values.contains(.open) ? .some(try? values.decode([String].self, forKey: .open)) : nil
             }
         }
         let seats: [StoredSeat]
@@ -200,6 +209,7 @@ public struct ConfigLoader: Sendable {
             guard seen.insert(seat.id).inserted else {
                 throw ConfigProblem("seats.json: the id \"\(seat.id)\" is used twice.")
             }
+            let open = try Self.open(seat.open, id: seat.id, home: home)
             switch seat.kind {
             case "claude":
                 // A claude seat with no profile would read whatever ~/.claude
@@ -243,17 +253,31 @@ public struct ConfigLoader: Sendable {
                 } ?? SeatToken.defaultSource(for: id, in: tokenDirectory)
                 seats.append(Seat(id: id, label: seat.label,
                                   kind: .claude(profileDir: directory), tokenFile: token,
-                                  account: seat.account, plan: seat.plan))
+                                  account: seat.account, plan: seat.plan, open: open))
             case "codex":
                 // Codex signs in from its own config, so it ignores both
                 // "profile" and "token" the same way.
                 seats.append(Seat(id: SeatID(rawValue: seat.id), label: seat.label, kind: .codex,
-                                  account: seat.account, plan: seat.plan))
+                                  account: seat.account, plan: seat.plan, open: open))
             default:
                 throw ConfigProblem("seats.json: \"\(seat.id)\" has kind \"\(seat.kind)\", which is neither claude nor codex.")
             }
         }
         return Config(seats: seats, pollMinutes: max(1, stored.pollMinutes ?? 5))
+    }
+
+    /// A seat's `open`: absent is no command, and anything but a non-empty
+    /// list of non-empty strings is refused. One string is refused too, since
+    /// splitting it into words would take a shell. Only the program's `~` is
+    /// expanded; an argument is the command's to read.
+    static func open(_ stored: [String]??, id: String, home: URL) throws -> [String]? {
+        guard let stored else { return nil }
+        guard let words = stored, let program = words.first, !words.contains(where: \.isEmpty) else {
+            throw ConfigProblem("seats.json: \"\(id)\" has an \"open\" that is not a list of non-empty words, such as [\"~/bin/open-seat\", \"\(id)\"].")
+        }
+        let expanded = program == "~" || program.hasPrefix("~/")
+            ? home.path + program.dropFirst() : program
+        return [expanded] + words.dropFirst()
     }
 
     /// A directory as the file system finds it, so `~/.claude/`, a symlink

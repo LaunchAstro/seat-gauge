@@ -31,8 +31,44 @@ import SwiftUI
     /// fetched it. A provider missing here draws no mark.
     var marks: [Provider: NSImage] = [:]
     var recordProblems: [PanelProblem] = []
+    /// Why the last click on a card's name did not open its seat, kept for
+    /// a minute or until the next click.
+    var openProblem: String?
     var problems: [String] {
-        ProblemSlot((configProblem.map { [.config($0)] } ?? []) + recordProblems).menu
+        ProblemSlot((configProblem.map { [.config($0)] } ?? []) + (openProblem.map { [.open($0)] } ?? [])
+                    + recordProblems).menu
+    }
+    @ObservationIgnored var opener = SeatOpener()
+    /// Seats whose command is inside its start check, so a double click
+    /// runs it once.
+    @ObservationIgnored private var opening: Set<SeatID> = []
+    /// The minute timer on the shown note, cancelled by the next click so an
+    /// older timer never clears a newer note.
+    @ObservationIgnored private var expiry: Task<Void, Never>?
+    /// How long a failure note stays up. A case shortens it so its margins
+    /// are seconds wide rather than a minute long.
+    @ObservationIgnored var openNoteLifetime: Duration = .seconds(60)
+
+    /// Runs the seat's `open` command, and returns the start check for a
+    /// caller that waits on it. A seat with none, or one already starting,
+    /// runs nothing.
+    @discardableResult
+    func open(_ id: SeatID) -> Task<Void, Never>? {
+        guard let seat = seats.first(where: { $0.id == id }), seat.open != nil,
+              opening.insert(id).inserted else { return nil }
+        expiry?.cancel()
+        openProblem = nil
+        return Task {
+            do { try await opener.open(seat) } catch {
+                openProblem = (error as? ProcessFailure)?.reason ?? "\(error)"
+                expiry?.cancel()
+                expiry = Task {
+                    try? await Task.sleep(for: openNoteLifetime)
+                    if !Task.isCancelled { openProblem = nil }
+                }
+            }
+            opening.remove(id)
+        }
     }
     /// Whether the title bar has room for its title and its status line, and
     /// the narrowest the row can be, all set by the window as it lays the bar

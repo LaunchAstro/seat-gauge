@@ -29,6 +29,7 @@ make install    # release build, signed ad hoc, copied to /Applications, CLI lin
 - **A token seat is read only when you sync it.** A seat that signs in with a token reports its windows only during a model turn, so reading it runs one short Haiku turn on that seat's subscription, which counts against its 5-hour and weekly windows like any other. The scheduled poll skips token seats; they are read when you sync that seat or sync all.
 - **It reads your login files.** For each seat it reads the plan tier, or the organisation type beside it, from its login (`.claude.json` for Claude, the plan claim in `auth.json` for Codex), and one account id from each Claude login, to tell which seat the main login is (ADR 0005). It keeps these in memory and writes none of them. A token seat's OAuth token is read from its file and handed only to that seat's `claude`.
 - **It reads your transcripts.** The Spend tab rolls up the Claude Code transcripts under each seat's profile and the Codex rollouts under `~/.codex/sessions`, and writes the totals to `spend.csv` in its own folder.
+- **It runs your open command only when you click.** A seat's `open` command runs when you click its card's mark or name, never on a poll.
 - **It fetches two icons.** The app fetches each provider's favicon once, to show beside the provider's name, and caches it. A fetch that fails is tried again at the next launch. The request carries no cookies and no other data.
 
 `seatgauge-cli watch` and `seatgauge-cli spend` act on the same live data as the app. `watch` polls your real seats (token seats are skipped, as in the app's scheduled poll), and `spend` rolls up your real transcripts. Both write to the installed app's folder, `~/Library/Application Support/com.launchastro.seatgauge/`, not the `.dev` one.
@@ -68,6 +69,17 @@ swift run seatgauge-cli login work
 This runs `claude auth login` under the seat's own profile, which it creates for you, readable by you alone, if it is not there yet. It prints a link: open it in any browser, sign in to the account this seat is for, and paste the code the page shows. `claude auth status` then says whether the seat is signed in. The app's Sign in runs these same steps. `--email <address>` fills the address in on the sign-in page. The code goes to `claude` and nowhere else, so it is never printed or logged. A Codex seat, a token seat, an unknown id, or a profile that is `~`, `~/.claude` or another seat's is refused before anything runs.
 
 Token seats are optional, and nobody needs one to get started. If a seat should sign in with an OAuth token instead, leave `login` out and give `token` the path of a file that holds the token, such as `"token": "~/tokens/work.token"`. Only that seat's `claude` is handed it. A token seat shows 5h and 7d only, because no token reports Fable or the exact plan.
+
+### Opening a seat from its card
+
+Give a seat an `open` command and a click on its card's mark or name runs it, so a fresh session starts on that seat already signed in. It is a list of words, run with no shell, and a `~` at the start of the first word is your home:
+
+```json5
+{ "id": "work", "label": "Work", "kind": "claude", "profile": "~/.claude-seat-work", "login": "own",
+  "open": ["~/bin/open-seat", "work"] },
+```
+
+The app opens no terminal of its own: the command decides what opens, such as a new terminal window on the seat's profile. It runs with `HOME`, `USER`, `LANG` and a standard `PATH` (Homebrew, `~/.local/bin` and the system folders), and none of the keys the app was launched with. A command that will not start, or exits with a failure within a few seconds, says so in the title bar. A seat without `open` has no click.
 
 ### The plan on a card
 

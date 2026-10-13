@@ -5,6 +5,8 @@ import Foundation
 public enum PanelProblem: Equatable, Sendable {
     /// `seats.json` would not read; the decoder's or the rule's own words.
     case config(String)
+    /// The last click on a card's name did not open its seat.
+    case open(String)
     case spendRecord
     /// The last roll-up found `spend.csv` missing and rebuilt it from logs.
     case spendRebuilt
@@ -14,7 +16,7 @@ public enum PanelProblem: Equatable, Sendable {
 
     public var sentence: String {
         switch self {
-        case let .config(reason): reason
+        case let .config(reason), let .open(reason): reason
         case .spendRecord: "spend record unreadable"
         case .spendRebuilt: "spend record was missing, rebuilt from logs"
         case .attributionRecord: "attribution record unreadable"
@@ -38,9 +40,10 @@ public enum PanelProblem: Equatable, Sendable {
     var rank: Int {
         switch self {
         case .config: 0
-        case .spendRecord, .spendRebuilt: 1
-        case .attributionRecord: 2
-        case .timeZone: 3
+        case .open: 1
+        case .spendRecord, .spendRebuilt: 2
+        case .attributionRecord: 3
+        case .timeZone: 4
         }
     }
 }
