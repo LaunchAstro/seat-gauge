@@ -98,6 +98,8 @@ After every poll or sync the app writes `headroom.json` beside `readings.json` i
 
 Dates are ISO 8601 with the local offset. The file names no single seat to use, so the reader spreads its work across the seats with room rather than sending it all to one.
 
+`skills/seat-gauge/` is a ready-made agent skill that reads this file. Copy or link the folder into your agent's skills folder, such as `~/.claude/skills/` for Claude Code or `~/.agents/skills/` for Codex, and an agent asked which seat has room reads the file instead of spending a seat to check.
+
 ## Working on it
 
 `AGENTS.md` says where things live and how to change them. `CONTEXT.md` is the glossary, and `docs/adr/` holds the decisions. Run `scripts/check.sh` before you push.
