@@ -45,6 +45,9 @@ import SwiftUI
     /// The minute timer on the shown note, cancelled by the next click so an
     /// older timer never clears a newer note.
     @ObservationIgnored private var expiry: Task<Void, Never>?
+    /// How long a failure note stays up. A case shortens it so its margins
+    /// are seconds wide rather than a minute long.
+    @ObservationIgnored var openNoteLifetime: Duration = .seconds(60)
 
     /// Runs the seat's `open` command, and returns the start check for a
     /// caller that waits on it. A seat with none, or one already starting,
@@ -60,7 +63,7 @@ import SwiftUI
                 openProblem = (error as? ProcessFailure)?.reason ?? "\(error)"
                 expiry?.cancel()
                 expiry = Task {
-                    try? await Task.sleep(for: .seconds(60))
+                    try? await Task.sleep(for: openNoteLifetime)
                     if !Task.isCancelled { openProblem = nil }
                 }
             }

@@ -14,7 +14,7 @@ import SeatGaugeCore
         let codex = folder.appendingPathComponent("open-codex")
         try "#!/bin/sh\nfor attempt in 1 2 3 4 5 6 7 8 9 10; do\n  if [ -f \"$1\" ]; then exit 1; fi\n  sleep 0.1\ndone\nexit 3\n"
             .write(to: work, atomically: true, encoding: .utf8)
-        try "#!/bin/sh\ntouch \"$1\"\nsleep 2\nexit 2\n".write(to: codex, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\ntouch \"$1\"\nsleep 5\nexit 2\n".write(to: codex, atomically: true, encoding: .utf8)
         for script in [work, codex] {
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         }
@@ -22,6 +22,8 @@ import SeatGaugeCore
             SeatOpenPanelTests.seat("work", open: [work.path, ready.path]),
             SeatOpenPanelTests.seat("codex", open: [codex.path, ready.path]),
         ], in: folder)
+        mirror.openNoteLifetime = .seconds(10)
+        mirror.opener = SeatOpener(settle: .seconds(10))
 
         // The first child cannot fail until the second click has launched its child.
         let first = mirror.open(SeatID(rawValue: "work"))
@@ -36,10 +38,10 @@ import SeatGaugeCore
         let newer = try #require(mirror.openProblem)
         #expect(newer == "Open Codex: open-codex exited with status 2")
         let secondShown = ContinuousClock.now
-        try #require(secondShown - firstTimerStartedBy > .seconds(1))
-        try await Task.sleep(until: firstTimerStartedBy.advanced(by: .milliseconds(60_500)), clock: .continuous)
-        try #require(ContinuousClock.now - firstShown > .seconds(60))
-        try #require(ContinuousClock.now - secondShown < .seconds(60))
+        try #require(secondShown - firstTimerStartedBy > .seconds(4))
+        try await Task.sleep(until: firstTimerStartedBy.advanced(by: .milliseconds(12_500)), clock: .continuous)
+        try #require(ContinuousClock.now - firstShown > .seconds(10))
+        try #require(ContinuousClock.now - secondShown < .seconds(10))
         #expect(mirror.openProblem == newer,
                 "The earlier seat's uncancelled expiry cleared the later seat's note before its minute expired")
     }

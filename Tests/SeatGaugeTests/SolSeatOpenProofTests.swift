@@ -13,14 +13,17 @@ import SeatGaugeCore
         let mirror = SeatOpenPanelTests.mirror([
             SeatOpenPanelTests.seat("work", open: ["/usr/bin/false"]),
         ], in: folder)
+        mirror.openNoteLifetime = .seconds(10)
         await mirror.open(id)?.value
         let first = try #require(mirror.openProblem)
+        let firstShown = ContinuousClock.now
         try await Task.sleep(for: .seconds(5))
         await mirror.open(id)?.value
         #expect(mirror.openProblem == first)
         let secondShown = ContinuousClock.now
-        try await Task.sleep(for: .seconds(56))
-        try #require(ContinuousClock.now - secondShown < .seconds(60))
+        try await Task.sleep(until: firstShown.advanced(by: .milliseconds(12_500)), clock: .continuous)
+        try #require(ContinuousClock.now - firstShown > .seconds(10))
+        try #require(ContinuousClock.now - secondShown < .seconds(10))
         #expect(mirror.openProblem == first,
                 "The first click's timer cleared the second click's failure before its own minute expired")
     }
