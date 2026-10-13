@@ -79,8 +79,18 @@ struct LoadTab: View {
 
     var body: some View {
         let cards = mirror.machines.map { MachineCard.make($0, state: mirror.machineStates[$0.id], now: Date()) }
+        // As the seat row does: the cards fill the width while they fit, and
+        // scroll sideways at their minimum when they do not.
+        ViewThatFits(in: .horizontal) {
+            row(cards).frame(idealWidth: PanelLayout.minimumContentWidth(cards: cards.count))
+            CardScroller(ids: cards.map(\.id)) { row(cards) }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func row(_ cards: [MachineCard]) -> some View {
         CardRow {
-            ForEach(cards) { MachineCardView(card: $0) }
+            ForEach(cards) { MachineCardView(card: $0).id($0.id) }
         }
         .fixedSize(horizontal: false, vertical: true)
     }
