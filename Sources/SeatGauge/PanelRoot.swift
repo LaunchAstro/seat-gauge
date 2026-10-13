@@ -13,8 +13,12 @@ import SwiftUI
     /// What the Spend tab draws, read off `spend.csv` at launch and after
     /// every roll-up. The file is the record; this is a reading of it.
     private(set) var chart = SpendChart.empty
-    /// Both tabs are laid out in one envelope, so a switch moves nothing.
+    /// Every tab is laid out in one envelope, so a switch moves nothing.
     var tab: Tab = .seats
+    /// The LOAD tab's machines and what each last read said, set by the
+    /// machine loop in `main.swift`.
+    var machines: [Machine] = []
+    var machineStates: [String: MachineState] = [:]
     /// The size the whole panel is drawn at. It is held here rather than in a
     /// global because a view body that reads it is a view body that redraws
     /// when the user changes it: `Type` and `CardMetrics` both read it
@@ -252,8 +256,10 @@ struct Root: View {
         SwiftUI.TimelineView(.periodic(from: PanelClock.nextMinute(after: Date()), by: 60)) { tick in
             let model = mirror.model(at: tick.date)
             let seats = mirror.tab == .seats
-            // Both tabs, the hidden one at no opacity and out of reach of the
-            // pointer, so the window is the taller of the two on either.
+            let spend = mirror.tab == .spend
+            let load = mirror.tab == .load
+            // Every tab, the hidden ones at no opacity and out of reach of the
+            // pointer, so the window is the tallest of them on any.
             ZStack(alignment: .top) {
                 Group {
                     if let message = model.emptyMessage {
@@ -264,7 +270,9 @@ struct Root: View {
                 }
                 .opacity(seats ? 1 : 0).allowsHitTesting(seats).accessibilityHidden(!seats)
                 SpendTab(chart: mirror.chart)
-                    .opacity(seats ? 0 : 1).allowsHitTesting(!seats).accessibilityHidden(seats)
+                    .opacity(spend ? 1 : 0).allowsHitTesting(spend).accessibilityHidden(!spend)
+                LoadTab()
+                    .opacity(load ? 1 : 0).allowsHitTesting(load).accessibilityHidden(!load)
             }
             .fixedSize(horizontal: false, vertical: true)
             // The title bar's row is never narrower than itself.

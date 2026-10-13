@@ -79,6 +79,28 @@ if let watcher = try? ConfigWatcher() {
                         },
                         // The seats a poll is reading, then none, for the busy icons.
                         syncing: { ids in Task { @MainActor in GaugeMirror.shared.syncing = ids } })
+    // Each machine's load, on its own loop beside the seat poll, into the
+    // LOAD tab and `machines.json`.
+    let machineMonitor = MachineMonitor(prober: MachineProber(runner: RealProcessRunner()),
+                                        config: { await watcher.config },
+                                        notify: { machines, states in
+                                            Task { @MainActor in
+                                                let mirror = GaugeMirror.shared
+                                                // A card that gains or loses its meters
+                                                // changes the tab's height.
+                                                let shape = { (all: [String: MachineState]) in
+                                                    all.filter { $0.value.reading != nil }.keys.sorted() }
+                                                let reshaped = mirror.machines != machines
+                                                    || shape(mirror.machineStates) != shape(states)
+                                                mirror.machines = machines
+                                                mirror.machineStates = states
+                                                if reshaped { controller.refit(.drawn) }
+                                            }
+                                        })
+    Task {
+        GaugeMirror.shared.machines = await watcher.config.machines
+        await machineMonitor.run()
+    }
     GaugeMirror.shared.sync = { id in Task { await poller.sync([id]) } }
     GaugeMirror.shared.syncAll = { Task { await poller.syncAll() } }
     GaugeMirror.shared.signIn = { id in

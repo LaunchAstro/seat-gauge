@@ -238,7 +238,8 @@ import SeatGaugeCore
             let controls = NSHostingView(rootView: TitleControls()).fittingSize.width
             let row = TitleBarMetrics.minimumWidth(buttons: built.buttonsEdge, controls: controls)
             #expect(abs(GaugeMirror.shared.chromeMinimum - row) < 1)
-            #expect(built.window.contentMinSize.width <= CardMetrics.minimumWidth + 1)
+            // The tab words can be wider than one card; the floor is the wider of the two.
+            #expect(built.window.contentMinSize.width <= max(CardMetrics.minimumWidth, row) + 1)
         }
     }
 

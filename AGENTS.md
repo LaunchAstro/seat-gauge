@@ -36,19 +36,25 @@ Three SwiftPM targets, Command Line Tools only (no Xcode project).
 | `Spend.swift`, `SpendCSV.swift`, `SpendRecord.swift` | Token counts, the rate card, and the CSV record: its day and hour columns and its sealing rule. |
 | `Attribution*.swift`, `IdentityObserver.swift`, `SpendAttribution.swift` | Which seat the default `~/.claude` login was at each hour, so its spend lands on the right account. |
 | `SpendChart.swift`, `SeatHistory.swift` | Series for the Spend tab and a card's history chart. |
+| `MachineLoad.swift` | The LOAD tab's figures: the probe each machine runs (here in `sh`, elsewhere over `ssh`), its parse into CPU, memory, disk and herdr's agent count, the room verdict, `MachineMonitor`'s loop and `machines.json`. |
 | `State.swift` | `state.json`: roll-up watermark and panel choices, under a file lock. |
 
 In the app, `PanelModel.swift` builds what each card shows from a `Snapshot`, `PanelRoot.swift` holds `GaugeMirror` (the main-actor copy of the latest state), `WindowController.swift` and `PanelHeight.swift` size the window, `SignIn.swift` is a card's Sign in (the browser, the code prompt and the proof around `SeatLogin`), and `main.swift` wires it all together.
 
 ## Check a change
 
-```sh
-scripts/check.sh
-```
+Test only what the change builds. This is the owner's rule and it is not optional.
 
-The gate. It builds, runs the tests under a scratch home so no test touches your real Application Support folder, and fails on an email address or a real-looking home path in the tree. `swift build` and `make test` are the parts. Run it once before each push, not after every edit.
+- Run the build, the tests for the feature you are building (by filter), and the privacy scan:
+  ```sh
+  scripts/check.sh MachineLoadTests
+  ```
+- Then prove it the way the owner does: install the app (`make install`) and use the new feature itself. If the change is CPU load, look at the CPU figures; if it is a click, click it.
+- Do not run, add or rework tests for parts of the panel the change does not touch. No resizing the window, opening and closing it, sweeping text sizes or appearances, or walking every seat's card to see that nothing moved. An existing test outside the change that now fails because of it gets the smallest fix that makes it true again, and nothing more.
+- Visual checks (screenshots, mockups, side-by-side comparisons) only for the section of the panel you changed, and only of that section. A change to the LOAD tab is looked at on the LOAD tab; nothing else is photographed, compared or re-checked.
+- The full suite (`scripts/check.sh` with no filter) takes 10 to 15 minutes. Run it only when the owner asks for it.
 
-The two tests that launch the real `claude` and `codex` run only under `SEATGAUGE_INTEGRATION=1` (see `CONTRIBUTING.md`).
+`swift build` and `make test` are the parts. The two tests that launch the real `claude` and `codex` run only under `SEATGAUGE_INTEGRATION=1` (see `CONTRIBUTING.md`).
 
 The test suite uses Swift Testing (`@Test`), which ships with the Command Line Tools. Every `swift` command needs the framework flags in the `Makefile`, so prefer `make build` and `make test` to bare `swift`.
 

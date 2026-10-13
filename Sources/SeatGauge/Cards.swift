@@ -6,8 +6,16 @@ import SwiftUI
 /// verdict is on the detail face. The ALL card draws its own while hovered.
 
 struct Meter: View {
-    let line: WindowLine
+    let fill: Double
+    let color: Color
     @Environment(\.pinnedVerticalFactor) private var pinned
+
+    init(line: WindowLine) { self.init(fill: line.fill, color: line.tone.color) }
+
+    init(fill: Double, color: Color) {
+        self.fill = fill
+        self.color = color
+    }
 
     var body: some View {
         // The user's extra height draws a thicker meter.
@@ -16,8 +24,8 @@ struct Meter: View {
         GeometryReader { space in
             ZStack(alignment: .leading) {
                 Rectangle().fill(Tone.meterTrack)
-                Rectangle().fill(line.tone.color)
-                    .frame(width: space.size.width * line.fill)
+                Rectangle().fill(color)
+                    .frame(width: space.size.width * fill)
             }
         }
         // The meter is the one column that stretches, and the floor under it
