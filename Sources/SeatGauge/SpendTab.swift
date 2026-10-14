@@ -4,14 +4,15 @@ import SwiftUI
 
 /// The Spend tab: one line per account plus the total, over the last 28 local
 /// days or every day on record, in tokens or list-price dollars. Two boxes
-/// like the seat cards: every model's total on the left under their sum,
-/// following the accounts the legend leaves on, and the graph and its legend
-/// on the right.
+/// like the seat cards: on the left, every model's total under their sum or,
+/// under SEATS, each seat with its toggle; on the right, the graph.
 struct SpendTab: View {
     private let record: SpendChart
     /// One model's chart, when one is picked from the list.
     private let focus: SpendChart?
     @State private var range = SpendRange.recent
+    /// What the left column lists: every model, or the seats with their toggles.
+    @State private var showsSeats = false
     private var mirror: GaugeMirror { .shared }
 
     init(chart: SpendChart, focus: SpendChart? = nil) {
@@ -24,10 +25,9 @@ struct SpendTab: View {
     /// What the list reads: every model, whatever the graph draws.
     private var listed: SpendChart { record.showing(range) }
 
-    /// The totals' label and figure sizes, and the legend's.
+    /// The left column's label and figure sizes.
     static let headingLabelSize: CGFloat = 9
     static let headingFigureSize: CGFloat = 10
-    static let legendSize: CGFloat = 11
 
     /// The lines hover puts behind the focused one. A focus that names no
     /// drawn line dims nothing.
@@ -48,10 +48,10 @@ struct SpendTab: View {
 
     static func lineTone(dimmed: Bool) -> Color { dimmed ? Tone.inkDim : Tone.ink }
 
-    /// A legend name: dim when hover or the user has put its line away.
+    /// A seat's name: dim when hover or the user has put its line away.
     static func legendTone(off: Bool, dimmed: Bool) -> Color { off || dimmed ? Tone.inkDim : Tone.inkMuted }
 
-    /// A partial record's reason, dim, beside the legend. Nothing when the
+    /// A partial record's reason, dim, under the graph. Nothing when the
     /// record is whole, and nothing when none of it was readable, since that
     /// reason stands in for the graph.
     static func reason(_ chart: SpendChart) -> String? {
@@ -66,7 +66,8 @@ struct SpendTab: View {
     private func colour(_ series: SpendSeries) -> Color {
         guard !series.isTotal else { return Tone.accent }
         let palette = [Tone.ink, Tone.success, Tone.warning, Tone.danger, Tone.inkMuted]
-        let index = chart.series.firstIndex { $0.key == series.key } ?? 0
+        // By the full chart's order, so a seat keeps its colour when one model is drawn.
+        let index = listed.series.firstIndex { $0.key == series.key } ?? 0
         return palette[index % palette.count]
     }
 
@@ -107,18 +108,19 @@ struct SpendTab: View {
     /// when the panel is too short to show every family and account.
     private var totals: some View {
         VStack(alignment: .leading, spacing: CardMetrics.scaled(Self.gap)) {
-            HStack(spacing: 0) {
-                rangeSwitch.fixedSize()
-                Spacer(minLength: 8)
-                measureSwitch.fixedSize()
-            }
+            rangeSwitch.fixedSize()
+            measureSwitch.fixedSize()
             WheelScroll {
                 VStack(alignment: .leading, spacing: CardMetrics.scaled(Self.gap) / 2) {
                     // Every model by its own version, largest first, over the
-                    // accounts the legend leaves on, under their sum.
-                    let rows = listed.modelRows(hiding: mirror.hiddenLines)
-                    all(rows.compactMap(\.amount).reduce(0, +))
-                    ForEach(rows, id: \.model) { model($0) }
+                    // seats left on, under their sum.
+                    if showsSeats {
+                        ForEach(listed.series, id: \.key) { seat($0) }
+                    } else {
+                        let rows = listed.modelRows(hiding: mirror.hiddenLines)
+                        all(rows.compactMap(\.amount).reduce(0, +))
+                        ForEach(rows, id: \.model) { model($0) }
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -136,20 +138,13 @@ struct SpendTab: View {
                 }
                 Spacer(minLength: 0)
             } else {
+                // The seats' toggles live in the left column under SEATS, so
+                // the graph takes the whole box; only a record that is not
+                // whole adds a line under it.
                 lines
-                HStack(spacing: 8) {
-                    // The names keep their room; the reason gives way.
-                    legend.lineLimit(1).layoutPriority(1)
-                    Spacer(minLength: 0)
-                    // Which model the graph is narrowed to, when it is.
-                    if let picked = mirror.spendModel {
-                        Text(picked.uppercased()).font(Type.mono(Self.legendSize))
-                            .foregroundStyle(Tone.current.accent).lineLimit(1)
-                    }
-                    if let reason = Self.reason(chart) {
-                        Text(reason).font(Type.mono(9)).foregroundStyle(Tone.inkDim)
-                            .lineLimit(1).truncationMode(.tail)
-                    }
+                if let reason = Self.reason(chart) {
+                    Text(reason).font(Type.mono(9)).foregroundStyle(Tone.inkDim)
+                        .lineLimit(1).truncationMode(.tail)
                 }
             }
         }
@@ -167,16 +162,48 @@ struct SpendTab: View {
         .font(Type.mono(10))
     }
 
-    /// `TOKENS · $`, the chosen one in ink and the other dim.
+    /// `SEATS · TOKENS · $`: SEATS lists the seats and their toggles, the
+    /// measures list the models in that measure. Under SEATS the measure in
+    /// use stays a step brighter than the other, since the figures are in it.
     private var measureSwitch: some View {
         HStack(spacing: 8) {
+            Text("SEATS").foregroundStyle(showsSeats ? Tone.ink : Tone.inkDim)
+                .onTapGesture { showsSeats = true }
             ForEach([(Measure.tokens, "TOKENS"), (Measure.usd, "$")], id: \.1) { measure, word in
-                if measure == .usd { Text("·").foregroundStyle(Tone.inkDim) }
-                Text(word).foregroundStyle(mirror.measure == measure ? Tone.ink : Tone.inkDim)
-                    .onTapGesture { mirror.measure = measure }
+                Text("·").foregroundStyle(Tone.inkDim)
+                Text(word)
+                    .foregroundStyle(mirror.measure != measure ? Tone.inkDim : showsSeats ? Tone.inkMuted : Tone.ink)
+                    .onTapGesture {
+                        mirror.measure = measure
+                        showsSeats = false
+                    }
             }
         }
         .font(Type.mono(10))
+    }
+
+    /// A seat's line: its colour, its name and its figure over the range. A
+    /// click puts the line away or back, as the legend under the graph did.
+    private func seat(_ series: SpendSeries) -> some View {
+        let off = mirror.hiddenLines.contains(series.key)
+        let dim = Set(Self.dimmed(visible, focus: mirror.spendFocus)).contains(series.key)
+        let figure = series.points.map(\.amount).reduce(0, +)
+        return HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Rectangle().fill(off ? .clear : tone(series, dimmed: dim))
+                .overlay { if off { Rectangle().strokeBorder(Tone.inkDim, lineWidth: 1) } }
+                .frame(width: CardMetrics.scaled(7), height: CardMetrics.scaled(7))
+            Text(series.name.uppercased()).font(Type.mono(Self.headingLabelSize)).strikethrough(off)
+                .foregroundStyle(Self.legendTone(off: off, dimmed: dim))
+            Spacer(minLength: 4)
+            Text(listed.measure.figure(figure)).font(Type.mono(Self.headingFigureSize))
+                .foregroundStyle(off ? Tone.inkDim : Tone.ink)
+        }
+        .lineLimit(1)
+        .contentShape(Rectangle())
+        .onTapGesture { try? mirror.toggle(line: series.key) }
+        .onHover { inside in
+            if inside, !off { mirror.spendFocus = series.key } else if mirror.spendFocus == series.key { mirror.spendFocus = nil }
+        }
     }
 
     /// The full graph's lines left on, and the top of its scale rounded up
@@ -275,27 +302,6 @@ struct SpendTab: View {
     /// Every line's name, drawn or not, after a square that reads as its
     /// toggle. A click turns its line off or back on; an off entry is dim,
     /// struck through and its square an empty outline.
-    private var legend: some View {
-        let dimmed = Set(Self.dimmed(visible, focus: mirror.spendFocus))
-        return HStack(spacing: 10) {
-            ForEach(chart.series, id: \.key) { series in
-                let off = mirror.hiddenLines.contains(series.key)
-                let dim = dimmed.contains(series.key)
-                HStack(spacing: 4) {
-                    Rectangle().fill(off ? .clear : tone(series, dimmed: dim))
-                        .overlay { if off { Rectangle().strokeBorder(Tone.inkDim, lineWidth: 1) } }
-                        .frame(width: CardMetrics.scaled(7), height: CardMetrics.scaled(7))
-                    Text(series.name).strikethrough(off).foregroundStyle(Self.legendTone(off: off, dimmed: dim))
-                }
-                .contentShape(Rectangle())
-                .onTapGesture { try? mirror.toggle(line: series.key) }
-                .onHover { inside in
-                    if inside, !off { mirror.spendFocus = series.key } else if mirror.spendFocus == series.key { mirror.spendFocus = nil }
-                }
-            }
-        }
-        .font(Type.mono(Self.legendSize))
-    }
 
     /// A model's range total, its name at the left and its figure at the
     /// right. Unpriced counts responses, because it has no dollars to show
