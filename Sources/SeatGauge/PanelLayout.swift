@@ -13,7 +13,7 @@ enum CardMetrics {
     enum Base {
         static let name: CGFloat = 34
         static let countdown: CGFloat = 62
-        static let percent: CGFloat = 30
+        static let percent: CGFloat = 33
         static let columnSpacing: CGFloat = 8
         /// The gap between the meter and its countdown, 4 pt under the others,
         /// so the bar reads with its numbers as one unit.
@@ -47,7 +47,7 @@ enum CardMetrics {
     /// The glance face's type, written at the ordinary text size.
     enum Glance {
         static let label: CGFloat = 10
-        static let percent: CGFloat = 10
+        static let percent: CGFloat = 11
         static let countdown: CGFloat = 12
         /// The stale line under the windows.
         static let note: CGFloat = 10
