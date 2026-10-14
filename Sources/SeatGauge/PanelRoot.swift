@@ -13,6 +13,17 @@ import SwiftUI
     /// What the Spend tab draws, read off `spend.csv` at launch and after
     /// every roll-up. The file is the record; this is a reading of it.
     private(set) var chart = SpendChart.empty
+    /// The model the Spend graph is narrowed to, picked from the list, and
+    /// the chart of that model alone. Nil draws every model.
+    private(set) var spendModel: String?
+    private(set) var modelChart: SpendChart?
+
+    /// A click on a model in the list draws it alone; a second click, or
+    /// one on ALL, draws every model again.
+    func pick(model: String?) {
+        spendModel = model == spendModel ? nil : model
+        drawSpend()
+    }
     /// Every tab is laid out in one envelope, so a switch moves nothing.
     var tab: Tab = .seats
     /// The LOAD tab's machines and what each last read said, set by the
@@ -215,8 +226,11 @@ import SwiftUI
     /// The Spend tab from the last record read, in the chosen measure.
     func drawSpend() {
         guard let record, let through else { return }
-        chart = SpendChart.make(record: record, through: through, rates: RateCard.load(),
-                                measure: choice.measure, now: Date())
+        let rates = RateCard.load()
+        chart = SpendChart.make(record: record, through: through, rates: rates, measure: choice.measure, now: Date())
+        modelChart = spendModel.map {
+            SpendChart.make(record: record, through: through, rates: rates, measure: choice.measure, now: Date(), model: $0)
+        }
     }
 
     func model(at now: Date) -> PanelModel {
@@ -251,6 +265,24 @@ struct EmptyState: View {
     }
 }
 
+/// The tabs one over the other, as tall as the tallest, and every tab
+/// offered that whole height, so a shorter tab's boxes reach the bottom
+/// rather than leaving an empty strip under them.
+nonisolated struct TabStack: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) }
+        return CGSize(width: proposal.width ?? sizes.map(\.width).max() ?? 0,
+                      height: proposal.height ?? sizes.map(\.height).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for tab in subviews {
+            tab.place(at: bounds.origin, anchor: .topLeading,
+                      proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+        }
+    }
+}
+
 struct Root: View {
     var mirror = GaugeMirror.shared
 
@@ -264,7 +296,7 @@ struct Root: View {
             let load = mirror.tab == .load
             // Every tab, the hidden ones at no opacity and out of reach of the
             // pointer, so the window is the tallest of them on any.
-            ZStack(alignment: .top) {
+            TabStack {
                 Group {
                     if let message = model.emptyMessage {
                         EmptyState(message: message, notes: model.notes)
@@ -273,7 +305,7 @@ struct Root: View {
                     }
                 }
                 .opacity(seats ? 1 : 0).allowsHitTesting(seats).accessibilityHidden(!seats)
-                SpendTab(chart: mirror.chart)
+                SpendTab(chart: mirror.chart, focus: mirror.modelChart)
                     .opacity(spend ? 1 : 0).allowsHitTesting(spend).accessibilityHidden(!spend)
                 LoadTab()
                     .opacity(load ? 1 : 0).allowsHitTesting(load).accessibilityHidden(!load)

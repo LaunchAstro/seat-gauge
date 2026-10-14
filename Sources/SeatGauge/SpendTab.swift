@@ -9,13 +9,20 @@ import SwiftUI
 /// on the right.
 struct SpendTab: View {
     private let record: SpendChart
+    /// One model's chart, when one is picked from the list.
+    private let focus: SpendChart?
     @State private var range = SpendRange.recent
     private var mirror: GaugeMirror { .shared }
 
-    init(chart: SpendChart) { record = chart }
+    init(chart: SpendChart, focus: SpendChart? = nil) {
+        record = chart
+        self.focus = focus
+    }
 
-    /// The chart over the chosen range.
-    private var chart: SpendChart { record.showing(range) }
+    /// What the graph draws over the chosen range: the picked model, or every model.
+    private var chart: SpendChart { (focus ?? record).showing(range) }
+    /// What the list reads: every model, whatever the graph draws.
+    private var listed: SpendChart { record.showing(range) }
 
     /// The totals' label and figure sizes, and the legend's.
     static let headingLabelSize: CGFloat = 9
@@ -109,12 +116,14 @@ struct SpendTab: View {
                 VStack(alignment: .leading, spacing: CardMetrics.scaled(Self.gap) / 2) {
                     // Every model by its own version, largest first, over the
                     // accounts the legend leaves on, under their sum.
-                    let rows = chart.modelRows(hiding: mirror.hiddenLines)
+                    let rows = listed.modelRows(hiding: mirror.hiddenLines)
                     all(rows.compactMap(\.amount).reduce(0, +))
                     ForEach(rows, id: \.model) { model($0) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // Shown, so the list reads as one that scrolls.
+            .scrollIndicators(.visible)
             .frame(minHeight: 0, idealHeight: 0, maxHeight: .infinity)
         }
     }
@@ -134,6 +143,11 @@ struct SpendTab: View {
                     // The names keep their room; the reason gives way.
                     legend.lineLimit(1).layoutPriority(1)
                     Spacer(minLength: 0)
+                    // Which model the graph is narrowed to, when it is.
+                    if let picked = mirror.spendModel {
+                        Text(picked.uppercased()).font(Type.mono(Self.legendSize))
+                            .foregroundStyle(Tone.current.accent).lineLimit(1)
+                    }
                     if let reason = Self.reason(chart) {
                         Text(reason).font(Type.mono(9)).foregroundStyle(Tone.inkDim)
                             .lineLimit(1).truncationMode(.tail)
@@ -262,27 +276,36 @@ struct SpendTab: View {
     /// A model's range total, its name at the left and its figure at the
     /// right. Unpriced counts responses, because it has no dollars to show
     /// and hiding it would make the total look whole.
+    /// A click draws that model alone on the graph; the picked one is in the accent.
     private func model(_ row: SpendModelRow) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(row.model.uppercased()).font(Type.mono(Self.headingLabelSize)).foregroundStyle(Tone.inkMuted)
+        let picked = mirror.spendModel == row.model
+        return HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(row.model.uppercased()).font(Type.mono(Self.headingLabelSize))
+                .foregroundStyle(picked ? Tone.current.accent : Tone.inkMuted)
             Spacer(minLength: 4)
-            Text(row.amount.map(chart.measure.figure) ?? "\(row.responses) unpriced")
-                .font(Type.mono(Self.headingFigureSize)).foregroundStyle(Tone.ink)
+            Text(row.amount.map(listed.measure.figure) ?? "\(row.responses) unpriced")
+                .font(Type.mono(Self.headingFigureSize)).foregroundStyle(picked ? Tone.current.accent : Tone.ink)
         }
         .lineLimit(1)
+        .contentShape(Rectangle())
+        .onTapGesture { if row.model != SpendChart.unpriced { mirror.pick(model: row.model) } }
+        .help(picked ? "Click to draw every model again" : "Click to draw \(row.model) alone")
     }
 
     /// Every family added up, in the total line's accent, a rule under it.
     private func all(_ amount: Decimal) -> some View {
         VStack(alignment: .leading, spacing: CardMetrics.scaled(Self.gap) / 2) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text("ALL").font(Type.mono(Self.headingLabelSize)).foregroundStyle(Tone.current.accent)
+                Text("ALL").font(Type.mono(Self.headingLabelSize))
+                    .foregroundStyle(mirror.spendModel == nil ? Tone.current.accent : Tone.inkMuted)
                 Spacer(minLength: 4)
-                Text(chart.measure.figure(amount)).font(Type.mono(Self.headingFigureSize)).foregroundStyle(Tone.ink)
+                Text(listed.measure.figure(amount)).font(Type.mono(Self.headingFigureSize)).foregroundStyle(Tone.ink)
             }
             Rectangle().fill(Tone.rule).frame(height: 0.5)
         }
         .lineLimit(1)
+        .contentShape(Rectangle())
+        .onTapGesture { mirror.pick(model: nil) }
         .help("Every model added up over this range")
     }
 

@@ -13,6 +13,20 @@ import Testing
                         counts: TokenCounts(responses: 1, input: input), usd: usd, sealed: true)
     }
 
+    @Test("a picked model draws alone, on every account that used it")
+    func picked() {
+        let rows = [Self.row("work", "claude-opus-5-5", input: 3_000_000),
+                    Self.row("home", "claude-opus-5-5", input: 1_000_000),
+                    Self.row("home", "gpt-6-astra", input: 2_000_000)]
+        let opus = SpendChart.make(record: .available(rows), through: AttributionRecord(timeZone: "UTC"),
+                                   rates: .bundled, measure: .tokens, now: Self.now, model: "Opus 5.5")
+        #expect(opus.series.map(\.name) == ["home", "work", "total"])
+        #expect(opus.series.last?.points.map(\.amount).reduce(0, +) == 4_000_000)
+        let astra = SpendChart.make(record: .available(rows), through: AttributionRecord(timeZone: "UTC"),
+                                    rates: .bundled, measure: .tokens, now: Self.now, model: "Astra 6")
+        #expect(astra.series.map(\.name) == ["home", "total"])
+    }
+
     @Test("a billion tokens and more read in billions")
     func billions() {
         #expect(Measure.tokens.figure(2_233_000_000) == "2.2B tokens")

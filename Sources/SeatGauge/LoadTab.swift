@@ -99,14 +99,12 @@ struct LoadTab: View {
             row(cards).frame(idealWidth: PanelLayout.minimumContentWidth(cards: cards.count))
             CardScroller(ids: cards.map(\.id)) { row(cards) }
         }
-        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func row(_ cards: [MachineCard]) -> some View {
         CardRow {
             ForEach(cards) { MachineCardView(card: $0, history: mirror.machineHistory[$0.id] ?? []).id($0.id) }
         }
-        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
