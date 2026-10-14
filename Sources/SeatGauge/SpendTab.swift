@@ -128,6 +128,7 @@ struct SpendTab: View {
                     if range == .all {
                         ForEach(chart.accounts, id: \.account) { floor($0) }
                     }
+                    if let combined = chart.combined { all(combined) }
                     ForEach(chart.totals, id: \.group) { heading($0) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -287,6 +288,20 @@ struct SpendTab: View {
                 .font(Type.mono(Self.headingFigureSize)).foregroundStyle(Tone.ink)
         }
         .lineLimit(1)
+    }
+
+    /// Every family added up, in the total line's accent, a rule under it.
+    private func all(_ amount: Decimal) -> some View {
+        VStack(alignment: .leading, spacing: CardMetrics.scaled(Self.gap) / 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("ALL").font(Type.mono(Self.headingLabelSize)).foregroundStyle(Tone.current.accent)
+                Spacer(minLength: 4)
+                Text(chart.measure.figure(amount)).font(Type.mono(Self.headingFigureSize)).foregroundStyle(Tone.ink)
+            }
+            Rectangle().fill(Tone.rule).frame(height: 0.5)
+        }
+        .lineLimit(1)
+        .help("Every model added up over this range")
     }
 
     /// An account's floor over the family totals, a rule under the last:

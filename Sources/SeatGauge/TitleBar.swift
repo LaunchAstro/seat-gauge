@@ -82,13 +82,22 @@ extension Type {
     }
 }
 
-/// The title, at the title bar's leading edge, when the window has room.
+/// The title at the title bar's leading edge, when the window has room, and
+/// the synced line after it, truncated to what the controls leave.
 struct TitleLead: View {
     var mirror = GaugeMirror.shared
 
     var body: some View {
-        if mirror.titleShown {
-            TitleText().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        SwiftUI.TimelineView(.periodic(from: PanelClock.nextMinute(after: Date()), by: 60)) { tick in
+            HStack(spacing: TitleBarMetrics.gap) {
+                if mirror.titleShown { TitleText() }
+                if mirror.statusShown {
+                    StatusText(status: TitleStatus.of(updated: mirror.model(at: tick.date).updated,
+                                                      problems: mirror.problems))
+                        .lineLimit(1).truncationMode(.tail)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 }
@@ -166,23 +175,44 @@ struct GaugeMark: View {
     }
 }
 
-/// The synced line and the controls, at the trailing edge. The status takes
-/// what the window leaves and truncates; the controls never give.
+/// The controls, at the trailing edge. They never give.
 struct TitleTrail: View {
-    var mirror = GaugeMirror.shared
+    var body: some View {
+        TitleControls().frame(maxWidth: .infinity, alignment: .trailing)
+    }
+}
+
+/// The title bar's Sync: the word and its icon in a pill, or a spinner in
+/// the icon's place while any seat is being read. It reads every seat and
+/// every machine.
+struct SyncPill: View {
+    let busy: Bool
+    let action: () -> Void
 
     var body: some View {
-        SwiftUI.TimelineView(.periodic(from: PanelClock.nextMinute(after: Date()), by: 60)) { tick in
-            HStack(spacing: TitleBarMetrics.gap) {
-                if mirror.statusShown {
-                    StatusText(status: TitleStatus.of(updated: mirror.model(at: tick.date).updated,
-                                                      problems: mirror.problems))
-                        .lineLimit(1).truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+        let side = TitleBarMetrics.points(TitleBarMetrics.textSize)
+        Button(action: action) {
+            HStack(spacing: TitleBarMetrics.points(4)) {
+                Text("SYNC")
+                Group {
+                    if busy {
+                        ProgressView().controlSize(.mini).scaleEffect(side / 16)
+                    } else {
+                        Image(systemName: SyncButton.symbol).resizable().scaledToFit()
+                    }
                 }
-                TitleControls()
+                .frame(width: side, height: side)
             }
+            .foregroundStyle(Tone.inkMuted)
+            .padding(.horizontal, TitleBarMetrics.points(7))
+            .padding(.vertical, TitleBarMetrics.points(2))
+            .background(Capsule().fill(Tone.box))
+            .overlay(Capsule().stroke(Tone.rule, lineWidth: 1))
+            .contentShape(Capsule())
         }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .accessibilityLabel("Sync all seats and machines")
     }
 }
 
@@ -194,8 +224,10 @@ struct TitleControls: View {
     var body: some View {
         HStack(spacing: TitleBarMetrics.gap) {
             ShowSeatMenu(offstage: mirror.model(at: Date()).offstage)
-            SyncButton(busy: !mirror.syncing.isEmpty, label: "Sync all",
-                       side: TitleBarMetrics.points(TitleBarMetrics.textSize), tone: Tone.inkMuted) { mirror.syncAll() }
+            SyncPill(busy: !mirror.syncing.isEmpty) {
+                mirror.syncAll()
+                mirror.readMachines()
+            }
             ForEach(Tab.allCases, id: \.title) { one in
                 if one != Tab.allCases.first { Text("·").foregroundStyle(Tone.inkDim) }
                 Text(one.title)
@@ -314,13 +346,17 @@ extension WindowController {
                                                controls: controls)
         if mirror.titleShown != shows { mirror.titleShown = shows }
         let title = shows ? full : 0
-        if hosts[0].frame.width != title { hosts[0].setFrameSize(NSSize(width: title, height: height)) }
         let said = TitleStatus.of(updated: mirror.model(at: Date()).updated, problems: mirror.problems)
         let status = Self.width(of: StatusText(status: said).fixedSize())
         let available = window.frame.width - buttonsEdge - TitleBarMetrics.gap * 2 - title
+        // The status sits after the title now, so what it is given comes off
+        // the leading accessory and the trailing one is the controls alone.
         let trail = TitleBarMetrics.trail(available: available, controls: controls, status: status)
         if mirror.statusShown != trail.showsStatus { mirror.statusShown = trail.showsStatus }
-        if hosts[1].frame.width != trail.width { hosts[1].setFrameSize(NSSize(width: trail.width, height: height)) }
+        let given = trail.showsStatus ? trail.width - controls - TitleBarMetrics.gap : 0
+        let lead = title + (given > 0 ? (title > 0 ? TitleBarMetrics.gap : 0) + given : 0)
+        if hosts[0].frame.width != lead { hosts[0].setFrameSize(NSSize(width: lead, height: height)) }
+        if hosts[1].frame.width != controls { hosts[1].setFrameSize(NSSize(width: controls, height: height)) }
         let minimum = TitleBarMetrics.minimumWidth(buttons: buttonsEdge, controls: controls)
         if GaugeMirror.shared.chromeMinimum != minimum { GaugeMirror.shared.chromeMinimum = minimum }
     }

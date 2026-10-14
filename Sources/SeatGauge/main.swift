@@ -98,6 +98,7 @@ if let watcher = try? ConfigWatcher() {
                                                 if reshaped { controller.refit(.drawn) }
                                             }
                                         })
+    GaugeMirror.shared.readMachines = { Task { await machineMonitor.read() } }
     Task {
         GaugeMirror.shared.machines = await watcher.config.machines
         await machineMonitor.run()
