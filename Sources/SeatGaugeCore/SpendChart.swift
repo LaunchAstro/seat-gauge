@@ -217,10 +217,13 @@ public struct SpendChart: Equatable, Sendable {
 
     /// The record's rows under their accounts. Unattributed usage
     /// is in the total and on no account's line.
+    /// With `model`, only that model's rows, by its `ModelName`, so the graph
+    /// can draw one model while the list beside it keeps every model.
     public static func make(record: SpendRecord, through attribution: AttributionRecord,
                             rates: RateCard, measure: Measure = .usd, now: Date,
-                            calendar: Calendar = .current, days: Int = 28) -> SpendChart {
+                            calendar: Calendar = .current, days: Int = 28, model: String? = nil) -> SpendChart {
         let rows = SpendAttribution(record: attribution).project(record.rows)
+            .filter { row in model.map { ModelName.display(row.model) == $0 } ?? true }
         let accountLines = { (series: [SpendSeries]) in series.filter { $0.name != AttributionRecord.unattributed } }
         let recent = make(rows: rows, rates: rates, measure: measure, now: now, calendar: calendar, days: days)
         var chart = SpendChart(series: accountLines(recent.series), totals: recent.totals, from: recent.from,
