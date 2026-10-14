@@ -188,7 +188,7 @@ struct SpendTab: View {
     }
 
     /// 1, 2, 2.5 or 5 times a power of ten, at or above `value`.
-    static func roundUp(_ value: Double) -> Double {
+    nonisolated static func roundUp(_ value: Double) -> Double {
         guard value > 0, value.isFinite else { return 1 }
         let power = pow(10, floor(log10(value)))
         return ([1, 2, 2.5, 5, 10].map { $0 * power }.first { $0 >= value }) ?? value
@@ -335,15 +335,16 @@ struct SpendTab: View {
 
 }
 
+/// The scroll view's clip, flipped so the list starts at its top.
+final class TopClipView: NSClipView {
+    override var isFlipped: Bool { true }
+}
+
 /// A vertical list in AppKit's own scroll view. SwiftUI's scroll view here
 /// took a trackpad but not a mouse wheel's line-by-line steps; NSScrollView
 /// takes both, and shows its scroller as the system setting says.
 struct WheelScroll<Content: View>: NSViewRepresentable {
     @ViewBuilder let content: Content
-
-    final class TopClipView: NSClipView {
-        override var isFlipped: Bool { true }
-    }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
