@@ -221,7 +221,8 @@ public struct SpendChart: Equatable, Sendable {
     /// can draw one model while the list beside it keeps every model.
     public static func make(record: SpendRecord, through attribution: AttributionRecord,
                             rates: RateCard, measure: Measure = .usd, now: Date,
-                            calendar: Calendar = .current, days: Int = 28, model: String? = nil) -> SpendChart {
+                            calendar: Calendar = .current, days: Int = 28, model: String? = nil,
+                            start: String? = nil) -> SpendChart {
         let rows = SpendAttribution(record: attribution).project(record.rows)
             .filter { row in model.map { ModelName.display(row.model) == $0 } ?? true }
         let accountLines = { (series: [SpendSeries]) in series.filter { $0.name != AttributionRecord.unattributed } }
@@ -230,7 +231,10 @@ public struct SpendChart: Equatable, Sendable {
                                days: recent.days, measure: measure)
         chart.models = recent.models
         let today = calendar.startOfDay(for: now)
-        let first = rows.compactMap { SpendCSV.start(day: $0.day, calendar: calendar) }.filter { $0 <= today }.min()
+        // All reaches back to `start` when one is set, the day the record is
+        // read from, even when the first row is a day or two after it.
+        let first = (rows.map(\.day) + (start.map { [$0] } ?? []))
+            .compactMap { SpendCSV.start(day: $0, calendar: calendar) }.filter { $0 <= today }.min()
         let span = first.flatMap { calendar.dateComponents([.day], from: $0, to: today).day }.map { $0 + 1 } ?? 0
         let all = make(rows: rows, rates: rates, measure: measure, now: now, calendar: calendar,
                        days: max(days, span))
