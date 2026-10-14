@@ -86,6 +86,8 @@ import SwiftUI
     /// card, every seat's from the title bar and the menu.
     var sync: (SeatID) -> Void = { _ in }
     var syncAll: () -> Void = {}
+    /// Set by `main.swift`: one read of every machine now, beside the loop's.
+    var readMachines: () -> Void = {}
     /// The seats a sync or poll is reading now, which draw their icon busy.
     var syncing: Set<SeatID> = []
     /// Set by `main.swift`: one seat's Sign in from its card, through `SignIn`.

@@ -133,6 +133,10 @@ Nothing is installed on the other Mac. The gauge keeps one ssh connection to it 
 
 `skills/seat-gauge/` is a ready-made agent skill that reads this file. Copy or link the folder into your agent's skills folder, such as `~/.claude/skills/` for Claude Code or `~/.agents/skills/` for Codex, and an agent asked which seat has room reads the file instead of spending a seat to check.
 
+### Beside session tracing
+
+Seat Gauge answers how much room each seat has, what each account has spent over time, and how loaded each machine is. A session tracer such as Langfuse answers what one session or lane did. Both read the same local transcripts, so never add their token counts together; see `docs/adr/0006-seat-gauge-and-langfuse-answer-different-questions.md`.
+
 ## Working on it
 
 `AGENTS.md` says where things live and how to change them. `CONTEXT.md` is the glossary, and `docs/adr/` holds the decisions. Before you push, run `scripts/check.sh` with the tests for what you changed.

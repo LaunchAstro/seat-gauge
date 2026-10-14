@@ -75,6 +75,13 @@ public struct SpendChart: Equatable, Sendable {
     public var whole: SpendWhole? = nil
     public var accounts: [SpendAccountTotal] = []
 
+    /// Every model family added up: all tokens, or all priced dollars, over
+    /// the range. The unpriced heading counts responses and adds nothing.
+    public var combined: Decimal? {
+        let amounts = totals.compactMap(\.amount)
+        return amounts.isEmpty ? nil : amounts.reduce(0, +)
+    }
+
     /// The same chart over `range`. With nothing older than the recent days,
     /// All draws what the recent range does.
     public func showing(_ range: SpendRange) -> SpendChart {
