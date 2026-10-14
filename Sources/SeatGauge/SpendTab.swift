@@ -142,13 +142,15 @@ struct SpendTab: View {
                 Spacer(minLength: 0)
             } else {
                 // The seats' toggles live in the left column under SEATS, so
-                // the graph takes the whole box; only a record that is not
-                // whole adds a line under it.
+                // the graph takes the whole box. A record that is not whole
+                // says so over its top corner, which adds no height.
                 lines
-                if let reason = Self.reason(chart) {
-                    Text(reason).font(Type.mono(9)).foregroundStyle(Tone.inkDim)
-                        .lineLimit(1).truncationMode(.tail)
-                }
+                    .overlay(alignment: .topLeading) {
+                        if let reason = Self.reason(chart) {
+                            Text(reason).font(Type.mono(9)).foregroundStyle(Tone.inkDim)
+                                .lineLimit(1).truncationMode(.tail)
+                        }
+                    }
             }
         }
     }
