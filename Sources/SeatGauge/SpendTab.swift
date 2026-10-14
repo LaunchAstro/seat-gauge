@@ -112,7 +112,7 @@ struct SpendTab: View {
                 Spacer(minLength: 8)
                 measureSwitch.fixedSize()
             }
-            ScrollView(.vertical) {
+            WheelScroll {
                 VStack(alignment: .leading, spacing: CardMetrics.scaled(Self.gap) / 2) {
                     // Every model by its own version, largest first, over the
                     // accounts the legend leaves on, under their sum.
@@ -122,8 +122,6 @@ struct SpendTab: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // Shown, so the list reads as one that scrolls.
-            .scrollIndicators(.visible)
             .frame(minHeight: 0, idealHeight: 0, maxHeight: .infinity)
         }
     }
@@ -181,9 +179,34 @@ struct SpendTab: View {
         .font(Type.mono(10))
     }
 
+    /// The full graph's lines left on, and the top of its scale rounded up
+    /// to a round figure. A picked model is drawn on the same days and scale,
+    /// so its height reads as its share of everything.
+    private var everything: [SpendSeries] { listed.visible(hiding: mirror.hiddenLines) }
+    private var top: Double {
+        Self.roundUp(everything.flatMap(\.points).map(\.amount.asDouble).max() ?? 0)
+    }
+
+    /// 1, 2, 2.5 or 5 times a power of ten, at or above `value`.
+    static func roundUp(_ value: Double) -> Double {
+        guard value > 0, value.isFinite else { return 1 }
+        let power = pow(10, floor(log10(value)))
+        return ([1, 2, 2.5, 5, 10].map { $0 * power }.first { $0 >= value }) ?? value
+    }
+
     private var lines: some View {
         let dimmed = Set(Self.dimmed(visible, focus: mirror.spendFocus))
+        let whole = focus == nil ? nil : everything.first(where: \.isTotal)
         return Chart {
+            // Everything's total, faint behind the picked model.
+            if let whole {
+                ForEach(whole.points, id: \.day) { point in
+                    LineMark(x: .value("Day", point.day, unit: .day), y: .value("All", point.amount.asDouble),
+                             series: .value("Account", "everything"))
+                        .foregroundStyle(Tone.inkDim.opacity(0.5))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 2]))
+                }
+            }
             ForEach(visible, id: \.key) { series in
                 ForEach(series.points, id: \.day) { point in
                     LineMark(x: .value("Day", point.day, unit: .day),
@@ -211,8 +234,9 @@ struct SpendTab: View {
                 AxisValueLabel { Text(axis(value.as(Double.self) ?? 0)) }
             }
         }
-        .chartXAxis { AxisMarks(values: chart.axisDays()) { AxisValueLabel(format: .dateTime.day().month(.abbreviated)) } }
-        .chartXScale(domain: chart.drawn() ?? chart.from...chart.from)
+        .chartXAxis { AxisMarks(values: listed.axisDays()) { AxisValueLabel(format: .dateTime.day().month(.abbreviated)) } }
+        .chartXScale(domain: listed.drawn() ?? listed.from...listed.from)
+        .chartYScale(domain: 0...top)
         .chartOverlay { proxy in
             Rectangle().fill(.clear).contentShape(Rectangle())
                 .onContinuousHover { phase in
@@ -309,4 +333,40 @@ struct SpendTab: View {
         .help("Every model added up over this range")
     }
 
+}
+
+/// A vertical list in AppKit's own scroll view. SwiftUI's scroll view here
+/// took a trackpad but not a mouse wheel's line-by-line steps; NSScrollView
+/// takes both, and shows its scroller as the system setting says.
+struct WheelScroll<Content: View>: NSViewRepresentable {
+    @ViewBuilder let content: Content
+
+    final class TopClipView: NSClipView {
+        override var isFlipped: Bool { true }
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSScrollView()
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.verticalScrollElasticity = .none
+        let clip = TopClipView()
+        clip.drawsBackground = false
+        scroll.contentView = clip
+        let host = NSHostingView(rootView: content)
+        host.sizingOptions = [.intrinsicContentSize]
+        host.translatesAutoresizingMaskIntoConstraints = false
+        scroll.documentView = host
+        NSLayoutConstraint.activate([
+            host.leadingAnchor.constraint(equalTo: clip.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: clip.trailingAnchor),
+            host.topAnchor.constraint(equalTo: clip.topAnchor),
+        ])
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        (scroll.documentView as? NSHostingView<Content>)?.rootView = content
+    }
 }
