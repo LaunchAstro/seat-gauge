@@ -43,6 +43,8 @@ import Testing
         #expect(chart.modelRows(hiding: []).first?.amount == 4_000_000)
         #expect(chart.modelRows(hiding: ["account:home"]).map(\.model) == ["Opus 5.5"])
         #expect(chart.modelRows(hiding: ["account:home"]).first?.amount == 3_000_000)
+        // Every account off: the list follows the total line and counts it all.
+        #expect(chart.modelRows(hiding: ["account:home", "account:work"]).first?.amount == 4_000_000)
         let dollars = SpendChart.make(rows: rows, rates: .bundled, measure: .usd, now: Self.now)
         #expect(dollars.modelRows(hiding: []).map(\.model) == ["Astra 6", "Opus 5.5", "unpriced"])
     }

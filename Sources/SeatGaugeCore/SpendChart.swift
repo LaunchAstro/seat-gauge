@@ -120,13 +120,16 @@ public struct SpendChart: Equatable, Sendable {
 
     /// The model list for the accounts still drawn: one row per model, the
     /// largest first, and the models with no price, in dollars, as one
-    /// `unpriced` row of responses at the end. Usage that belongs to no
-    /// account is counted whatever is hidden, as the total line counts it.
+    /// `unpriced` row of responses at the end. With no account line on, it
+    /// follows the total line and counts everything, usage that belongs to
+    /// no account included; with some on, only theirs.
     public func modelRows(hiding hidden: Set<String>) -> [SpendModelRow] {
+        let accounts = Set(models.map(\.seat)).subtracting([AttributionRecord.unattributed])
+        let shown = accounts.filter { !hidden.contains("account:\($0)") }
         var amounts: [String: Decimal] = [:]
         var responses: [String: Int] = [:]
         var unpriced = 0
-        for total in models where !hidden.contains("account:\(total.seat)") || total.seat == AttributionRecord.unattributed {
+        for total in models where shown.isEmpty || shown.contains(total.seat) {
             guard let amount = total.amount else { unpriced += total.responses; continue }
             amounts[total.model, default: 0] += amount
             responses[total.model, default: 0] += total.responses
