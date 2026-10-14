@@ -117,6 +117,9 @@ public struct SpendChart: Equatable, Sendable {
     public var accounts: [SpendAccountTotal] = []
     /// Each account's figure per model over the range.
     public var models: [SpendModelTotal] = []
+    /// The day All opens on, so a set start such as `spendFrom` is the
+    /// axis's first day even when the first row is a day or two later.
+    public var opensOn: Date? = nil
 
     /// The model list for the accounts still drawn: one row per model, the
     /// largest first, and the models with no price, in dollars, as one
@@ -155,6 +158,7 @@ public struct SpendChart: Equatable, Sendable {
         chart.whole = whole
         chart.accounts = accounts
         chart.models = whole.models
+        chart.opensOn = whole.from
         return chart
     }
 
@@ -162,13 +166,15 @@ public struct SpendChart: Equatable, Sendable {
     /// range grows so the labels keep about four to a graph.
     public var axisStride: Int { max(7, days / 28 * 7) }
 
-    /// The dates the lines span, from the first day any line has to the end
-    /// of the last. The x axis is pinned to it, so the labels below always
-    /// fall on the plot. Nil when there is no line.
+    /// The dates the lines span, from the first day any line has (or All's
+    /// own first day, when that is earlier) to the end of the last. The x axis
+    /// is pinned to it, so the labels below always fall on the plot. Nil when
+    /// there is no line.
     public func drawn(calendar: Calendar = .current) -> ClosedRange<Date>? {
         let days = series.flatMap(\.points).map(\.day)
-        guard let first = days.min(), let last = days.max(),
+        guard let earliest = days.min(), let last = days.max(),
               let end = calendar.date(byAdding: .day, value: 1, to: last) else { return nil }
+        let first = opensOn.map { min(earliest, $0) } ?? earliest
         return first...end
     }
 
