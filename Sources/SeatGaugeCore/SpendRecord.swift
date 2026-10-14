@@ -26,6 +26,17 @@ public enum SpendRecord: Equatable, Sendable {
 
     /// Whether every line was read, which is what a writer needs to know.
     public var isWhole: Bool { reason == nil }
+
+    /// Only the rows from `day` (`yyyy-MM-dd`) on, for what the panel draws.
+    /// The file is untouched. No day keeps every row.
+    public func from(_ day: String?) -> SpendRecord {
+        guard let day else { return self }
+        switch self {
+        case let .available(rows): return .available(rows.filter { $0.day >= day })
+        case let .partial(rows, reason): return .partial(rows.filter { $0.day >= day }, reason)
+        case .empty, .unavailable: return self
+        }
+    }
 }
 
 /// A roll-up refused because the record on disk did not read whole: it

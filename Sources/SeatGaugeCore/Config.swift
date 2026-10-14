@@ -7,12 +7,16 @@ public struct Config: Equatable, Sendable {
     public let pollMinutes: Int
     public var machines: [Machine] = [.here]
     public var machineSeconds: Int = 5
+    /// The first day the Spend tab draws, `yyyy-MM-dd`, or nil for every day.
+    public var spendFrom: String?
 
-    public init(seats: [Seat], pollMinutes: Int, machines: [Machine] = [.here], machineSeconds: Int = 5) {
+    public init(seats: [Seat], pollMinutes: Int, machines: [Machine] = [.here], machineSeconds: Int = 5,
+                spendFrom: String? = nil) {
         self.seats = seats
         self.pollMinutes = pollMinutes
         self.machines = machines
         self.machineSeconds = machineSeconds
+        self.spendFrom = spendFrom
     }
 }
 
@@ -106,6 +110,7 @@ public struct ConfigLoader: Sendable {
             #"  //           { "id": "studio", "label": "Studio", "ssh": "studio.local" }]."#,
             #"  //           `seatgauge-cli machines add studio.local Studio` checks one answers, then adds it."#,
             #"  //           "machineSeconds": seconds between reads, 5 unless set, never under 2."#,
+            #"  // "spendFrom" optional, such as "2026-08-10": the Spend tab draws from that day on."#,
         ] + none + [
             #"  "seats": ["#,
         ] + lines + [
@@ -205,6 +210,7 @@ public struct ConfigLoader: Sendable {
         let pollMinutes: Int?
         let machines: [StoredMachine]?
         let machineSeconds: Int?
+        let spendFrom: String?
     }
 
     /// `tokenDirectory` is where a seat with no `token` of its own is looked
@@ -289,7 +295,20 @@ public struct ConfigLoader: Sendable {
         }
         return Config(seats: seats, pollMinutes: max(1, stored.pollMinutes ?? 5),
                       machines: try Self.machines(stored.machines),
-                      machineSeconds: max(2, stored.machineSeconds ?? 5))
+                      machineSeconds: max(2, stored.machineSeconds ?? 5),
+                      spendFrom: try Self.day(stored.spendFrom))
+    }
+
+    /// `spendFrom` as a real calendar day, `2026-08-10`, or nothing.
+    private static func day(_ stored: String?) throws -> String? {
+        guard let stored else { return nil }
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.dateFormat = "yyyy-MM-dd"
+        guard let date = format.date(from: stored), format.string(from: date) == stored else {
+            throw ConfigProblem("seats.json: \"spendFrom\" is \"\(stored)\", and a day is written like \"2026-08-10\".")
+        }
+        return stored
     }
 
     /// The `machines` list: absent is this Mac alone. An entry without

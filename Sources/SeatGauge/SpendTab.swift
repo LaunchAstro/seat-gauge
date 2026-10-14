@@ -108,14 +108,17 @@ struct SpendTab: View {
     /// when the panel is too short to show every family and account.
     private var totals: some View {
         VStack(alignment: .leading, spacing: CardMetrics.scaled(Self.gap)) {
-            rangeSwitch.fixedSize()
-            measureSwitch.fixedSize()
+            HStack(spacing: 0) {
+                rangeSwitch.fixedSize()
+                Spacer(minLength: 8)
+                measureSwitch.fixedSize()
+            }
             WheelScroll {
                 VStack(alignment: .leading, spacing: CardMetrics.scaled(Self.gap) / 2) {
                     // Every model by its own version, largest first, over the
                     // seats left on, under their sum.
                     if showsSeats {
-                        ForEach(listed.series, id: \.key) { seat($0) }
+                        ForEach(Self.byFigure(listed.series), id: \.key) { seat($0) }
                     } else {
                         let rows = listed.modelRows(hiding: mirror.hiddenLines)
                         all(rows.compactMap(\.amount).reduce(0, +))
@@ -162,21 +165,39 @@ struct SpendTab: View {
         .font(Type.mono(10))
     }
 
-    /// `SEATS · TOKENS · $`: SEATS lists the seats and their toggles, the
-    /// measures list the models in that measure. Under SEATS the measure in
-    /// use stays a step brighter than the other, since the figures are in it.
+    /// The seats first, the total above them and the rest by their figure,
+    /// largest first, as the model list runs.
+    nonisolated static func byFigure(_ series: [SpendSeries]) -> [SpendSeries] {
+        func figure(_ line: SpendSeries) -> Decimal { line.points.map(\.amount).reduce(0, +) }
+        return series.filter(\.isTotal) + series.filter { !$0.isTotal }.sorted { figure($0) > figure($1) }
+    }
+
+    /// Seats, tokens and dollars as three marks, so the range switch shares
+    /// their line: a sparkle lists the seats and their toggles, `#` and `$`
+    /// list the models in that measure. Under the sparkle the measure in use
+    /// stays a step brighter than the other, since the figures are in it.
     private var measureSwitch: some View {
-        HStack(spacing: 8) {
-            Text("SEATS").foregroundStyle(showsSeats ? Tone.ink : Tone.inkDim)
+        let side = CardMetrics.scaled(12)
+        return HStack(spacing: 10) {
+            Image(systemName: "sparkles").resizable().scaledToFit().frame(width: side, height: side)
+                .foregroundStyle(showsSeats ? Tone.ink : Tone.inkDim)
+                .padding(2)
+                .contentShape(Rectangle())
                 .onTapGesture { showsSeats = true }
-            ForEach([(Measure.tokens, "TOKENS"), (Measure.usd, "$")], id: \.1) { measure, word in
-                Text("·").foregroundStyle(Tone.inkDim)
-                Text(word)
+                .help("Seats")
+                .accessibilityLabel("Seats")
+            ForEach([(Measure.tokens, "#", "Tokens"), (Measure.usd, "$", "Dollars")], id: \.1) { measure, mark, name in
+                Text(mark)
+                    .font(Type.mono(13))
                     .foregroundStyle(mirror.measure != measure ? Tone.inkDim : showsSeats ? Tone.inkMuted : Tone.ink)
+                    .padding(2)
+                    .contentShape(Rectangle())
                     .onTapGesture {
                         mirror.measure = measure
                         showsSeats = false
                     }
+                    .help(name)
+                    .accessibilityLabel(name)
             }
         }
         .font(Type.mono(10))

@@ -72,6 +72,7 @@ if let watcher = try? ConfigWatcher() {
                                 GaugeMirror.shared.configProblem = await watcher.problem
                                 GaugeMirror.shared.apply(snapshot, seats: seats)
                                 GaugeMirror.shared.pollMinutes = await watcher.config.pollMinutes
+                                GaugeMirror.shared.spendFrom = await watcher.config.spendFrom
                                 // Cards that changed ask for a height.
                                 controller.refit(.drawn)
                                 await alerter.consider(snapshot, seats: seats, now: Date())
@@ -115,6 +116,7 @@ if let watcher = try? ConfigWatcher() {
         GaugeMirror.shared.configProblem = await watcher.problem
         GaugeMirror.shared.apply(await store.snapshot, seats: await watcher.config.seats)
         GaugeMirror.shared.pollMinutes = await watcher.config.pollMinutes
+        GaugeMirror.shared.spendFrom = await watcher.config.spendFrom
         // The cards are in, so the user's height has something to fill.
         controller.refit(.drawn)
         await poller.run()

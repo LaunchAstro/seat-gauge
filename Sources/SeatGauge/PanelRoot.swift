@@ -16,6 +16,11 @@ import SwiftUI
     /// The model the Spend graph is narrowed to, picked from the list, and
     /// the chart of that model alone. Nil draws every model.
     private(set) var spendModel: String?
+    /// The first day the Spend tab and the cards' charts draw, from
+    /// `spendFrom` in `seats.json`. A change re-reads the record.
+    var spendFrom: String? {
+        didSet { if spendFrom != oldValue { readSpend() } }
+    }
     private(set) var modelChart: SpendChart?
 
     /// A click on a model in the list draws it alone; a second click, or
@@ -208,7 +213,7 @@ import SwiftUI
 
     func readSpend(csv: URL = SpendCSV.defaultFile, state: URL = StateStore.defaultFile,
                    attribution: URL = AttributionFile.defaultFile) {
-        let record = SpendCSV.read(csv, state: state)
+        let record = SpendCSV.read(csv, state: state).from(spendFrom)
         let spans = AttributionFile.read(attribution)
         // A missing or malformed record holds no spans: every main login
         // cell is unattributed.
@@ -227,9 +232,11 @@ import SwiftUI
     func drawSpend() {
         guard let record, let through else { return }
         let rates = RateCard.load()
-        chart = SpendChart.make(record: record, through: through, rates: rates, measure: choice.measure, now: Date())
+        chart = SpendChart.make(record: record, through: through, rates: rates, measure: choice.measure, now: Date(),
+                                start: spendFrom)
         modelChart = spendModel.map {
-            SpendChart.make(record: record, through: through, rates: rates, measure: choice.measure, now: Date(), model: $0)
+            SpendChart.make(record: record, through: through, rates: rates, measure: choice.measure, now: Date(),
+                            model: $0, start: spendFrom)
         }
     }
 

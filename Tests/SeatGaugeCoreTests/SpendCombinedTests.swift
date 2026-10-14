@@ -27,6 +27,26 @@ import Testing
         #expect(astra.series.map(\.name) == ["home", "total"])
     }
 
+    @Test("spendFrom keeps the rows from that day on, All starts on it, and a bad day is refused")
+    func from() throws {
+        func dated(_ day: String) -> SpendRow {
+            SpendRow(seat: "work", day: day, hour: "05", model: "claude-opus-5-5",
+                     counts: TokenCounts(responses: 1, input: 1_000), usd: nil, sealed: true)
+        }
+        let record = SpendRecord.available([dated("2026-06-01"), dated("2026-08-11"), dated("2026-09-01")])
+        #expect(record.from("2026-08-10").rows.map(\.day) == ["2026-08-11", "2026-09-01"])
+        #expect(record.from(nil).rows.count == 3)
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let chart = SpendChart.make(record: record.from("2026-08-10"), through: AttributionRecord(timeZone: "UTC"),
+                                    rates: .bundled, measure: .tokens, now: Self.now, calendar: utc, start: "2026-08-10")
+        let first = try #require(chart.showing(.all).series.first?.points.first?.day)
+        #expect(first >= SpendCSV.start(day: "2026-08-10", calendar: utc)!)
+        #expect(chart.showing(.all).from == SpendCSV.start(day: "2026-08-10", calendar: utc))
+        #expect(try ConfigLoader.decode(Data(#"{ "seats": [], "spendFrom": "2026-08-10" }"#.utf8)).spendFrom == "2026-08-10")
+        #expect(throws: ConfigProblem.self) { try ConfigLoader.decode(Data(#"{ "seats": [], "spendFrom": "10 Aug" }"#.utf8)) }
+    }
+
     @Test("a billion tokens and more read in billions")
     func billions() {
         #expect(Measure.tokens.figure(2_233_000_000) == "2.2B tokens")
