@@ -179,7 +179,7 @@ import SeatGaugeCore
 
     @Test func theTypeIsAStepBiggerButTheCountdowns() throws {
         #expect(CardMetrics.Glance.label == 10)
-        #expect(CardMetrics.Glance.percent == 10)
+        #expect(CardMetrics.Glance.percent == 11)
         #expect(CardMetrics.Glance.note == 10)
         #expect(CardMetrics.Glance.countdown == 12)
         #expect(CardMetrics.Header.provider == 11)
