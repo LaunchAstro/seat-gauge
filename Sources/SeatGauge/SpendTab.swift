@@ -335,6 +335,21 @@ struct SpendTab: View {
 
 }
 
+/// Every list `WheelScroll` has made, held weakly, so the window's wheel
+/// monitor can tell when the pointer is over one.
+@MainActor enum VerticalLists {
+    static let all = NSHashTable<NSScrollView>.weakObjects()
+
+    /// Whether `event` is over a list that has more than it shows.
+    static func contain(_ event: NSEvent) -> Bool {
+        all.allObjects.contains { scroll in
+            guard scroll.window === event.window, let document = scroll.documentView,
+                  document.frame.height > scroll.contentView.bounds.height else { return false }
+            return scroll.bounds.contains(scroll.convert(event.locationInWindow, from: nil))
+        }
+    }
+}
+
 /// The scroll view's clip, flipped so the list starts at its top.
 final class TopClipView: NSClipView {
     override var isFlipped: Bool { true }
@@ -359,6 +374,7 @@ struct WheelScroll<Content: View>: NSViewRepresentable {
         host.sizingOptions = [.intrinsicContentSize]
         host.translatesAutoresizingMaskIntoConstraints = false
         scroll.documentView = host
+        VerticalLists.all.add(scroll)
         NSLayoutConstraint.activate([
             host.leadingAnchor.constraint(equalTo: clip.leadingAnchor),
             host.trailingAnchor.constraint(equalTo: clip.trailingAnchor),
