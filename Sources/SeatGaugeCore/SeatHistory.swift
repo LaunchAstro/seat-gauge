@@ -14,11 +14,12 @@ extension Measure {
         }
     }
 
-    /// `1.2M tokens`, `380K tokens` or `$41.20`.
+    /// `2.2B tokens`, `1.2M tokens`, `380K tokens` or `$41.20`.
     public func figure(_ amount: Decimal) -> String {
         guard self == .tokens else { return amount.asMoney }
         let count = amount.asDouble
         let short = switch count {
+        case 1_000_000_000...: String(format: "%.1fB", count / 1_000_000_000)
         case 1_000_000...: String(format: "%.1fM", count / 1_000_000)
         case 1_000...: String(format: "%.0fK", count / 1_000)
         default: String(format: "%.0f", count)
