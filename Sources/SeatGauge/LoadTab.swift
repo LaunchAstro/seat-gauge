@@ -2,7 +2,7 @@ import SeatGaugeCore
 import SwiftUI
 
 /// One machine as its LOAD card draws it: a meter each for CPU, memory and
-/// disk, the room word in the header, and the agents under the meters.
+/// disk, and the agents and the room word in the header.
 struct MachineCard: Equatable, Identifiable {
     struct Line: Equatable, Identifiable {
         let name: String
@@ -141,6 +141,17 @@ struct MachineCardView: View {
                     .tracking(CardMetrics.scaled(CardMetrics.Header.providerTracking))
                     .foregroundStyle(Tone.ink)
                     .lineLimit(1)
+                    .fixedSize()
+                // The agents ride in the header, so the card is as tall as a
+                // seat card and the panel keeps no empty strip under them.
+                if !legend {
+                    Text(card.note)
+                        .font(Type.mono(CardMetrics.Header.seat))
+                        .tracking(CardMetrics.scaled(CardMetrics.Header.seatTracking))
+                        .foregroundStyle(Tone.inkMuted)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 Spacer(minLength: CardMetrics.Header.spacer)
                 if legend {
                     Text("CPU \(card.lines.first?.used ?? 0)%").foregroundStyle(LoadChart.cpuColor)
@@ -176,11 +187,6 @@ struct MachineCardView: View {
                         .frame(minWidth: CardMetrics.percentWidth, alignment: .trailing)
                 }
             }
-            Text(card.note)
-                .font(Type.mono(CardMetrics.Glance.note))
-                .foregroundStyle(Tone.inkDim)
-                .lineLimit(1)
-                .truncationMode(.tail)
         }
     }
 }

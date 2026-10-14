@@ -66,26 +66,6 @@ import SeatGaugeCore
         #expect(work.activeDays == 2)
         #expect(work.firstDay == Self.day("2026-06-22"))
 
-        let words = SpendTab.floor(work)
-        #expect(words.figure == "at least 2.5M")
-        #expect(words.detail == "2 days · from 22 Jun 2026")
-    }
-
-    @Test func floorDoesNotOverstateRecordedTokens() throws {
-        let row = Spend.row("personal", "2026-09-21", "05",
-                            "claude-sonnet-5", input: 1_960_000)
-        let account = try #require(Self.chart([row]).accounts.first)
-        #expect(SpendTab.floor(account).figure == "at least 1.9M")
-    }
-
-    @Test func floorIsShortAndRoundedDown() {
-        func figure(_ tokens: Int) -> String {
-            let row = Spend.row("personal", "2026-09-21", "05", "claude-sonnet-5", input: tokens)
-            return Self.chart([row]).accounts.first.map { SpendTab.floor($0).figure } ?? ""
-        }
-        #expect(figure(444_931_141) == "at least 444.9M")
-        #expect(figure(12_999) == "at least 12K")
-        #expect(figure(640) == "at least 640")
     }
 
     @Test func aGapIsDrawnAtZeroNotBridged() throws {

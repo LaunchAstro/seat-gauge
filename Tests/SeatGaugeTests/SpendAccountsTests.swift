@@ -105,17 +105,18 @@ import SeatGaugeCore
         let dollars = Self.chart(Self.rows, .usd)
         #expect(dollars.totals.map(\.group) == ["Opus", "Fable", "Sonnet", "Sol", "other", "unpriced"])
         let sol = try #require(dollars.totals.first { $0.group == "Sol" })
-        #expect(sol.amount == 0)
+        // Sol is on the card now: a million input tokens at $2.
+        #expect(sol.amount == 2)
         let unpriced = try #require(dollars.totals.first { $0.group == "unpriced" })
         #expect(unpriced.amount == nil)
-        #expect(unpriced.responses == 4)
+        #expect(unpriced.responses == 0)
 
         let tokens = Self.chart(Self.rows, .tokens)
         #expect(tokens.totals.map(\.group) == ["Opus", "Fable", "Sonnet", "Sol", "other"])
         #expect(tokens.totals.first { $0.group == "Sol" }?.amount == Decimal(1_000_000))
         #expect(tokens.totals.first { $0.group == "Fable" }?.amount == Decimal(1_500_000))
         #expect(ModelFamily(model: "gpt-6-sol") == .sol)
-        #expect(RateCard.bundled.priceStatus(for: "gpt-6-sol") == .unpriced)
+        #expect(RateCard.bundled.priceStatus(for: "gpt-6-sol") == .priced)
     }
 
     // MARK: - The totals step down, the legend steps up
@@ -257,7 +258,7 @@ import SeatGaugeCore
         #expect(MeterTone.of(usedPercent: 59) == .good)
         #expect(MeterTone.of(usedPercent: 60) == .warning)
         #expect(MeterTone.of(usedPercent: 85) == .danger)
-        #expect(Tab.allCases.map(\.title) == ["SEATS", "SPEND"])
+        #expect(Tab.allCases.map(\.title) == ["SEATS", "LOAD", "SPEND"])
         #expect(PanelMenu().menu.items.prefix(4).map(\.title) == ["Sync all", "Launch at login", "Reveal config", "Quit"])
         #expect(Self.chart(Self.rows, .tokens).days == 28)
     }

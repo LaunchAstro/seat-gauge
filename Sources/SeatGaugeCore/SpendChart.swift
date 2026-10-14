@@ -32,6 +32,46 @@ public enum SpendRange: String, CaseIterable, Sendable {
     case recent, all
 }
 
+/// One account's use of one model over the range, so the model list can
+/// follow the accounts the legend leaves on. `amount` is nil for a model with
+/// no list price, in dollars.
+public struct SpendModelTotal: Equatable, Sendable {
+    public let seat: String
+    public let model: String
+    public let amount: Decimal?
+    public let responses: Int
+}
+
+/// A model id as the Spend tab names it: `Opus 5.5`, `Fable 5.1`, `Sol 6.1`,
+/// `Astra 6`. Anything that is neither a Claude nor a GPT id is `Other`.
+public enum ModelName {
+    public static func display(_ model: String) -> String {
+        let id = model.lowercased()
+        if id.hasPrefix("claude-") {
+            var parts = id.dropFirst("claude-".count).split(separator: "-").map(String.init)
+            guard !parts.isEmpty else { return "Other" }
+            let family = parts.removeFirst().capitalized
+            // A date suffix such as 20251001 is not part of the version.
+            let version = parts.filter { $0.count <= 2 && Int($0) != nil }.joined(separator: ".")
+            return version.isEmpty ? family : "\(family) \(version)"
+        }
+        if id.hasPrefix("gpt-") {
+            let parts = id.dropFirst("gpt-".count).split(separator: "-").map(String.init)
+            guard let version = parts.first else { return "Other" }
+            if parts.count > 1 { return parts.dropFirst().map(\.capitalized).joined(separator: " ") + " \(version)" }
+            return "GPT-\(version)"
+        }
+        return "Other"
+    }
+}
+
+/// One row of the model list: the model, and its figure over the accounts left on.
+public struct SpendModelRow: Equatable, Sendable {
+    public let model: String
+    public let amount: Decimal?
+    public let responses: Int
+}
+
 /// One account over the whole record. A floor, not a total: use off this Mac
 /// never reaches `spend.csv`.
 public struct SpendAccountTotal: Equatable, Sendable {
@@ -48,6 +88,7 @@ public struct SpendWhole: Equatable, Sendable {
     public let totals: [SpendGroupTotal]
     public let from: Date
     public let days: Int
+    public var models: [SpendModelTotal] = []
 }
 
 /// What the Spend tab draws, as values, so the chart can be read without a
@@ -74,6 +115,26 @@ public struct SpendChart: Equatable, Sendable {
     /// Every day on record, and each account's floor over it.
     public var whole: SpendWhole? = nil
     public var accounts: [SpendAccountTotal] = []
+    /// Each account's figure per model over the range.
+    public var models: [SpendModelTotal] = []
+
+    /// The model list for the accounts still drawn: one row per model, the
+    /// largest first, and the models with no price, in dollars, as one
+    /// `unpriced` row of responses at the end. Usage that belongs to no
+    /// account is counted whatever is hidden, as the total line counts it.
+    public func modelRows(hiding hidden: Set<String>) -> [SpendModelRow] {
+        var amounts: [String: Decimal] = [:]
+        var responses: [String: Int] = [:]
+        var unpriced = 0
+        for total in models where !hidden.contains("account:\(total.seat)") || total.seat == AttributionRecord.unattributed {
+            guard let amount = total.amount else { unpriced += total.responses; continue }
+            amounts[total.model, default: 0] += amount
+            responses[total.model, default: 0] += total.responses
+        }
+        let rows = amounts.filter { $0.value > 0 }.map { SpendModelRow(model: $0.key, amount: $0.value, responses: responses[$0.key] ?? 0) }
+            .sorted { ($0.amount ?? 0, $1.model) > ($1.amount ?? 0, $0.model) }
+        return rows + (unpriced > 0 ? [SpendModelRow(model: Self.unpriced, amount: nil, responses: unpriced)] : [])
+    }
 
     /// Every model family added up: all tokens, or all priced dollars, over
     /// the range. The unpriced heading counts responses and adds nothing.
@@ -90,6 +151,7 @@ public struct SpendChart: Equatable, Sendable {
                                measure: measure, note: note, unreadable: unreadable)
         chart.whole = whole
         chart.accounts = accounts
+        chart.models = whole.models
         return chart
     }
 
@@ -160,12 +222,14 @@ public struct SpendChart: Equatable, Sendable {
         let recent = make(rows: rows, rates: rates, measure: measure, now: now, calendar: calendar, days: days)
         var chart = SpendChart(series: accountLines(recent.series), totals: recent.totals, from: recent.from,
                                days: recent.days, measure: measure)
+        chart.models = recent.models
         let today = calendar.startOfDay(for: now)
         let first = rows.compactMap { SpendCSV.start(day: $0.day, calendar: calendar) }.filter { $0 <= today }.min()
         let span = first.flatMap { calendar.dateComponents([.day], from: $0, to: today).day }.map { $0 + 1 } ?? 0
         let all = make(rows: rows, rates: rates, measure: measure, now: now, calendar: calendar,
                        days: max(days, span))
-        chart.whole = SpendWhole(series: accountLines(all.series), totals: all.totals, from: all.from, days: all.days)
+        chart.whole = SpendWhole(series: accountLines(all.series), totals: all.totals, from: all.from, days: all.days,
+                                 models: all.models)
         chart.accounts = accounts(rows, through: today, calendar: calendar)
         if case let .unavailable(reason) = record { chart.unreadable = reason } else { chart.note = record.reason }
         return chart
@@ -199,16 +263,23 @@ public struct SpendChart: Equatable, Sendable {
         var everyDay: [Date: Decimal] = [:]
         var money: [String: Decimal] = [:]
         var counted: [String: Int] = [:]
+        var byModel: [String: [String: (amount: Decimal?, responses: Int)]] = [:]
 
         for row in rows {
             guard let day = SpendCSV.start(day: row.day, calendar: calendar), day >= from, day <= today
             else { continue }
-            let amount = measure.amount(of: row) ?? 0
+            let amount = measure.amount(of: row, rates: rates) ?? 0
             lines[row.seat, default: [:]][day, default: 0] += amount
             everyDay[day, default: 0] += amount
             // Family and price are separate questions: in dollars a model the
             // rate card has no price for counts its responses as unpriced.
-            if measure == .usd, rates.priceStatus(for: row.model) == .unpriced {
+            let name = ModelName.display(row.model)
+            let unpriced = measure == .usd && rates.priceStatus(for: row.model) == .unpriced
+            var cell = byModel[row.seat, default: [:]][unpriced ? Self.unpriced : name] ?? (unpriced ? nil : 0, 0)
+            cell.amount = cell.amount.map { $0 + amount }
+            cell.responses += row.responses
+            byModel[row.seat, default: [:]][unpriced ? Self.unpriced : name] = cell
+            if unpriced {
                 counted[Self.unpriced, default: 0] += row.responses
             } else {
                 money[ModelFamily(model: row.model).rawValue, default: 0] += amount
@@ -226,7 +297,11 @@ public struct SpendChart: Equatable, Sendable {
             SpendGroupTotal(group: group, amount: group == Self.unpriced ? nil : money[group] ?? 0,
                             responses: counted[group] ?? 0)
         }
-        return SpendChart(series: series, totals: totals, from: from, days: days, measure: measure)
+        var chart = SpendChart(series: series, totals: totals, from: from, days: days, measure: measure)
+        chart.models = byModel.flatMap { seat, models in
+            models.map { SpendModelTotal(seat: seat, model: $0.key, amount: $0.value.amount, responses: $0.value.responses) }
+        }
+        return chart
     }
 
     /// A line's days in order. Where days with no record fall between two

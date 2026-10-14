@@ -3,12 +3,14 @@ import Foundation
 extension Measure {
     /// The one measure the card detail and the Spend tab share.
     /// Tokens are fresh input, output and cache writes: cache reads are left
-    /// out, and thinking is already inside output. Dollars are the row's list
-    /// price, nil where the rate card has none.
-    public func amount(of row: SpendRow) -> Decimal? {
+    /// out, and thinking is already inside output. Dollars are the row's
+    /// tokens at `rates`' list price, nil where it has none, so every day is
+    /// priced on one card whatever card was current when the row was written.
+    /// With no card, the price the roll-up stored.
+    public func amount(of row: SpendRow, rates: RateCard? = nil) -> Decimal? {
         switch self {
         case .tokens: Decimal(row.input + row.output + row.cacheWrite5m + row.cacheWrite1h)
-        case .usd: row.usd
+        case .usd: rates.map { $0.usd(model: row.model, counts: row.counts) } ?? row.usd
         }
     }
 
@@ -109,7 +111,7 @@ public struct SeatHistory: Equatable, Sendable {
 
     public static func make(record: SpendRecord, through attribution: AttributionRecord, seat: String,
                             range: HistoryRange, measure: Measure, now: Date,
-                            calendar: Calendar = .current) -> SeatHistory {
+                            calendar: Calendar = .current, rates: RateCard = .load()) -> SeatHistory {
         func value(_ outcome: Outcome, noListPrice: Bool = false) -> SeatHistory {
             SeatHistory(seat: seat, range: range, measure: measure, outcome: outcome, noListPrice: noListPrice)
         }
@@ -124,8 +126,8 @@ public struct SeatHistory: Equatable, Sendable {
             guard row.seat == seat, let first = starts.first, day >= first, day < end,
                   let index = starts.lastIndex(where: { $0 <= day }) else { continue }
             used = true
-            priced = priced || row.usd != nil
-            sums[index] += measure.amount(of: row) ?? 0
+            priced = priced || rates.rate(for: row.model) != nil
+            sums[index] += measure.amount(of: row, rates: rates) ?? 0
         }
         let buckets = zip(starts, sums).map { start, sum in
             HistoryBucket(start: start, label: range.label(start, calendar: calendar), amount: sum,

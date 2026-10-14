@@ -279,9 +279,10 @@ import SeatGaugeCore
         }
         let drawn = chart()
         #expect(drawn.series.map(\.name) == ["codex", "personal", "total"])
-        let each = rows.compactMap(\.usd).reduce(0, +) / 3
+        // The three Claude rows cost the same; Sol is priced on the card too.
+        let each = rows[0].usd ?? 0
         #expect(drawn.series.first { $0.name == "personal" }?.points.map(\.amount) == [each * 2])
-        #expect(drawn.series.first { $0.name == "total" }?.points.map(\.amount) == [each * 3])
+        #expect(drawn.series.first { $0.name == "total" }?.points.map(\.amount) == [each * 3 + (rows[3].usd ?? 0)])
         #expect(drawn.note == nil)
 
         try scratch.write(SpendCSV.text(rows) + "not,a,row\n", to: scratch.csv)
