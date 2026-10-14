@@ -13,6 +13,12 @@ import Testing
                         counts: TokenCounts(responses: 1, input: input), usd: usd, sealed: true)
     }
 
+    @Test("a billion tokens and more read in billions")
+    func billions() {
+        #expect(Measure.tokens.figure(2_233_000_000) == "2.2B tokens")
+        #expect(Measure.tokens.figure(487_500_000) == "487.5M tokens")
+    }
+
     @Test("models are named by their own version")
     func names() {
         #expect(ModelName.display("claude-opus-5-5") == "Opus 5.5")
