@@ -170,10 +170,10 @@ import SeatGaugeCore
         #expect(run.rows.map(\.seat).contains("team"))
     }
 
-    @Test("the bundled card is version 2026-09 and derives cache rates from input")
+    @Test("the bundled card is version 2026-10 and derives cache rates from input")
     func pricesFromTheRateCard() throws {
         let card = RateCard.bundled
-        #expect(card.version == "2026-09")
+        #expect(card.version == "2026-10")
 
         let opus = try #require(card.rate(for: "claude-opus-5"))
         #expect(opus.input == Decimal(5) && opus.output == Decimal(25))
@@ -203,21 +203,21 @@ import SeatGaugeCore
     @Test("a model the card does not carry is unpriced, not zero and not a neighbour")
     func leavesAnUnlistedModelUnpriced() async throws {
         let card = RateCard.bundled
-        #expect(card.rate(for: "claude-opus-4-8") == nil)
-        #expect(card.usd(model: "claude-opus-4-8", counts: TokenCounts(responses: 1, input: 1_000_000)) == nil)
-        #expect(card.group(for: "claude-opus-4-8") == "unpriced")
+        #expect(card.rate(for: "claude-opus-4-1") == nil)
+        #expect(card.usd(model: "claude-opus-4-1", counts: TokenCounts(responses: 1, input: 1_000_000)) == nil)
+        #expect(card.group(for: "claude-opus-4-1") == "unpriced")
 
         let scratch = try Scratch()
         defer { scratch.remove() }
         let run = try await scratch.run()
-        let unlisted = try #require(Self.row(run.rows, seat: "default", model: "claude-opus-4-8"))
+        let unlisted = try #require(Self.row(run.rows, seat: "default", model: "claude-opus-4-1"))
         #expect(unlisted.usd == nil)
         #expect(unlisted.responses == 1)
         // Blank in the file as well, rather than a zero a reader would total.
         let csv = try String(contentsOf: scratch.directory.appendingPathComponent("spend.csv"),
                             encoding: .utf8)
-        #expect(csv.contains("claude-opus-4-8"))
-        #expect(csv.split(separator: "\n").contains { $0.contains("claude-opus-4-8") && $0.contains(",,") })
+        #expect(csv.contains("claude-opus-4-1"))
+        #expect(csv.split(separator: "\n").contains { $0.contains("claude-opus-4-1") && $0.contains(",,") })
     }
 
     @Test("the merge replaces unsealed cells, keeps sealed ones and drops nothing")

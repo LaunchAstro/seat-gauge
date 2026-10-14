@@ -4,8 +4,9 @@ import SwiftUI
 
 /// The Spend tab: one line per account plus the total, over the last 28 local
 /// days or every day on record, in tokens or list-price dollars. Two boxes
-/// like the seat cards: the family totals on the left, under All with each
-/// account's floor above them, and the graph and its legend on the right.
+/// like the seat cards: every model's total on the left under their sum,
+/// following the accounts the legend leaves on, and the graph and its legend
+/// on the right.
 struct SpendTab: View {
     private let record: SpendChart
     @State private var range = SpendRange.recent
@@ -36,23 +37,6 @@ struct SpendTab: View {
         day.locale = Locale(identifier: "en_AU")
         day.dateFormat = "EEE d MMM"
         return "\(day.string(from: point.day)) · \(chart.measure.figure(point.amount))"
-    }
-
-    /// An account's floor over the whole record and how long it covers, as the
-    /// All range lists it. The figure is short, `at least 444.9M`, and rounded
-    /// down: rounded to nearest it could claim more than the record holds.
-    static func floor(_ account: SpendAccountTotal) -> (figure: String, detail: String) {
-        let day = DateFormatter()
-        day.locale = Locale(identifier: "en_AU")
-        day.dateFormat = "d MMM yyyy"
-        let count = account.tokens.asDouble
-        let short = switch count {
-        case 1_000_000...: String(format: "%.1fM", (count / 100_000).rounded(.down) / 10)
-        case 1_000...: String(format: "%.0fK", (count / 1_000).rounded(.down))
-        default: String(format: "%.0f", count.rounded(.down))
-        }
-        let days = account.activeDays == 1 ? "1 day" : "\(account.activeDays) days"
-        return ("at least \(short)", "\(days) · from \(day.string(from: account.firstDay))")
     }
 
     static func lineTone(dimmed: Bool) -> Color { dimmed ? Tone.inkDim : Tone.ink }
@@ -123,13 +107,11 @@ struct SpendTab: View {
             }
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: CardMetrics.scaled(Self.gap) / 2) {
-                    // Under All the accounts come first, so each floor shows
-                    // without a scroll; the families follow under a rule.
-                    if range == .all {
-                        ForEach(chart.accounts, id: \.account) { floor($0) }
-                    }
-                    if let combined = chart.combined { all(combined) }
-                    ForEach(chart.totals, id: \.group) { heading($0) }
+                    // Every model by its own version, largest first, over the
+                    // accounts the legend leaves on, under their sum.
+                    let rows = chart.modelRows(hiding: mirror.hiddenLines)
+                    all(rows.compactMap(\.amount).reduce(0, +))
+                    ForEach(rows, id: \.model) { model($0) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -277,14 +259,14 @@ struct SpendTab: View {
         .font(Type.mono(Self.legendSize))
     }
 
-    /// A family's range total, its name at the left and its figure at the
+    /// A model's range total, its name at the left and its figure at the
     /// right. Unpriced counts responses, because it has no dollars to show
     /// and hiding it would make the total look whole.
-    private func heading(_ total: SpendGroupTotal) -> some View {
+    private func model(_ row: SpendModelRow) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(total.group.uppercased()).font(Type.mono(Self.headingLabelSize)).foregroundStyle(Tone.inkDim)
+            Text(row.model.uppercased()).font(Type.mono(Self.headingLabelSize)).foregroundStyle(Tone.inkMuted)
             Spacer(minLength: 4)
-            Text(total.amount.map(chart.measure.figure) ?? "\(total.responses) unpriced")
+            Text(row.amount.map(chart.measure.figure) ?? "\(row.responses) unpriced")
                 .font(Type.mono(Self.headingFigureSize)).foregroundStyle(Tone.ink)
         }
         .lineLimit(1)
@@ -304,19 +286,4 @@ struct SpendTab: View {
         .help("Every model added up over this range")
     }
 
-    /// An account's floor over the family totals, a rule under the last:
-    /// its name and figure on one line, its days and first day on hover.
-    private func floor(_ account: SpendAccountTotal) -> some View {
-        let words = Self.floor(account)
-        return VStack(alignment: .leading, spacing: CardMetrics.scaled(Self.gap) / 2) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(account.account.uppercased()).font(Type.mono(Self.headingLabelSize)).foregroundStyle(Tone.inkDim)
-                Spacer(minLength: 4)
-                Text(words.figure).font(Type.mono(Self.headingFigureSize)).foregroundStyle(Tone.ink)
-            }
-            if account == chart.accounts.last { Rectangle().fill(Tone.rule).frame(height: 0.5) }
-        }
-        .lineLimit(1)
-        .help(words.detail)
-    }
 }

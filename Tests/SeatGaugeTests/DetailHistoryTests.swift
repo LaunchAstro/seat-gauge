@@ -109,7 +109,8 @@ import SeatGaugeCore
         #expect(picked.details[Self.work]?.status == DetailLine(text: "Wed 23 Sep · 1.2M tokens", tone: .ink))
         let weeks = Self.model(record: record, hovered: Self.work, selected: 25,
                                choice: DetailChoice(range: .halfYear, measure: .usd))
-        #expect(weeks.details[Self.work]?.status == DetailLine(text: "wk of 21 Sep · $41.20", tone: .ink))
+        // Dollars come from the tokens on today's card, not the price stored in the row.
+        #expect(weeks.details[Self.work]?.status == DetailLine(text: "wk of 21 Sep · $6.00", tone: .ink))
         // Only the hovered card reads out its selection.
         #expect(picked.details[Self.codex]?.status == nil)
 
@@ -201,7 +202,8 @@ import SeatGaugeCore
         #expect(unavailable.status == DetailLine(text: "spend.csv has the wrong header", tone: .warning))
         #expect(unavailable.plot == .bars([], selected: nil))
         let unpriced = Self.model(record: .available(rows), choice: DetailChoice(range: .week, measure: .usd))
-        #expect(unpriced.details[Self.codex]?.plot == .line(DetailLine(text: "no list price for this seat", tone: .dim)))
+        // Its tokens are on the card, so it charts dollars rather than saying it has no price.
+        #expect(unpriced.details[Self.codex]?.plot != .line(DetailLine(text: "no list price for this seat", tone: .dim)))
 
         #expect(Glance.codex("anything").historyName == "codex")
         // A Claude seat's history is filed under its id, whatever its

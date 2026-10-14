@@ -107,7 +107,8 @@ import SeatGaugeCore
         #expect(days.first { $0.start == Self.day("2026-09-23") }?.readOut == "Wed 23 Sep · 1.2M tokens")
 
         let weeks = Self.history(record, "personal", .halfYear, .usd).outcome.buckets
-        #expect(weeks.last?.readOut == "wk of 21 Sep · $41.20")
+        // Sol 6 is on the card now: its million in and 200K out add $4.
+        #expect(weeks.last?.readOut == "wk of 21 Sep · $45.20")
 
         let months = Self.history(record, "personal", .year).outcome.buckets
         #expect(months.first { $0.start == Self.day("2026-08-01") }?.readOut == "Aug 2026 · 380K tokens")
@@ -150,9 +151,9 @@ import SeatGaugeCore
     }
 
     @Test func dollarsSayWhenASeatHasNoListPrice() {
-        let record = SpendRecord.available([Self.row("codex", "2026-09-25", model: "gpt-6-sol"),
+        let record = SpendRecord.available([Self.row("codex", "2026-09-25", model: "local-model"),
                                             Self.row("personal", "2026-09-25"),
-                                            Self.row("personal", "2026-09-26", model: "gpt-6-sol")])
+                                            Self.row("personal", "2026-09-26", model: "local-model")])
         #expect(Self.history(record, "codex", .week, .usd).noListPrice)
         #expect(!Self.history(record, "codex", .week, .tokens).noListPrice)
         #expect(!Self.history(record, "personal", .week, .usd).noListPrice)

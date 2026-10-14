@@ -150,7 +150,8 @@ import SeatGaugeTestSupport
             ["2026-09-20", "10", "gpt-6-sol", "1", "1000", "100"],
             ["2026-09-21", "09", "gpt-5.5", "1", "200", "20"],
         ])
-        #expect(codex.allSatisfy { $0[11].isEmpty })
+        // Both models are on the card now, so both cells carry a list price.
+        #expect(codex.allSatisfy { !$0[11].isEmpty })
     }
 
     @Test func sessionsSealAndAreReadWholeOrNotAtAll() async throws {
@@ -289,11 +290,12 @@ import SeatGaugeTestSupport
 
     @Test func priceStatusComesOnlyFromTheRateTable() {
         let table = RateCard.bundled
-        #expect(table.version == "2026-09")
-        for model in ["gpt-6-sol", "gpt-5.6-sol", "gpt-5.5", "unknown"] {
-            #expect(table.priceStatus(for: model) == .unpriced, "\(model)")
-            #expect(table.usd(model: model, counts: TokenCounts(responses: 1, input: 10)) == nil)
+        #expect(table.version == "2026-10")
+        for model in ["gpt-6-sol", "gpt-5.6-sol", "gpt-5.5"] {
+            #expect(table.priceStatus(for: model) == .priced, "\(model)")
         }
+        #expect(table.priceStatus(for: "unknown") == .unpriced)
+        #expect(table.usd(model: "unknown", counts: TokenCounts(responses: 1, input: 10)) == nil)
         #expect(ModelFamily(model: "gpt-6-sol") == .sol)
         #expect(table.priceStatus(for: "claude-opus-5") == .priced)
         #expect(table.priceStatus(for: "claude-haiku-4-5-20251001") == .priced)

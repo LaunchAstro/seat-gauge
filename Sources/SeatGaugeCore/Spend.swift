@@ -71,15 +71,29 @@ public struct RateCard: Equatable, Sendable, Codable {
         self.models = models
     }
 
-    /// The bundled list prices; Fable's two ids are priced apart. Haiku is priced and grouped as "other", which is the
-    /// display group the panel totals everything else under.
-    public static let bundled = RateCard(version: "2026-09", models: [
+    /// The bundled list prices, per million tokens; Fable's two ids are priced apart. Haiku and the
+    /// OpenAI models other than Sol are grouped as "other", the display group the panel totals
+    /// everything else under. OpenAI caches carry no write charge in these logs, so only a read
+    /// price is given. GPT-5.6 Sol is at its list price, not the short promotional one.
+    public static let bundled = RateCard(version: "2026-10", models: [
+        "claude-opus-5-5": Rate(input: 4, output: 20, cacheRead: Decimal(string: "0.20")!, group: "Opus"),
         "claude-opus-5": Rate(input: 5, output: 25, group: "Opus"),
+        "claude-opus-4-8": Rate(input: 5, output: 25, group: "Opus"),
         "claude-fable-5": Rate(input: 10, output: 50, cacheRead: 1, group: "Fable"),
         "claude-fable-5-1": Rate(input: 10, output: 50, cacheRead: Decimal(string: "0.25")!,
                                  group: "Fable"),
+        "claude-sonnet-5-5": Rate(input: 2, output: 10, cacheRead: Decimal(string: "0.20")!, group: "Sonnet"),
         "claude-sonnet-5": Rate(input: 2, output: 10, group: "Sonnet"),
+        "claude-haiku-5-5": Rate(input: Decimal(string: "0.10")!, output: Decimal(string: "0.50")!, group: "other"),
         "claude-haiku-4-5-20251001": Rate(input: 1, output: 5, group: "other"),
+        "gpt-6.1-sol": Rate(input: 2, output: 10, cacheRead: Decimal(string: "0.10")!, group: "Sol"),
+        "gpt-6-sol": Rate(input: 2, output: 10, cacheRead: Decimal(string: "0.20")!, group: "Sol"),
+        "gpt-5.6-sol": Rate(input: 5, output: 30, cacheRead: Decimal(string: "0.50")!, group: "Sol"),
+        "gpt-6-astra": Rate(input: 10, output: 50, cacheRead: 1, group: "other"),
+        "gpt-6-luna": Rate(input: Decimal(string: "0.10")!, output: Decimal(string: "0.50")!,
+                           cacheRead: Decimal(string: "0.01")!, group: "other"),
+        "gpt-5.6-terra": Rate(input: 2, output: 12, cacheRead: Decimal(string: "0.20")!, group: "other"),
+        "gpt-5.5": Rate(input: 5, output: 30, cacheRead: Decimal(string: "0.50")!, group: "other"),
     ])
 
     public static var defaultFile: URL { AppPaths.support.appendingPathComponent("rates.json") }
@@ -157,6 +171,7 @@ public struct SpendCell: Hashable, Sendable {
 /// name, `day` and `hour` are local, and `usd` is blank for a model the rate
 /// card does not carry.
 public struct SpendRow: Equatable, Sendable, Codable {
+
     public let seat, day, hour, model: String
     public let responses, input, output, thinking, cacheRead, cacheWrite5m, cacheWrite1h: Int
     public let usd: Decimal?
