@@ -216,7 +216,8 @@ final class WindowController {
             park(on: screens, content: defaultContent)
         }
         wheel = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak window] event in
-            guard event.window === window, let sideways = Self.sideways(event) else { return event }
+            guard event.window === window, !Self.overVerticalList(event, in: window),
+                  let sideways = Self.sideways(event) else { return event }
             return sideways
         }
     }
@@ -225,9 +226,16 @@ final class WindowController {
         if let wheel { NSEvent.removeMonitor(wheel) }
     }
 
+    /// Whether the pointer is over a list that scrolls up and down, such as
+    /// the Spend tab's models, whose wheel turns are wanted as they came.
+    /// Only on the Spend tab, since the other tabs lay the list out unseen.
+    static func overVerticalList(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        GaugeMirror.shared.tab == .spend && event.window === window && VerticalLists.contain(event)
+    }
+
     /// A wheel's line-step turn with no sideways part, as the same turn
-    /// sideways. Nothing in the window scrolls up and down, so the turn is
-    /// never wanted as it came. A trackpad scrolls sideways on its own, so its
+    /// sideways. Outside the Spend tab's list nothing in the window scrolls
+    /// up and down, so the turn is not wanted as it came. A trackpad scrolls sideways on its own, so its
     /// precise turns are left alone.
     static func sideways(_ event: NSEvent) -> NSEvent? {
         guard !event.hasPreciseScrollingDeltas, event.scrollingDeltaX == 0, event.scrollingDeltaY != 0,
