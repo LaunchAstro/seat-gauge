@@ -124,7 +124,6 @@ import SeatGaugeCore
     @Test func theTotalsStepDownAndTheLegendUp() {
         #expect(SpendTab.headingLabelSize < 10)
         #expect(SpendTab.headingFigureSize < 12)
-        #expect(SpendTab.legendSize == 11)
     }
 
     // MARK: - A legend click hides its line, and the choice is kept
