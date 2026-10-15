@@ -32,6 +32,12 @@ public struct SessionRow: Codable, Equatable, Sendable, Identifiable {
         self.machine = machine; self.sessionId = sessionId; self.workspace = workspace
         self.pane = pane; self.tool = tool; self.status = status; self.asOf = asOf
         stale = false; models = [:]
+        observe(workspace: workspace)
+    }
+
+    mutating func observe(workspace: String) {
+        self.workspace = workspace
+        repo = nil; section = nil; seat = nil
         let parts = workspace.split(separator: "-").map(String.init)
         if parts.count >= 3 {
             repo = parts.dropLast(2).joined(separator: "-")
@@ -75,8 +81,11 @@ struct SessionLedger {
         guard FileManager.default.fileExists(atPath: file.path) else { return [:] }
         let data = try Data(contentsOf: file)
         var rows: [String: SessionObservation] = [:]
-        for line in data.split(separator: 0x0A) {
-            let observation = try JSONDecoder().decode(SessionObservation.self, from: Data(line))
+        for line in data.split(separator: 0x0A).dropLast(data.last == 0x0A ? 0 : 1) {
+            guard let observation = try? JSONDecoder().decode(SessionObservation.self, from: Data(line)) else {
+                PollLog.system("log: incomplete pane observation skipped")
+                continue
+            }
             rows[observation.row.sessionId] = observation
         }
         return rows
@@ -90,6 +99,7 @@ struct SessionLedger {
         let handle = try FileHandle(forWritingTo: file)
         defer { try? handle.close() }
         try handle.seekToEnd()
+        try handle.write(contentsOf: Data([0x0A]))
         for observation in observations {
             try handle.write(contentsOf: JSONEncoder().encode(observation) + Data([0x0A]))
         }
@@ -107,8 +117,7 @@ struct SessionObservation: Codable, Equatable {
 struct SessionCheckpoint: Codable {
     var files: [String: SessionTokens] = [:]
     var owners: [String: String] = [:]
-    var baselines: [String: [String: Int]] = [:]
-    var claudeSeen: Set<String> = []
+    var messageOwners: [String: String] = [:]
 }
 
 public actor SessionLogMonitor {
@@ -161,7 +170,7 @@ public actor SessionLogMonitor {
             }
         }
         let log = SessionLogFile(updated: now, sessions: machines.flatMap { rows[$0.id] ?? [] }
-            .sorted { ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast) }, problems: problems)
+            .sorted { ($0.startedAt ?? .distantPast, $0.id) > ($1.startedAt ?? .distantPast, $1.id) }, problems: problems)
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try SessionLogFile.encoder().encode(log).write(to: file, options: .atomic)

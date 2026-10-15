@@ -1,7 +1,7 @@
 import Foundation
 
 /// One assistant response, as the roll-up keeps it before it is bucketed.
-public struct SpendResponse: Equatable, Sendable {
+public struct SpendResponse: Equatable, Sendable, Codable {
     public let requestID, messageID, model: String
     public let at: Date
     public let counts: TokenCounts
@@ -142,7 +142,7 @@ public struct ClaudeCollector: Sendable {
             // counted, so the pair is read out of the raw bytes first and the
             // JSON reader is never asked about a line that is one.
             if let already = Self.pairKey(line)?.split(separator: " ").last, seen.contains(String(already)) { continue }
-            guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
+            guard let object = UsageMetadata.read(line, fields: Self.metadataFields) else {
                 skipped += 1
                 continue
             }
@@ -183,6 +183,11 @@ public struct ClaudeCollector: Sendable {
             cacheWrite5m: creation.flatMap { JSON.int($0["ephemeral_5m_input_tokens"]) } ?? written,
             cacheWrite1h: creation.flatMap { JSON.int($0["ephemeral_1h_input_tokens"]) } ?? 0)
     }
+
+    static let metadataFields: Set<String> = ["type", "sessionId", "totalCostUSD", "message", "usage", "model",
+        "requestId", "id", "timestamp", "cwd", "input_tokens", "output_tokens", "output_tokens_details",
+        "thinking_tokens", "cache_read_input_tokens", "cache_creation", "cache_creation_input_tokens",
+        "ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens"]
 
     /// The lines worth decoding. A transcript is mostly attachments and user
     /// turns, and handing all of them to the JSON reader costs more than the

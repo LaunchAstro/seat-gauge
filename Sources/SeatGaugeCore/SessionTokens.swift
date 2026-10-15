@@ -1,25 +1,26 @@
 import Foundation
 
-/// Only complete lines advance the offset. A crash can reread bytes, but
-/// cannot publish half an event or retain a prompt in the checkpoint.
+/// Only complete lines advance the offset. Checkpoints retain numeric usage
+/// events so resumes can be reordered exactly as Spend orders them.
 struct SessionTokens: Codable, Sendable {
     var offset: UInt64 = 0
     var identity: UInt64 = 0
     var session: String?
+    var cwd: String?
+    var firstToken: Date?
     var model = "unknown"
     var baseline: [String: Int]?
     var seen: Set<String> = []
     var models: [String: TokenCounts] = [:]
+    var events: [CodexRollout.Event] = []
+    var responses: [SpendResponse] = []
     var complete = false
 
-    mutating func read(_ url: URL, tool: String, budget: Int = 32 << 20, after prior: [String: Int]? = nil,
-                       excluding messages: Set<String> = []) throws {
+    mutating func read(_ url: URL, tool: String, budget: Int = 32 << 20) throws {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
         let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
         if inode != identity || size < offset { self = SessionTokens(); identity = inode }
-        if offset == 0 { baseline = prior }
-        if tool == "claude" { seen.formUnion(messages) }
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         try handle.seek(toOffset: offset)
@@ -37,20 +38,27 @@ struct SessionTokens: Codable, Sendable {
                 if tool == "codex" {
                     for line in CodexRollout.candidates(data) {
                         switch CodexRollout.decode(line) {
-                        case let .session(id, _): if session == nil { session = id }
+                        case let .session(id, folder): if session == nil { session = id; cwd = folder }
                         case let .model(named): model = named
-                        case let .tokens(at, total?, last) where at != nil:
-                            let step = CodexRollout.contribution(total: total, last: last, after: baseline)
-                            baseline = step.baseline
-                            if step.added.values.contains(where: { $0 > 0 }) {
-                                models[model, default: TokenCounts()] = models[model, default: TokenCounts()]
-                                    + CodexRollout.counts(step.added)
+                        case let .tokens(at, total, last):
+                            if firstToken == nil { firstToken = at }
+                            if let total {
+                                events.append(CodexRollout.Event(at: at, model: model, total: total, last: last))
+                                if at != nil {
+                                    let step = CodexRollout.contribution(total: total, last: last, after: baseline)
+                                    baseline = step.baseline
+                                    if step.added.values.contains(where: { $0 > 0 }) {
+                                        models[model, default: TokenCounts()] = models[model, default: TokenCounts()]
+                                            + CodexRollout.counts(step.added)
+                                    }
+                                }
                             }
                         default: break
                         }
                     }
                 } else {
                     let reading = ClaudeCollector.read(data: data, primer: AppPaths.primer, seen: &seen)
+                    responses += reading.responses
                     for response in reading.responses {
                         let name = response.model.replacingOccurrences(of: "[1m]", with: "")
                         models[name, default: TokenCounts()] = models[name, default: TokenCounts()] + response.counts
@@ -62,6 +70,10 @@ struct SessionTokens: Codable, Sendable {
             if finishing, boundary != nil { break }
         }
         complete = offset == size
+    }
+
+    func rollout(_ url: URL) -> CodexRollout.Rollout {
+        CodexRollout.Rollout(url: url, session: session, cwd: cwd, firstToken: firstToken, events: events, skipped: 0)
     }
 
     var total: TokenCounts { models.values.reduce(TokenCounts(), +) }

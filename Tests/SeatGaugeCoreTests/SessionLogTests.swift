@@ -172,6 +172,85 @@ import Testing
         #expect(second.sessions[0].tokens == expected)
         #expect(expected.input == 190)
     }
+
+    @Test func positionalPromptIsNotMetadata() {
+        #expect(SessionProbe.options(["codex", "model_reasoning_effort=PRIVATE_CANARY"]).effort == nil)
+        #expect(SessionProbe.options(["codex", "--", "-m", "PRIVATE_CANARY"]).model == nil)
+    }
+
+    @Test func budgetedResumeFilesMatchSpend() async throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let first = root.appendingPathComponent("rollout-a.jsonl")
+        let second = root.appendingPathComponent("rollout-b.jsonl")
+        let padding = "{\"type\":\"response_item\",\"text\":\"" + String(repeating: "x", count: 700_000) + "\"}\n"
+        try Data((codex("main", input: 100) + padding + codex("main", input: 200)).utf8).write(to: first)
+        try Data(codex("main", input: 300).replacingOccurrences(of: "01:00:00", with: "02:00:00").utf8).write(to: second)
+        let probe = SessionProbe(runner: LogProbeRunner(status: "working", paths: [first.path, second.path]),
+                                 directory: root.appendingPathComponent("private"), home: root, byteBudget: 1024)
+        _ = try await probe.run()
+        let finished = try await probe.run()
+        #expect(finished.sessions[0].tokens?.input == 300)
+    }
+
+    @Test func copiedResumeFilesMatchSpend() async throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let second = root.appendingPathComponent("rollout-b.jsonl")
+        let first = root.appendingPathComponent("rollout-a.jsonl")
+        try Data(codex("main", input: 150).replacingOccurrences(of: "01:00:00", with: "02:00:00").utf8).write(to: second)
+        try Data(codex("main", input: 100).utf8).write(to: first)
+        let probe = SessionProbe(runner: LogProbeRunner(status: "working", paths: [first.path, second.path]),
+                                 directory: root.appendingPathComponent("private"), home: root)
+        let result = try await probe.run()
+        #expect(result.sessions[0].tokens?.input == 150)
+    }
+
+    @Test func replacementKeepsExistingSessionTotals() async throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("rollout-main.jsonl")
+        let data = Data(codex("main", input: 100).utf8)
+        try data.write(to: file)
+        let probe = SessionProbe(runner: LogProbeRunner(status: "working", paths: [file.path]),
+                                 directory: root.appendingPathComponent("private"), home: root)
+        let before = try await probe.run()
+        try data.write(to: file, options: .atomic)
+        let after = try await probe.run()
+        #expect(after.sessions[0].tokens == before.sessions[0].tokens)
+    }
+
+    @Test func tornLedgerTailKeepsCommittedRows() throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let ledger = SessionLedger(directory: root)
+        let row = SessionRow(sessionId: "main", workspace: "PROJECT-Log-work", pane: "w1:p1",
+                             tool: "codex", status: "done", asOf: Date())
+        let observation = SessionObservation(row: row, pid: 1, processStart: "start", paths: [])
+        try ledger.append([observation])
+        let handle = try FileHandle(forWritingTo: ledger.file); try handle.seekToEnd()
+        try handle.write(contentsOf: Data("{\"row\":".utf8)); try handle.close()
+        #expect(try ledger.rows()["main"]?.row.status == "done")
+        try ledger.append([observation])
+        #expect(try ledger.rows()["main"]?.row.status == "done")
+    }
+
+    @Test func replacementKeepsClaudeTotalsAndContentIsNotDecoded() throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let path = root.appendingPathComponent("session.jsonl").path
+        let line = #"{"type":"assistant","timestamp":"2026-10-15T01:00:00Z","requestId":"request-a","message":{"id":"msg_a","model":"claude-opus-5-5","content":{"model":"PRIVATE_CANARY"},"usage":{"input_tokens":100,"output_tokens":10}}}"# + "\n"
+        let data = Data(line.utf8)
+        let metadata = try #require(UsageMetadata.read(data, fields: ClaudeCollector.metadataFields))
+        let message = try #require(metadata["message"] as? [String: Any])
+        #expect(message["content"] == nil)
+        let row = SessionRow(sessionId: "main", workspace: "PROJECT-Log-work", pane: "w1:p1",
+                             tool: "claude", status: "working", asOf: Date())
+        let probe = SessionProbe(directory: root, home: root)
+        var checkpoint = SessionCheckpoint()
+        try data.write(to: URL(fileURLWithPath: path))
+        let first = probe.refreshed(row, paths: [path], checkpoint: &checkpoint, rates: .bundled)
+        try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        let second = probe.refreshed(row, paths: [path], checkpoint: &checkpoint, rates: .bundled)
+        #expect(first.tokens?.input == 100)
+        #expect(second.tokens == first.tokens)
+        #expect(!String(decoding: try JSONEncoder().encode(checkpoint), as: UTF8.self).contains("CANARY"))
+    }
 }
 
 private struct LogProbeRunner: ProcessRunning {

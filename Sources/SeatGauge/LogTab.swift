@@ -13,18 +13,18 @@ struct LogTab: View {
                 Text("\(machine): \(log.problems[machine] ?? "unreachable")")
                     .font(Type.mono(9)).foregroundStyle(Tone.inkMuted)
             }
-            ScrollView([.vertical, .horizontal]) {
+            WheelScroll {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(log.sessions) { row in
                         VStack(alignment: .leading, spacing: 3) {
-                            HStack {
+                            HStack(alignment: .firstTextBaseline) {
                                 Text("\(row.machine) · \(row.workspace) · \(row.pane)")
                                     .font(Type.display(11))
                                 Text(row.status.uppercased()).font(Type.mono(9))
                                 if row.stale || Date().timeIntervalSince(row.asOf) > 90 {
                                     Text("STALE").font(Type.mono(9)).foregroundStyle(Tone.warning)
                                 }
-                            }
+                            }.fixedSize(horizontal: false, vertical: true)
                             Text([row.tool, row.model, row.effort, row.branch].compactMap { $0 }.joined(separator: " · "))
                                 .font(Type.mono(10))
                             Text("\(row.repo ?? "unlabelled repo") · \(row.section ?? "no section") · \(row.seat ?? "no seat")")

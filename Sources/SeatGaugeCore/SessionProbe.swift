@@ -7,11 +7,12 @@ public struct SessionProbe: Sendable {
     let directory: URL
     let home: URL
     let profiles: [SpendProfile]
+    let byteBudget: Int
 
     public init(runner: any ProcessRunning = RealProcessRunner(),
                 directory: URL = AppPaths.support.appendingPathComponent("log-private"),
-                home: URL = URL(fileURLWithPath: NSHomeDirectory()), profiles: [SpendProfile] = []) {
-        self.runner = runner; self.directory = directory; self.home = home; self.profiles = profiles
+                home: URL = URL(fileURLWithPath: NSHomeDirectory()), profiles: [SpendProfile] = [], byteBudget: Int = 32 << 20) {
+        self.runner = runner; self.directory = directory; self.home = home; self.profiles = profiles; self.byteBudget = byteBudget
     }
 
     func command(_ executable: String, _ arguments: [String], timeout: Duration = .seconds(8)) async throws -> [String] {
@@ -124,6 +125,8 @@ public struct SessionProbe: Sendable {
                     workspace: labels[pane["workspace_id"] as? String ?? ""] ?? "", pane: paneID,
                     tool: tool, status: "unknown", asOf: now)
                 row.sessionId = id
+                row.observe(workspace: labels[pane["workspace_id"] as? String ?? ""] ?? row.workspace)
+                row.pane = paneID
                 row.status = pane["agent_status"] as? String ?? "unknown"
                 if row.status == "working", row.startedAt == nil { row.startedAt = now }
                 row.closedAt = nil; row.asOf = now; row.stale = false
@@ -170,21 +173,30 @@ public struct SessionProbe: Sendable {
         var row = original
         var models: [String: TokenCounts] = [:]
         var complete = !paths.isEmpty
-        for path in paths.sorted(by: { (creation($0), $0) < (creation($1), $1) }) {
+        var rollouts: [CodexRollout.Rollout] = []
+        for path in paths.sorted() {
             if let owner = checkpoint.owners[path], owner != row.sessionId { continue }
             checkpoint.owners[path] = row.sessionId
             var tokens = checkpoint.files[path] ?? SessionTokens()
-            let session = row.tool == "codex" ? CodexCollector.firstSession(of: URL(fileURLWithPath: path)) : nil
-            do {
-                try tokens.read(URL(fileURLWithPath: path), tool: row.tool,
-                                after: session.flatMap { checkpoint.baselines[$0] }, excluding: checkpoint.claudeSeen)
-                if let session, let baseline = tokens.baseline { checkpoint.baselines[session] = baseline }
-            }
+            do { try tokens.read(URL(fileURLWithPath: path), tool: row.tool, budget: byteBudget) }
             catch { complete = false }
             checkpoint.files[path] = tokens
-            if row.tool == "claude" { checkpoint.claudeSeen.formUnion(tokens.seen) }
             complete = complete && tokens.complete
-            models.merge(tokens.models, uniquingKeysWith: +)
+            if row.tool == "codex" {
+                rollouts.append(tokens.rollout(URL(fileURLWithPath: path)))
+            } else {
+                for response in tokens.responses {
+                    if checkpoint.messageOwners[response.messageID] == nil { checkpoint.messageOwners[response.messageID] = path }
+                    guard checkpoint.messageOwners[response.messageID] == path else { continue }
+                    let model = response.model.replacingOccurrences(of: "[1m]", with: "")
+                    models[model, default: TokenCounts()] = models[model, default: TokenCounts()] + response.counts
+                }
+            }
+        }
+        if row.tool == "codex" {
+            let reading = CodexRollout.read(rollouts: rollouts, calendar: .current,
+                                           excluding: AppPaths.primers(beside: AppPaths.codexPrimer))
+            for (cell, counts) in reading.cells { models[cell.model, default: TokenCounts()] = models[cell.model, default: TokenCounts()] + counts }
         }
         row.models = models
         row.tokens = paths.isEmpty ? nil : models.values.reduce(TokenCounts(), +)
@@ -239,16 +251,32 @@ public struct SessionProbe: Sendable {
 
     static func options(_ argv: [String]) -> (model: String?, effort: String?) {
         var model: String?; var effort: String?
-        for (index, arg) in argv.enumerated() {
-            if ["-m", "--model"].contains(arg), index + 1 < argv.count { model = argv[index + 1] }
-            if arg.hasPrefix("--model=") { model = String(arg.dropFirst(8)) }
-            if arg == "--effort", index + 1 < argv.count { effort = argv[index + 1] }
-            if arg.hasPrefix("model_reasoning_effort=") {
-                effort = String(arg.dropFirst("model_reasoning_effort=".count)).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        var index = 1
+        let values = ["-m", "--model", "--effort", "-c", "--config", "--profile", "-p", "--cd", "-C",
+                      "--add-dir", "--sandbox", "-s", "--ask-for-approval", "-a", "--session-id", "--resume"]
+        while index < argv.count {
+            let arg = argv[index]
+            if index == 1 && ["exec", "e"].contains(arg) { index += 1; continue }
+            if arg == "--" || !arg.hasPrefix("-") { break }
+            if values.contains(arg) {
+                guard index + 1 < argv.count else { break }
+                let value = argv[index + 1]
+                if arg == "-m" || arg == "--model" { model = value }
+                if arg == "--effort" { effort = value }
+                if ["-c", "--config"].contains(arg), value.hasPrefix("model_reasoning_effort=") {
+                    effort = String(value.dropFirst("model_reasoning_effort=".count))
+                        .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                }
+                index += 2
+            } else {
+                if arg.hasPrefix("--model=") { model = String(arg.dropFirst(8)) }
+                if arg.hasPrefix("--effort=") { effort = String(arg.dropFirst(9)) }
+                index += 1
             }
         }
         return (model, effort)
     }
+
 }
 
 extension MachineProber {

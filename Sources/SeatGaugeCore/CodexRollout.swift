@@ -30,7 +30,7 @@ public enum CodexRollout {
                          "output_tokens", "reasoning_output_tokens", "total_tokens"]
 
     /// One token event, with the model the latest `turn_context` named.
-    struct Event {
+    struct Event: Codable, Sendable {
         let at: Date?
         let model: String
         let total: [String: Int]
@@ -53,11 +53,14 @@ public enum CodexRollout {
     /// A session any of whose files ran in one of `primers` is the gauge's
     /// own polling, and is left out as the Claude walk leaves out its own.
     public static func read(files: [URL], calendar: Calendar, excluding primers: [String] = []) -> CodexReading {
+        read(rollouts: files.compactMap(parse), calendar: calendar, excluding: primers)
+    }
+
+    static func read(rollouts: [Rollout], calendar: Calendar, excluding primers: [String] = []) -> CodexReading {
         var sessions: [String: [Rollout]] = [:]
         var skipped = 0
         var unkeyed = 0
-        for url in files {
-            guard let rollout = parse(url) else { continue }
+        for rollout in rollouts {
             skipped += rollout.skipped
             guard let session = rollout.session else { unkeyed += 1; continue }
             sessions[session, default: []].append(rollout)
@@ -157,7 +160,8 @@ public enum CodexRollout {
     }
 
     static func decode(_ line: Data) -> Record? {
-        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
+        let fields = Set(Self.fields + ["type", "timestamp", "payload", "id", "cwd", "model", "info", "total_token_usage", "last_token_usage"])
+        guard let object = UsageMetadata.read(line, fields: fields) else { return nil }
         let payload = object["payload"] as? [String: Any] ?? [:]
         switch object["type"] as? String {
         case "session_meta": return .session(payload["id"] as? String, payload["cwd"] as? String)
