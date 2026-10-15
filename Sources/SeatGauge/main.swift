@@ -99,6 +99,11 @@ if let watcher = try? ConfigWatcher() {
                                                 if reshaped { controller.refit(.drawn) }
                                             }
                                         })
+    let logMonitor = SessionLogMonitor(prober: MachineProber(runner: RealProcessRunner()),
+        config: { await watcher.config }, notify: { log in
+            Task { @MainActor in GaugeMirror.shared.sessionLog = log }
+        })
+    Task { await logMonitor.run() }
     GaugeMirror.shared.readMachines = { Task { await machineMonitor.read() } }
     Task {
         GaugeMirror.shared.machines = await watcher.config.machines

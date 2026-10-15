@@ -92,6 +92,7 @@ final class LiveSession: ProcessSession, @unchecked Sendable {
     private let process: Process
     private let input: Pipe
     private let lock = NSLock()
+    private let outputLock = NSLock()
     private var rest = Data()
     private var finished = false
     private let continuation: AsyncThrowingStream<String, Error>.Continuation
@@ -103,10 +104,16 @@ final class LiveSession: ProcessSession, @unchecked Sendable {
         (stdoutLines, continuation) = AsyncThrowingStream.makeStream()
 
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            self?.take(handle.availableData)
+            guard let self else { return }
+            self.outputLock.withLock { self.take(handle.availableData) }
         }
         process.terminationHandler = { [weak self] _ in
-            self?.finish(nil)
+            guard let self else { return }
+            output.fileHandleForReading.readabilityHandler = nil
+            self.outputLock.withLock {
+                self.take(output.fileHandleForReading.readDataToEndOfFile())
+                self.finish(nil)
+            }
         }
         let deadline = DispatchTime.now() + max(0, timeout.seconds)
         DispatchQueue.global().asyncAfter(deadline: deadline) { [weak self] in

@@ -43,7 +43,7 @@ public struct ClaudeCollector: Sendable {
             for response in reading.responses {
                 // The same response is written to the transcript more than
                 // once, about twice per response.
-                guard seen.insert("\(response.requestID) \(response.messageID)").inserted else { continue }
+                guard seen.insert(response.messageID).inserted else { continue }
                 out.responses += 1
                 let cell = self.cell(seat: seat, response: response)
                 out.cells[cell] = (out.cells[cell] ?? TokenCounts()) + response.counts
@@ -127,17 +127,21 @@ public struct ClaudeCollector: Sendable {
         guard let data = try? Data(contentsOf: file) else {
             return FileReading(responses: [], sessionCosts: [:], skipped: 0)
         }
+        var seen: Set<String> = []
+        return read(data: data, primer: primer, seen: &seen)
+    }
+
+    static func read(data: Data, primer: URL, seen: inout Set<String>) -> FileReading {
         let here = AppPaths.primers(beside: primer)
         var responses: [SpendResponse] = []
         var costs: [String: Double] = [:]
-        var seen: Set<String> = []
         var skipped = 0
 
         for line in Self.candidates(data) {
             // Half the assistant lines in a transcript are a response already
             // counted, so the pair is read out of the raw bytes first and the
             // JSON reader is never asked about a line that is one.
-            if let already = Self.pairKey(line), seen.contains(already) { continue }
+            if let already = Self.pairKey(line)?.split(separator: " ").last, seen.contains(String(already)) { continue }
             guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
                 skipped += 1
                 continue
@@ -158,7 +162,7 @@ public struct ClaudeCollector: Sendable {
             // Either build's own Claude calls run in its `primer/`, and counting
             // them would have the panel report its polling as the user's work.
             if let cwd = object["cwd"] as? String, here.contains(where: { (cwd + "/").hasPrefix($0 + "/") }) { continue }
-            guard seen.insert("\(request) \(id)").inserted else { continue }
+            guard seen.insert(id).inserted else { continue }
             responses.append(SpendResponse(requestID: request, messageID: id, model: model,
                                            at: at, counts: Self.counts(usage)))
         }

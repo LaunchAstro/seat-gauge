@@ -229,6 +229,18 @@ extension Decimal {
 let arguments = Array(CommandLine.arguments.dropFirst())
 do {
     switch arguments.first {
+    case "log-probe":
+        let directory = arguments.count == 3 && arguments[1] == "--directory"
+            ? URL(fileURLWithPath: arguments[2]) : AppPaths.support.appendingPathComponent("log-private")
+        let config = ConfigLoader(file: directory.deletingLastPathComponent().appendingPathComponent("seats.json"))
+        let seats = (try? config.load().seats) ?? []
+        let log = try await SessionProbe(directory: directory, profiles: SpendProfile.from(seats: seats)).run(rates: RateCard.load())
+        print(String(decoding: try SessionLogFile.encoder().encode(log), as: UTF8.self))
+    case "log":
+        let watcher = try ConfigWatcher()
+        let log = await SessionLogMonitor(prober: MachineProber(runner: RealProcessRunner()),
+                                         config: { await watcher.config }).read()
+        print(String(decoding: try SessionLogFile.encoder().encode(log), as: UTF8.self))
     case "read": try await read(arguments.dropFirst().first)
     case "record": try await record(arguments.dropFirst().first ?? "", from: arguments.dropFirst(2).first)
     case "watch": try await watch()
@@ -241,7 +253,7 @@ do {
     case "machines":
         if arguments.dropFirst().first == "add" { try await addMachine(arguments.dropFirst(2)) }
         else { try await machines(arguments.dropFirst().first) }
-    default: print("usage: seatgauge-cli read [seats.json] | machines [seats.json] | machines add <ssh destination> [label] | record <seat> [seats.json] | watch | spend [file] | state [range <r>] [measure <m>] | attribute --seed <file> | import-codex | login <seat> [--email <address>] [seats.json]")
+    default: print("usage: seatgauge-cli log | log-probe | read [seats.json] | machines [seats.json] | machines add <ssh destination> [label] | record <seat> [seats.json] | watch | spend [file] | state [range <r>] [measure <m>] | attribute --seed <file> | import-codex | login <seat> [--email <address>] [seats.json]")
     }
 } catch {
     FileHandle.standardError.write(Data("seatgauge-cli: \(error)\n".utf8))

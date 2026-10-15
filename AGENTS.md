@@ -37,6 +37,7 @@ Three SwiftPM targets, Command Line Tools only (no Xcode project).
 | `Attribution*.swift`, `IdentityObserver.swift`, `SpendAttribution.swift` | Which seat the default `~/.claude` login was at each hour, so its spend lands on the right account. |
 | `SpendChart.swift`, `SeatHistory.swift` | Series for the Spend tab and a card's history chart. |
 | `MachineLoad.swift` | The LOAD tab's figures: the probe each machine runs (here in `sh`, elsewhere over `ssh`), its parse into CPU, memory, disk and herdr's agent count, the room verdict, `MachineMonitor`'s loop and `machines.json`. |
+| `SessionLog.swift`, `SessionProbe.swift`, `SessionTokens.swift` | The Log snapshot, private pane ledger, machine-local discovery and incremental reads through the Spend parsers. |
 | `State.swift` | `state.json`: roll-up watermark and panel choices, under a file lock. |
 
 In the app, `PanelModel.swift` builds what each card shows from a `Snapshot`, `PanelRoot.swift` holds `GaugeMirror` (the main-actor copy of the latest state), `WindowController.swift` and `PanelHeight.swift` size the window, `SignIn.swift` is a card's Sign in (the browser, the code prompt and the proof around `SeatLogin`), and `main.swift` wires it all together.

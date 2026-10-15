@@ -136,35 +136,37 @@ public enum CodexRollout {
         var events: [Event] = []
         var skipped = 0
         for line in candidates(data) {
-            guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
-                skipped += 1
-                continue
-            }
-            let at = JSON.date(object["timestamp"])
-            let payload = object["payload"] as? [String: Any] ?? [:]
-            switch object["type"] as? String {
-            case "session_meta":
-                // A fork carries its parent's meta after its own; only the
-                // first names this file's session.
-                if session == nil {
-                    session = payload["id"] as? String
-                    cwd = payload["cwd"] as? String
-                }
-            case "turn_context":
-                if let named = payload["model"] as? String { model = named }
-            case "event_msg" where payload["type"] as? String == "token_count":
-                // Taken before a usage-less event is dropped, since it is the
-                // file's first token event all the same.
+            guard let record = decode(line) else { skipped += 1; continue }
+            switch record {
+            case let .session(id, folder):
+                if session == nil { session = id; cwd = folder }
+            case let .model(named): model = named
+            case let .tokens(at, total, last):
                 if firstToken == nil { firstToken = at }
-                guard let info = payload["info"] as? [String: Any],
-                      let total = usage(info["total_token_usage"]) else { continue }
-                events.append(Event(at: at, model: model, total: total, last: usage(info["last_token_usage"])))
-            default:
-                continue
+                if let total { events.append(Event(at: at, model: model, total: total, last: last)) }
             }
         }
         return Rollout(url: url, session: session, cwd: cwd, firstToken: firstToken,
                        events: events, skipped: skipped)
+    }
+
+    enum Record {
+        case session(String?, String?)
+        case model(String)
+        case tokens(Date?, [String: Int]?, [String: Int]?)
+    }
+
+    static func decode(_ line: Data) -> Record? {
+        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
+        let payload = object["payload"] as? [String: Any] ?? [:]
+        switch object["type"] as? String {
+        case "session_meta": return .session(payload["id"] as? String, payload["cwd"] as? String)
+        case "turn_context": return .model(payload["model"] as? String ?? "unknown")
+        case "event_msg" where payload["type"] as? String == "token_count":
+            let info = payload["info"] as? [String: Any] ?? [:]
+            return .tokens(JSON.date(object["timestamp"]), usage(info["total_token_usage"]), usage(info["last_token_usage"]))
+        default: return nil
+        }
     }
 
     static func usage(_ value: Any?) -> [String: Int]? {
