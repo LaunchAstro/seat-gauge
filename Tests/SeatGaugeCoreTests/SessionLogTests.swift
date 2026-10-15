@@ -251,6 +251,55 @@ import Testing
         #expect(second.tokens == first.tokens)
         #expect(!String(decoding: try JSONEncoder().encode(checkpoint), as: UTF8.self).contains("CANARY"))
     }
+
+    @Test func realSessionChangeKeepsBothSessions() async throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let first = root.appendingPathComponent("rollout-first.jsonl")
+        let second = root.appendingPathComponent("rollout-second.jsonl")
+        try Data(codex("first", input: 100).utf8).write(to: first)
+        try Data(codex("second", input: 40).utf8).write(to: second)
+        let directory = root.appendingPathComponent("private")
+        _ = try await SessionProbe(runner: LogProbeRunner(status: "working", paths: [first.path]), directory: directory, home: root).run()
+        let probe = SessionProbe(runner: LogProbeRunner(status: "working", paths: [second.path]), directory: directory, home: root)
+        let changed = try await probe.run()
+        #expect(changed.sessions.count == 2)
+        #expect(changed.sessions.first { $0.sessionId == "first" }?.tokens?.input == 100)
+        #expect(changed.sessions.first { $0.sessionId == "second" }?.tokens?.input == 40)
+        #expect(changed.sessions.first { $0.sessionId == "first" }?.closedAt == nil)
+        try FileManager.default.removeItem(at: directory.appendingPathComponent("offsets.json"))
+        let rebuilt = try await probe.run()
+        #expect(rebuilt.sessions.first { $0.sessionId == "first" }?.tokens?.input == 100)
+        #expect(rebuilt.sessions.first { $0.sessionId == "second" }?.tokens?.input == 40)
+    }
+
+    @Test func duplicateClaudeOwnerSurvivesReplacement() throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let first = root.appendingPathComponent("a.jsonl")
+        let duplicate = root.appendingPathComponent("b.jsonl")
+        func data(_ id: String, _ input: Int) -> Data {
+            Data("""
+            {"type":"assistant","timestamp":"2026-10-15T01:00:00Z","requestId":"request-\(id)","message":{"id":"msg_\(id)","model":"claude-opus-5-5","usage":{"input_tokens":\(input),"output_tokens":10}}}
+
+            """.utf8)
+        }
+        try data("original", 100).write(to: first)
+        try data("original", 100).write(to: duplicate)
+        let row = SessionRow(sessionId: "main", workspace: "PROJECT-Log-work", pane: "w1:p1", tool: "claude", status: "working", asOf: Date())
+        let probe = SessionProbe(directory: root, home: root)
+        var checkpoint = SessionCheckpoint()
+        #expect(probe.refreshed(row, paths: [first.path, duplicate.path], checkpoint: &checkpoint, rates: .bundled).tokens?.input == 100)
+        try data("replacement", 40).write(to: first, options: .atomic)
+        let result = probe.refreshed(row, paths: [first.path, duplicate.path], checkpoint: &checkpoint, rates: .bundled)
+        #expect(result.tokens?.input == 140)
+        #expect(!result.stale)
+    }
+
+    @Test func integerSessionCostSurvivesMetadataDecoder() throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("session.jsonl")
+        try Data("{\"type\":\"cost-state\",\"sessionId\":\"main\",\"totalCostUSD\":2}\n".utf8).write(to: file)
+        #expect(ClaudeCollector.read(file: file, primer: root.appendingPathComponent("primer")).sessionCosts["main"] == 2)
+    }
 }
 
 private struct LogProbeRunner: ProcessRunning {

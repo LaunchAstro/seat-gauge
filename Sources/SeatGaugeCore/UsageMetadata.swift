@@ -23,8 +23,8 @@ struct UsageMetadata: Decodable {
             if let nested = try? values.decode(Self.self, forKey: key) { object[key.stringValue] = nested.object }
             else if containers.contains(key.stringValue) { continue }
             else if let text = try? values.decode(String.self, forKey: key) { object[key.stringValue] = text }
-            else if let number = try? values.decode(Int.self, forKey: key) { object[key.stringValue] = number }
-            else if let number = try? values.decode(Double.self, forKey: key) { object[key.stringValue] = number }
+            else if let number = try? values.decode(Int.self, forKey: key) { object[key.stringValue] = NSNumber(value: number) }
+            else if let number = try? values.decode(Double.self, forKey: key) { object[key.stringValue] = NSNumber(value: number) }
         }
         self.object = object
     }

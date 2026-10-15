@@ -46,6 +46,11 @@ public struct SessionProbe: Sendable {
         let checkpointFile = directory.appendingPathComponent("offsets.json")
         var checkpoint = (try? Data(contentsOf: checkpointFile))
             .flatMap { try? JSONDecoder().decode(SessionCheckpoint.self, from: $0) } ?? SessionCheckpoint()
+        for observation in observations.values where observation.row.status != "superseded" {
+            for path in observation.paths where checkpoint.owners[path] == nil {
+                checkpoint.owners[path] = observation.row.sessionId
+            }
+        }
         let listing = try await reply(["pane", "list"])
         let workspaces = try await reply(["workspace", "list"])
         guard let panes = listing["panes"] as? [[String: Any]],
@@ -105,23 +110,20 @@ public struct SessionProbe: Sendable {
                     tool == "codex" ? CodexCollector.firstSession(of: URL(fileURLWithPath: path))
                         : URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
                 }
-                let previous = observations.values.first { $0.pid == pid && Self.start($0.processStart) == Self.start(birth) && $0.row.pane == paneID && $0.row.status != "superseded" }
+                let matches = observations.values.filter {
+                    $0.pid == pid && Self.start($0.processStart) == Self.start(birth)
+                        && $0.row.pane == paneID && $0.row.status != "superseded"
+                }.sorted { ($0.row.asOf, $0.row.sessionId) > ($1.row.asOf, $1.row.sessionId) }
+                let previous = matches.first { $0.row.sessionId == primary } ?? matches.first
                 let id = primary ?? previous?.row.sessionId ?? "process:\(paneID):\(pid):\(birth)"
-                for old in observations.values.filter({ $0.row.sessionId.hasPrefix("process:") && $0.row.sessionId != id
-                    && $0.pid == pid && Self.start($0.processStart) == Self.start(birth) && $0.row.pane == paneID }) {
+                let inherited = previous.flatMap { $0.row.sessionId.hasPrefix("process:") ? $0 : nil }
+                for old in matches where old.row.sessionId.hasPrefix("process:") && old.row.sessionId != id {
                     observations.removeValue(forKey: old.row.sessionId)
                     var retired = old; retired.row.status = "superseded"; retired.row.closedAt = now
                     changes.append(retired)
+                    for path in old.paths where checkpoint.owners[path] == old.row.sessionId { checkpoint.owners[path] = id }
                 }
-                if let previous, previous.row.sessionId != id {
-                    observations.removeValue(forKey: previous.row.sessionId)
-                    var retired = previous; retired.row.status = "superseded"; retired.row.closedAt = now
-                    changes.append(retired)
-                    for path in previous.paths where checkpoint.owners[path] == previous.row.sessionId {
-                        checkpoint.owners[path] = id
-                    }
-                }
-                var row = observations[id]?.row ?? previous?.row ?? SessionRow(sessionId: id,
+                var row = observations[id]?.row ?? inherited?.row ?? SessionRow(sessionId: id,
                     workspace: labels[pane["workspace_id"] as? String ?? ""] ?? "", pane: paneID,
                     tool: tool, status: "unknown", asOf: now)
                 row.sessionId = id
@@ -135,14 +137,14 @@ public struct SessionProbe: Sendable {
                 if !cwd.isEmpty, !cwd.hasPrefix("/Volumes/") {
                     row.branch = (try? await command("/usr/bin/git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"]))?.first
                 }
-                let keptPaths = Array(Set((observations[id]?.paths ?? previous?.paths ?? []) + paths)).sorted()
+                let keptPaths = Array(Set((observations[id]?.paths ?? inherited?.paths ?? []) + paths)).sorted()
                 let owned = keptPaths.filter { path in
                     if checkpoint.owners[path] == nil { checkpoint.owners[path] = id }
                     return checkpoint.owners[path] == id
                 }
                 row = refreshed(row, paths: owned, checkpoint: &checkpoint, rates: rates)
-                let observation = SessionObservation(row: row, pid: pid, processStart: birth, paths: keptPaths)
-                observations[id] = observation; alive.insert(id); changes.append(observation)
+                let observation = SessionObservation(row: row, pid: pid, processStart: birth, paths: owned)
+                observations[id] = observation; alive.insert(id)
             }
         }
         for (id, observation) in observations where !alive.contains(id) && observation.row.status != "superseded" {
@@ -150,8 +152,16 @@ public struct SessionProbe: Sendable {
             if closed.row.closedAt == nil {
                 let birth = present.contains(closed.row.pane)
                     ? (try? await command("/bin/ps", ["-p", String(closed.pid), "-o", "lstart="]))?.first : nil
-                if uncertain.contains(closed.row.pane) || birth.map({ Self.start($0) == Self.start(closed.processStart) }) == true {
+                if uncertain.contains(closed.row.pane) {
                     closed.row.stale = true
+                } else if birth.map({ Self.start($0) == Self.start(closed.processStart) }) == true {
+                    let known = observations.values.contains { alive.contains($0.row.sessionId)
+                        && $0.pid == closed.pid && $0.processStart == closed.processStart }
+                    if known {
+                        closed.row.status = "idle"; closed.row.asOf = now
+                        closed.row = refreshed(closed.row, paths: closed.paths, checkpoint: &checkpoint, rates: rates)
+                        alive.insert(id)
+                    } else { closed.row.stale = true }
                 } else {
                     closed.row.status = "closed"; closed.row.closedAt = now
                 }
@@ -161,7 +171,14 @@ public struct SessionProbe: Sendable {
                 closed.row.asOf = now
             }
             observations[id] = closed
-            if closed != observation { changes.append(closed) }
+            if closed != observation && closed.row.closedAt == nil && !alive.contains(id) { changes.append(closed) }
+        }
+        for (id, observation) in observations where observation.row.status != "superseded"
+            && (alive.contains(id) || observation.row.closedAt != nil) {
+            var observation = observation
+            observation.row = summarized(observation.row, paths: observation.paths, checkpoint: &checkpoint, rates: rates)
+            observations[id] = observation
+            changes.append(observation)
         }
         try ledger.append(changes)
         try JSONEncoder().encode(checkpoint).write(to: checkpointFile, options: .atomic)
@@ -170,23 +187,37 @@ public struct SessionProbe: Sendable {
     }
 
     func refreshed(_ original: SessionRow, paths: [String], checkpoint: inout SessionCheckpoint, rates: RateCard) -> SessionRow {
+        var failed = false
+        for path in paths.sorted() {
+            if let owner = checkpoint.owners[path], owner != original.sessionId { continue }
+            checkpoint.owners[path] = original.sessionId
+            var tokens = checkpoint.files[path] ?? SessionTokens()
+            do { try tokens.read(URL(fileURLWithPath: path), tool: original.tool, budget: byteBudget) }
+            catch { failed = true; tokens.complete = false }
+            checkpoint.files[path] = tokens
+        }
+        var row = summarized(original, paths: paths, checkpoint: &checkpoint, rates: rates)
+        row.stale = row.stale || failed
+        return row
+    }
+
+    func summarized(_ original: SessionRow, paths: [String], checkpoint: inout SessionCheckpoint, rates: RateCard) -> SessionRow {
         var row = original
         var models: [String: TokenCounts] = [:]
         var complete = !paths.isEmpty
         var rollouts: [CodexRollout.Rollout] = []
         for path in paths.sorted() {
-            if let owner = checkpoint.owners[path], owner != row.sessionId { continue }
-            checkpoint.owners[path] = row.sessionId
-            var tokens = checkpoint.files[path] ?? SessionTokens()
-            do { try tokens.read(URL(fileURLWithPath: path), tool: row.tool, budget: byteBudget) }
-            catch { complete = false }
-            checkpoint.files[path] = tokens
+            guard checkpoint.owners[path] == row.sessionId, let tokens = checkpoint.files[path] else { complete = false; continue }
             complete = complete && tokens.complete
             if row.tool == "codex" {
                 rollouts.append(tokens.rollout(URL(fileURLWithPath: path)))
             } else {
                 for response in tokens.responses {
-                    if checkpoint.messageOwners[response.messageID] == nil { checkpoint.messageOwners[response.messageID] = path }
+                    let owner = checkpoint.messageOwners[response.messageID]
+                    let present = owner.flatMap { checkpoint.files[$0] }?.seen.contains(response.messageID) ?? false
+                    if !present {
+                        checkpoint.messageOwners[response.messageID] = path
+                    }
                     guard checkpoint.messageOwners[response.messageID] == path else { continue }
                     let model = response.model.replacingOccurrences(of: "[1m]", with: "")
                     models[model, default: TokenCounts()] = models[model, default: TokenCounts()] + response.counts
