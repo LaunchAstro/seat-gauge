@@ -3,7 +3,6 @@ import SwiftUI
 
 struct LogTab: View {
     let log: SessionLogFile
-    @Environment(\.pinnedVerticalFactor) private var pinned
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -40,8 +39,7 @@ struct LogTab: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(minHeight: 230 * TextScale.current.factor * (pinned ?? VerticalFit.current),
-                   maxHeight: .infinity)
+            .frame(maxHeight: .infinity)
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

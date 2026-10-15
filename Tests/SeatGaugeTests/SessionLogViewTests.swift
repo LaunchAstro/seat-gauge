@@ -5,26 +5,27 @@ import Testing
 @testable import SeatGauge
 
 @Suite(.serialized, .sharedMirror) @MainActor struct SessionLogViewTests {
-    @Test func logHeightHasRoomForABottomEdgeDrag() {
+    @Test func logCannotRaiseTheSharedPanelHeight() {
         _ = NSApplication.shared
         let mirror = GaugeMirror.shared
-        let previous = mirror.textScale
-        defer { mirror.textScale = previous }
+        let previous = (mirror.textScale, mirror.sessionLog, mirror.tab)
+        defer { mirror.textScale = previous.0; mirror.sessionLog = previous.1; mirror.tab = previous.2 }
+        mirror.tab = .log
         for scale in [TextScale.smallest, .default, .largest] {
             mirror.textScale = scale
             for width: CGFloat in [360, 760] {
                 let measuring = HostingProbe(host: nil) { factor in
-                    AnyView(LogTab(log: Self.log).environment(\.pinnedVerticalFactor, factor))
+                    AnyView(Root().environment(\.pinnedVerticalFactor, factor))
                 }
-                let height = PanelHeight(measuring: measuring)
-                let fit = height.contentChanged(width: width, room: 2_000)
-                let range = fit.range
-                #expect(range != nil)
-                #expect((range?.upperBound ?? 0) - (range?.lowerBound ?? 0) > 100)
-                height.chosen = range.map { ($0.lowerBound + $0.upperBound) / 2 }
-                let expanded = height.contentChanged(width: width, room: 2_000)
-                #expect(expanded.factor > 1)
-                #expect((expanded.lock ?? 0) > (fit.lock ?? 0) + 50)
+                for factor: CGFloat in [1, 3] {
+                    mirror.sessionLog = Self.log
+                    let before = measuring.contentHeight(at: factor, width: width)
+                    mirror.sessionLog.problems = Dictionary(uniqueKeysWithValues: (0..<5).map {
+                        ("machine-\($0)", "The Log probe did not answer; install this version's CLI helper on the machine")
+                    })
+                    let after = measuring.contentHeight(at: factor, width: width)
+                    #expect(abs(after - before) < 1)
+                }
             }
         }
     }
@@ -54,16 +55,18 @@ import Testing
         for step in TextScale.steps {
             mirror.textScale = TextScale(step: step)
             for width: CGFloat in [360, 900] {
-                let host = NSHostingView(rootView: LogTab(log: Self.log))
-                host.sizingOptions = []
-                host.frame = NSRect(x: 0, y: 0, width: width, height: 540 * TextScale.current.factor)
-                host.layoutSubtreeIfNeeded()
-                let scroll = try #require(Self.scroll(in: host))
-                let document = try #require(scroll.documentView)
-                #expect(abs(scroll.frame.height - (host.bounds.height - 24)) < 2)
-                #expect(abs(scroll.frame.width - (host.bounds.width - 24)) < 2)
-                #expect(document.frame.width <= scroll.contentView.bounds.width + 1)
-                #expect(!scroll.hasHorizontalScroller)
+                for height: CGFloat in [120, 540] {
+                    let host = NSHostingView(rootView: LogTab(log: Self.log))
+                    host.sizingOptions = []
+                    host.frame = NSRect(x: 0, y: 0, width: width, height: height * TextScale.current.factor)
+                    host.layoutSubtreeIfNeeded()
+                    let scroll = try #require(Self.scroll(in: host))
+                    let document = try #require(scroll.documentView)
+                    #expect(abs(scroll.frame.height - (host.bounds.height - 24)) < 2)
+                    #expect(abs(scroll.frame.width - (host.bounds.width - 24)) < 2)
+                    #expect(document.frame.width <= scroll.contentView.bounds.width + 1)
+                    #expect(!scroll.hasHorizontalScroller)
+                }
             }
         }
     }
