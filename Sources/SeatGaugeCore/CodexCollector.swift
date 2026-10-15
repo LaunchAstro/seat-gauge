@@ -72,7 +72,7 @@ public struct CodexCollector: Sendable {
             }
             line.append(chunk)
         }
-        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+        guard let object = UsageMetadata.read(line, fields: ["type", "payload", "id"]),
               object["type"] as? String == "session_meta" else { return nil }
         return (object["payload"] as? [String: Any])?["id"] as? String
     }

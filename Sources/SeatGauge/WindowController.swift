@@ -228,14 +228,14 @@ final class WindowController {
 
     /// Whether the pointer is over a list that scrolls up and down, such as
     /// the Spend tab's models, whose wheel turns are wanted as they came.
-    /// Only on the Spend tab, since the other tabs lay the list out unseen.
+    /// Hidden tabs also lay their lists out, so the selected tab matters.
     static func overVerticalList(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        GaugeMirror.shared.tab == .spend && event.window === window && VerticalLists.contain(event)
+        [.spend, .log].contains(GaugeMirror.shared.tab) && event.window === window && VerticalLists.contain(event)
     }
 
     /// A wheel's line-step turn with no sideways part, as the same turn
-    /// sideways. Outside the Spend tab's list nothing in the window scrolls
-    /// up and down, so the turn is not wanted as it came. A trackpad scrolls sideways on its own, so its
+    /// sideways. Outside the vertical lists nothing in the window scrolls
+    /// up and down. A trackpad scrolls sideways on its own, so its
     /// precise turns are left alone.
     static func sideways(_ event: NSEvent) -> NSEvent? {
         guard !event.hasPreciseScrollingDeltas, event.scrollingDeltaX == 0, event.scrollingDeltaY != 0,

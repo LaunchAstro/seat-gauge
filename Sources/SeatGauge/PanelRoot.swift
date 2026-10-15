@@ -31,6 +31,7 @@ import SwiftUI
     }
     /// Every tab is laid out in one envelope, so a switch moves nothing.
     var tab: Tab = .seats
+    var sessionLog = SessionLogFile(updated: .distantPast, sessions: [])
     /// The LOAD tab's machines and what each last read said, set by the
     /// machine loop in `main.swift`.
     var machines: [Machine] = []
@@ -314,6 +315,9 @@ struct Root: View {
                 .opacity(seats ? 1 : 0).allowsHitTesting(seats).accessibilityHidden(!seats)
                 SpendTab(chart: mirror.chart, focus: mirror.modelChart)
                     .opacity(spend ? 1 : 0).allowsHitTesting(spend).accessibilityHidden(!spend)
+                LogTab(log: mirror.sessionLog)
+                    .opacity(mirror.tab == .log ? 1 : 0).allowsHitTesting(mirror.tab == .log)
+                    .accessibilityHidden(mirror.tab != .log)
                 LoadTab()
                     .opacity(load ? 1 : 0).allowsHitTesting(load).accessibilityHidden(!load)
             }

@@ -110,6 +110,8 @@ After every poll or sync the app writes `headroom.json` beside `readings.json` i
 
 Dates are ISO 8601 with the local offset. The file names no single seat to use, so the reader spreads its work across the seats with room rather than sending it all to one.
 
+The Log tab publishes one row per observed agent session to `log.json`, with metadata, times and token totals on each configured machine. See [Session log](docs/session-log.md) for the schema, freshness rules and remote helper installation.
+
 Beside it, `machines.json` holds each machine's load, read every 5 seconds: this Mac, and any other added as below. The panel shows the same figures on its LOAD tab, and hovering a machine card draws its CPU and memory over the last ten minutes.
 
 - `machines`: one object per machine, with `id`, `label`, `reachable`, `stale`, `problem` (why the last read failed, or `null`) and `read_at`.

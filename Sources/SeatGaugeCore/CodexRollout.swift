@@ -30,7 +30,7 @@ public enum CodexRollout {
                          "output_tokens", "reasoning_output_tokens", "total_tokens"]
 
     /// One token event, with the model the latest `turn_context` named.
-    struct Event {
+    struct Event: Codable, Sendable {
         let at: Date?
         let model: String
         let total: [String: Int]
@@ -53,11 +53,14 @@ public enum CodexRollout {
     /// A session any of whose files ran in one of `primers` is the gauge's
     /// own polling, and is left out as the Claude walk leaves out its own.
     public static func read(files: [URL], calendar: Calendar, excluding primers: [String] = []) -> CodexReading {
+        read(rollouts: files.compactMap(parse), calendar: calendar, excluding: primers)
+    }
+
+    static func read(rollouts: [Rollout], calendar: Calendar, excluding primers: [String] = []) -> CodexReading {
         var sessions: [String: [Rollout]] = [:]
         var skipped = 0
         var unkeyed = 0
-        for url in files {
-            guard let rollout = parse(url) else { continue }
+        for rollout in rollouts {
             skipped += rollout.skipped
             guard let session = rollout.session else { unkeyed += 1; continue }
             sessions[session, default: []].append(rollout)
@@ -136,35 +139,38 @@ public enum CodexRollout {
         var events: [Event] = []
         var skipped = 0
         for line in candidates(data) {
-            guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
-                skipped += 1
-                continue
-            }
-            let at = JSON.date(object["timestamp"])
-            let payload = object["payload"] as? [String: Any] ?? [:]
-            switch object["type"] as? String {
-            case "session_meta":
-                // A fork carries its parent's meta after its own; only the
-                // first names this file's session.
-                if session == nil {
-                    session = payload["id"] as? String
-                    cwd = payload["cwd"] as? String
-                }
-            case "turn_context":
-                if let named = payload["model"] as? String { model = named }
-            case "event_msg" where payload["type"] as? String == "token_count":
-                // Taken before a usage-less event is dropped, since it is the
-                // file's first token event all the same.
+            guard let record = decode(line) else { skipped += 1; continue }
+            switch record {
+            case let .session(id, folder):
+                if session == nil { session = id; cwd = folder }
+            case let .model(named): model = named
+            case let .tokens(at, total, last):
                 if firstToken == nil { firstToken = at }
-                guard let info = payload["info"] as? [String: Any],
-                      let total = usage(info["total_token_usage"]) else { continue }
-                events.append(Event(at: at, model: model, total: total, last: usage(info["last_token_usage"])))
-            default:
-                continue
+                if let total { events.append(Event(at: at, model: model, total: total, last: last)) }
             }
         }
         return Rollout(url: url, session: session, cwd: cwd, firstToken: firstToken,
                        events: events, skipped: skipped)
+    }
+
+    enum Record {
+        case session(String?, String?)
+        case model(String)
+        case tokens(Date?, [String: Int]?, [String: Int]?)
+    }
+
+    static func decode(_ line: Data) -> Record? {
+        let fields = Set(Self.fields + ["type", "timestamp", "payload", "id", "cwd", "model", "info", "total_token_usage", "last_token_usage"])
+        guard let object = UsageMetadata.read(line, fields: fields) else { return nil }
+        let payload = object["payload"] as? [String: Any] ?? [:]
+        switch object["type"] as? String {
+        case "session_meta": return .session(payload["id"] as? String, payload["cwd"] as? String)
+        case "turn_context": return .model(payload["model"] as? String ?? "unknown")
+        case "event_msg" where payload["type"] as? String == "token_count":
+            let info = payload["info"] as? [String: Any] ?? [:]
+            return .tokens(JSON.date(object["timestamp"]), usage(info["total_token_usage"]), usage(info["last_token_usage"]))
+        default: return nil
+        }
     }
 
     static func usage(_ value: Any?) -> [String: Int]? {
