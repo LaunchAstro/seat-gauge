@@ -302,8 +302,8 @@ struct Root: View {
             let seats = mirror.tab == .seats
             let spend = mirror.tab == .spend
             let load = mirror.tab == .load
-            // Every tab, the hidden ones at no opacity and out of reach of the
-            // pointer, so the window is the tallest of them on any.
+            // The original panels keep their shared height. Log fills that
+            // height without raising their minimum.
             TabStack {
                 Group {
                     if let message = model.emptyMessage {
@@ -315,11 +315,13 @@ struct Root: View {
                 .opacity(seats ? 1 : 0).allowsHitTesting(seats).accessibilityHidden(!seats)
                 SpendTab(chart: mirror.chart, focus: mirror.modelChart)
                     .opacity(spend ? 1 : 0).allowsHitTesting(spend).accessibilityHidden(!spend)
+                LoadTab()
+                    .opacity(load ? 1 : 0).allowsHitTesting(load).accessibilityHidden(!load)
+            }
+            .overlay {
                 LogTab(log: mirror.sessionLog)
                     .opacity(mirror.tab == .log ? 1 : 0).allowsHitTesting(mirror.tab == .log)
                     .accessibilityHidden(mirror.tab != .log)
-                LoadTab()
-                    .opacity(load ? 1 : 0).allowsHitTesting(load).accessibilityHidden(!load)
             }
             .fixedSize(horizontal: false, vertical: true)
             // The title bar's row is never narrower than itself.
