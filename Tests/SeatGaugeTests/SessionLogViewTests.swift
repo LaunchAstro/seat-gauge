@@ -45,6 +45,29 @@ import Testing
         #expect(abs(scroll.frame.width - (host.bounds.width - 24)) < 2)
     }
 
+    @Test func logListFitsAcrossTextSizesAndWidths() throws {
+        _ = NSApplication.shared
+        let mirror = GaugeMirror.shared
+        let previous = (mirror.textScale, mirror.verticalFactor)
+        defer { mirror.textScale = previous.0; mirror.verticalFactor = previous.1 }
+        mirror.verticalFactor = 1
+        for step in TextScale.steps {
+            mirror.textScale = TextScale(step: step)
+            for width: CGFloat in [360, 900] {
+                let host = NSHostingView(rootView: LogTab(log: Self.log))
+                host.sizingOptions = []
+                host.frame = NSRect(x: 0, y: 0, width: width, height: 540 * TextScale.current.factor)
+                host.layoutSubtreeIfNeeded()
+                let scroll = try #require(Self.scroll(in: host))
+                let document = try #require(scroll.documentView)
+                #expect(abs(scroll.frame.height - (host.bounds.height - 24)) < 2)
+                #expect(abs(scroll.frame.width - (host.bounds.width - 24)) < 2)
+                #expect(document.frame.width <= scroll.contentView.bounds.width + 1)
+                #expect(!scroll.hasHorizontalScroller)
+            }
+        }
+    }
+
     private static var log: SessionLogFile {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         return SessionLogFile(updated: now, sessions: [SessionRow(machine: "local", sessionId: "session",
