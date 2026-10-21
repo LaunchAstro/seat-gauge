@@ -161,25 +161,31 @@ enum PanelLayout {
 
     /// One row's minimum width for a card count: every card at its own
     /// minimum, box and ground included, with the gaps between them. A window
-    /// narrower than this wraps the cards onto another row, and a first
-    /// launch opens at least this wide.
+    /// narrower than this slides the row sideways rather than drawing a card
+    /// under it, and a first launch opens at least this wide.
     static func minimumContentWidth(cards: Int) -> CGFloat {
         guard cards > 0 else { return CardMetrics.minimumWidth }
         return CGFloat(cards) * CardMetrics.minimumWidth + CGFloat(cards - 1) * ruleWidth
     }
 
-    /// How many cards a row of the grid takes: as few as the asked rows
-    /// leave room for, so a taller window stacks, and never more than fit
-    /// across at their minimum, so a narrow one wraps rather than scrolling.
-    /// Then spread evenly over the rows that makes, so five in two rows are
-    /// three and two rather than four and one.
-    static func columns(width: CGFloat, cards: Int, rows: Int) -> Int {
+    /// How many cards a row of the grid takes: the cards spread evenly
+    /// over the rows the user's height asked for, so five in two rows are
+    /// three and two. A row too wide for the window slides sideways.
+    static func columns(cards: Int, rows: Int) -> Int {
         guard cards > 0 else { return 1 }
-        let across = width.isFinite ? Int((width + ruleWidth) / (CardMetrics.minimumWidth + ruleWidth)) : cards
-        let asked = (cards + max(1, rows) - 1) / max(1, rows)
-        let most = max(1, min(cards, across, asked))
-        let lines = (cards + most - 1) / most
+        let lines = min(cards, max(1, rows))
         return (cards + lines - 1) / lines
+    }
+
+    /// The scrolling row's width: as many whole cards as the viewport holds
+    /// at their minimum, at least one, each widened to fill it, and every
+    /// other card at that width past the edge. A pitch of whole cards keeps
+    /// an arrow's step landing a card on the edge.
+    static func scrolledRowWidth(viewport: CGFloat, cards: Int) -> CGFloat {
+        guard cards > 0, viewport.isFinite, viewport > 0 else { return minimumContentWidth(cards: cards) }
+        let shown = min(cards, max(1, Int((viewport + ruleWidth) / (CardMetrics.minimumWidth + ruleWidth))))
+        let card = max(CardMetrics.minimumWidth, (viewport - CGFloat(shown - 1) * ruleWidth) / CGFloat(shown))
+        return CGFloat(cards) * card + CGFloat(cards - 1) * ruleWidth
     }
 
     /// Even shares of whatever the gaps leave, never under the card
@@ -202,42 +208,43 @@ enum PanelLayout {
 
 /// The cards in rows, `columns` to a row at the widths `cardWidths` gives,
 /// one rule apart either way, and every card as tall as the tallest, so
-/// the rows read as one grid. Asked for its ideal size, it answers at the
-/// window's width, since the window's height is read that way and the rows
-/// it wraps into are its height. With no width known yet, one row.
+/// the rows read as one grid. Asked for its ideal size, it answers as its
+/// rows would, from the cards' own.
 nonisolated struct CardGrid: Layout {
     /// The rows the user's height asked for.
     let rows: Int
-    /// The width a measured tree pins an ideal size to; nil is the window's.
-    let width: CGFloat?
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         MainActor.assumeIsolated {
-            let hint = width ?? GaugeMirror.shared.panelWidth
-            let offered = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? (hint > 0 ? hint : nil)
-            guard let width = offered else {
+            let columns = PanelLayout.columns(cards: subviews.count, rows: rows)
+            let lines = (subviews.count + columns - 1) / columns
+            let across = CGFloat(columns - 1) * PanelLayout.ruleWidth
+            guard let width = proposal.width, width.isFinite else {
                 let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: nil, height: nil)) }
-                let gaps = CGFloat(max(0, subviews.count - 1)) * PanelLayout.ruleWidth
-                return CGSize(width: sizes.map(\.width).reduce(0, +) + gaps, height: sizes.map(\.height).max() ?? 0)
+                let widest = sizes.map(\.width).max() ?? 0
+                return CGSize(width: widest * CGFloat(columns) + across,
+                              height: (sizes.map(\.height).max() ?? 0) * CGFloat(lines) + gaps(lines))
             }
-            let (widths, lines) = shape(width, subviews.count)
+            let widths = PanelLayout.cardWidths(contentWidth: width, cards: columns)
             // A taller tab beside it offers more, and the rows take it, so
             // no strip is left empty under them.
             let tall = proposal.height.flatMap { $0.isFinite ? $0 : nil } ?? 0
             // Summed as a stack sums them, so the edge rounds where a stack's does.
-            let across = widths.reduce(0, +) + CGFloat(widths.count - 1) * PanelLayout.ruleWidth
-            return CGSize(width: across, height: max(tall, rowHeight(subviews, widths) * CGFloat(lines) + gaps(lines)))
+            return CGSize(width: widths.reduce(0, +) + across,
+                          height: max(tall, rowHeight(subviews, widths) * CGFloat(lines) + gaps(lines)))
         }
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         MainActor.assumeIsolated {
-            let (widths, lines) = shape(bounds.width, subviews.count)
+            let columns = PanelLayout.columns(cards: subviews.count, rows: rows)
+            let lines = (subviews.count + columns - 1) / columns
+            let widths = PanelLayout.cardWidths(contentWidth: bounds.width, cards: columns)
             // The grid's own height, shared out, so a taller proposal stretches
             // every row alike.
             let height = max(rowHeight(subviews, widths), (bounds.height - gaps(lines)) / CGFloat(max(1, lines)))
             for (index, card) in subviews.enumerated() {
-                let column = index % widths.count, row = index / widths.count
+                let column = index % columns, row = index / columns
                 // Step by step, as a stack adds them, so an edge rounds to the
                 // pixel a stack's would.
                 var x = bounds.minX
@@ -249,12 +256,6 @@ nonisolated struct CardGrid: Layout {
                 card.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(width: widths[column], height: height))
             }
         }
-    }
-
-    /// Each column's width and how many rows the cards take at a width.
-    @MainActor private func shape(_ width: CGFloat, _ count: Int) -> ([CGFloat], Int) {
-        let columns = PanelLayout.columns(width: width, cards: count, rows: rows)
-        return (PanelLayout.cardWidths(contentWidth: width, cards: columns), (count + columns - 1) / columns)
     }
 
     @MainActor private func rowHeight(_ subviews: Subviews, _ widths: [CGFloat]) -> CGFloat {

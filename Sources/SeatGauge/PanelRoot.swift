@@ -49,11 +49,6 @@ import SwiftUI
     /// How many rows of cards the user's height asked for, which `CardGrid`
     /// reads as how few columns to draw. One is the plain row.
     var cardRows = 1
-    /// The content's width, which `CardGrid` wraps at when it is asked for
-    /// its ideal size and given no width. Zero before the first layout.
-    /// Read while laying out, never in a body: the window sets it inside its
-    /// own layout pass, and a change there must not redraw the panel.
-    @ObservationIgnored var panelWidth: CGFloat = 0
     /// Why `seats.json` would not read, or nothing. The spend and
     /// attribution records add their own problems after it, in the title
     /// bar's order.
