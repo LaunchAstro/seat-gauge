@@ -8,7 +8,7 @@ It reads Claude seats through the `claude` CLI and ChatGPT seats through the `co
 
 - macOS 14 or later.
 - Xcode Command Line Tools with Swift 6.2 (`xcode-select --install`). Xcode itself is not needed.
-- The `claude` CLI for Claude seats, the `codex` CLI for a Codex seat. The app finds each wherever your login shell does: it asks the shell for its `PATH` once per launch, then looks in the usual install folders too, which are all it has when the shell takes longer than 3 seconds or gives no answer (Homebrew on Apple silicon or Intel, `/usr/local/bin`, `~/.local/bin`, `~/.claude/local`, `~/.npm-global/bin`, volta, bun and nvm).
+- The `claude` CLI for Claude seats, the `codex` CLI for a Codex seat. The app finds each wherever your login shell does. It asks the shell for its `PATH` once per launch, then also looks in the usual install folders (Homebrew on Apple silicon or Intel, `/usr/local/bin`, `~/.local/bin`, `~/.claude/local`, `~/.npm-global/bin`, volta, bun and nvm). Those folders are all it has when the shell takes longer than 3 seconds or gives no answer.
 
 ## Build and install
 
@@ -25,12 +25,12 @@ make install    # release build, signed ad hoc, copied to /Applications, CLI lin
 
 ### What running it does
 
-- **It checks your seats for free.** A Claude seat with its own login is read by starting `claude -p` and asking it for usage, with no model turn, so the check costs nothing. A Codex poll asks `codex app-server` for its rate limits and runs no model turn either. The default poll is every 5 minutes.
-- **A token seat is read only when you sync it.** A seat that signs in with a token reports its windows only during a model turn, so reading it runs one short Haiku turn on that seat's subscription, which counts against its 5-hour and weekly windows like any other. The scheduled poll skips token seats; they are read when you sync that seat or sync all.
+- **It checks your seats for free.** The app reads a Claude seat with its own login by starting `claude -p` and asking it for usage, with no model turn, so the check costs nothing. A Codex poll asks `codex app-server` for its rate limits and runs no model turn either. The default poll is every 5 minutes.
+- **A token seat is read only when you sync it.** A seat that signs in with a token reports its windows only during a model turn, so reading it runs one short Haiku turn on that seat's subscription, which counts against its 5-hour and weekly windows like any other. The scheduled poll skips token seats; the app reads them only when you sync that seat or sync all.
 - **It reads your login files.** For each seat it reads the plan tier, or the organisation type beside it, from its login (`.claude.json` for Claude, the plan claim in `auth.json` for Codex), and one account id from each Claude login, to tell which seat the main login is (ADR 0005). It keeps these in memory and writes none of them. A token seat's OAuth token is read from its file and handed only to that seat's `claude`.
 - **It reads your transcripts.** The Spend tab rolls up the Claude Code transcripts under each seat's profile and the Codex rollouts under `~/.codex/sessions`, and writes the totals to `spend.csv` in its own folder.
 - **It runs your open command only when you click.** A seat's `open` command runs when you click its card's mark or name, never on a poll.
-- **It fetches two icons.** The app fetches each provider's favicon once, to show beside the provider's name, and caches it. A fetch that fails is tried again at the next launch. The request carries no cookies and no other data.
+- **It fetches two icons.** The app fetches each provider's favicon once, to show beside the provider's name, and caches it. If a fetch fails, the app tries again at the next launch. The request carries no cookies and no other data.
 
 `seatgauge-cli watch` and `seatgauge-cli spend` act on the same live data as the app. `watch` polls your real seats (token seats are skipped, as in the app's scheduled poll), and `spend` rolls up your real transcripts. Both write to the installed app's folder, `~/Library/Application Support/com.launchastro.seatgauge/`, not the `.dev` one.
 
@@ -56,7 +56,7 @@ First launch fills it from what is on the Mac, found by name alone with no login
 }
 ```
 
-Every Claude seat needs its own `profile` directory, so no card reads whatever `~/.claude` happens to be signed into. A Claude seat without one is refused, with the reason in the title bar, and so is a profile that resolves to `~` or `~/.claude`, two seats on one directory, or a Claude seat named `default` or `codex` (spend history keeps those two names). Any other path works, and the Spend tab files the seat's spend under its id.
+Every Claude seat needs its own `profile` directory, so no card reads whatever `~/.claude` happens to be signed into. The app refuses a Claude seat without one and gives the reason in the title bar. It also refuses a profile that resolves to `~` or `~/.claude`, two seats on one directory, and a Claude seat named `default` or `codex` (spend history keeps those two names). Any other path works, and the Spend tab files the seat's spend under its id.
 
 ### Signing a Claude seat in
 
@@ -66,9 +66,9 @@ A seat with `"login": "own"` has its own login, and reads the 5-hour, weekly and
 swift run seatgauge-cli login work
 ```
 
-This runs `claude auth login` under the seat's own profile, which it creates for you, readable by you alone, if it is not there yet. It prints a link: open it in any browser, sign in to the account this seat is for, and paste the code the page shows. `claude auth status` then says whether the seat is signed in. The app's Sign in runs these same steps. `--email <address>` fills the address in on the sign-in page. The code goes to `claude` and nowhere else, so it is never printed or logged. A Codex seat, a token seat, an unknown id, or a profile that is `~`, `~/.claude` or another seat's is refused before anything runs.
+This runs `claude auth login` under the seat's own profile. If the profile is not there yet, it creates it, readable by you alone. It prints a link. Open it in any browser, sign in to the account this seat is for, and paste the code the page shows. `claude auth status` then says whether the seat is signed in. The app's Sign in runs these same steps. `--email <address>` fills the address in on the sign-in page. The code goes to `claude` and nowhere else, so it is never printed or logged. The command refuses a Codex seat, a token seat, an unknown id, or a profile that is `~`, `~/.claude` or another seat's, before anything runs.
 
-Token seats are optional, and nobody needs one to get started. If a seat should sign in with an OAuth token instead, leave `login` out and give `token` the path of a file that holds the token, such as `"token": "~/tokens/work.token"`. Only that seat's `claude` is handed it. A token seat shows 5h and 7d only, because no token reports Fable or the exact plan.
+Token seats are optional, and nobody needs one to get started. If a seat should sign in with an OAuth token instead, leave `login` out and give `token` the path of a file that holds the token, such as `"token": "~/tokens/work.token"`. The app hands it only to that seat's `claude`. A token seat shows 5h and 7d only, because no token reports Fable or the exact plan.
 
 ### Opening a seat from its card
 
@@ -79,11 +79,17 @@ Give a seat an `open` command and a click on its card's mark or name runs it, so
   "open": ["~/bin/open-seat", "work"] },
 ```
 
-The app opens no terminal of its own: the command decides what opens, such as a new terminal window on the seat's profile. It runs with `HOME`, `USER`, `LANG` and a standard `PATH` (Homebrew, `~/.local/bin` and the system folders), and none of the keys the app was launched with. A command that will not start, or exits with a failure within a few seconds, says so in the title bar. A seat without `open` has no click.
+The app opens no terminal of its own. The command decides what opens, such as a new terminal window on the seat's profile. It runs with `HOME`, `USER`, `LANG` and a standard `PATH` (Homebrew, `~/.local/bin` and the system folders), and none of the keys the app was launched with. A command that will not start, or exits with a failure within a few seconds, says so in the title bar. A seat without `open` has no click.
 
 ### The plan on a card
 
-The plan comes from three places, in this order: the tier in the seat's own login file, so a switch between Max 5x and Max 20x shows up by itself, or the organisation type beside it when the tier names no plan, which is how a Pro login says Pro; then the `plan` you write in `seats.json`; then the plan the usage reply names, which for Claude is only `max`. With none of the three the card shows no plan. It never guesses "free". `seatgauge-cli read` prints each seat's plan beside its reading.
+The plan comes from three places, in this order:
+
+1. The tier in the seat's own login file, so a switch between Max 5x and Max 20x shows up by itself. When the tier names no plan, it takes the organisation type beside it instead, which is how a Pro login says Pro.
+2. The `plan` you write in `seats.json`.
+3. The plan the usage reply names, which for Claude is only `max`.
+
+With none of the three the card shows no plan. It never guesses "free". `seatgauge-cli read` prints each seat's plan beside its reading.
 
 ## The command line
 
@@ -106,11 +112,11 @@ After every poll or sync the app writes `headroom.json` beside `readings.json` i
 - `updated`: when the file was written.
 - `seats`: one object per seat in `seats.json` order, with `id`, `kind` (`claude` or `codex`), `plan` as the card shows it (or `null`), `stale` and `read_at`.
 - `stale` is true when the seat's last read failed, it has never been read, or its figures are two poll intervals old or more. `read_at` is when those figures were taken, or `null` when there are none.
-- `five_hour`, `weekly` and `fable`, for each window the seat has: `used` and `left` in percent (they add up to 100) and `resets`. A dormant or never-read seat has no windows. A Claude seat whose 5-hour window nobody has started yet has it as `used` 0, `left` 100 and `resets` `null`: `null` means not started.
+- `five_hour`, `weekly` and `fable`, for each window the seat has: `used` and `left` in percent (they add up to 100) and `resets`. A dormant or never-read seat has no windows. A Claude seat whose 5-hour window nobody has started yet has it as `used` 0, `left` 100 and `resets` `null`, where `null` means not started.
 
 Dates are ISO 8601 with the local offset. The file names no single seat to use, so the reader spreads its work across the seats with room rather than sending it all to one.
 
-The Log tab publishes one row per observed agent session to `log.json`, with metadata, times and token totals on each configured machine. See [Session log](docs/session-log.md) for the schema, freshness rules and remote helper installation.
+The Log tab publishes one row per observed agent session to `log.json`, with metadata, times and token totals, from each configured machine. See [Session log](docs/session-log.md) for the schema, the freshness rules and how to install the remote helper.
 
 Beside it, `machines.json` holds each machine's load, read every 5 seconds: this Mac, and any other added as below. The panel shows the same figures on its LOAD tab, and hovering a machine card draws its CPU and memory over the last ten minutes.
 
