@@ -70,7 +70,7 @@ struct WindowLine: Equatable, Identifiable {
 
 /// A line's tone: the pace verdicts', and the detail face's other lines'.
 enum LineTone: Equatable {
-    case ink, muted, dim, amber, green, warning
+    case ink, muted, dim, amber, green, warning, danger
 
     var color: Color {
         switch self {
@@ -79,6 +79,7 @@ enum LineTone: Equatable {
         case .dim: Tone.inkDim
         case .amber, .warning: Tone.warning
         case .green: Tone.success
+        case .danger: Tone.danger
         }
     }
 }
@@ -102,6 +103,32 @@ struct PaceLine: Equatable {
             text = "on pace to use it all"
             tone = .green
         }
+    }
+}
+
+/// A seat's subscription date under its windows: the date while it is a week
+/// or more away, the days left under a week, and red from three days out.
+struct BillingLine: Equatable {
+    let text: String
+    let tone: LineTone
+
+    init(_ billing: Billing, now: Date, calendar: Calendar = .current) {
+        let verb = if case .renews = billing { "renews" } else { "expires" }
+        let days = billing.daysLeft(now: now, calendar: calendar)
+        let shape = DateFormatter()
+        shape.locale = Locale(identifier: "en_AU")
+        shape.calendar = calendar
+        shape.timeZone = calendar.timeZone
+        shape.dateFormat = "d MMM"
+        let day = shape.string(from: billing.next(now: now, calendar: calendar))
+        text = switch days {
+        case ..<0: "expired \(day)"
+        case 0: "\(verb) today"
+        case 1: "\(verb) tomorrow"
+        case 2..<7: "\(verb) in \(days) days"
+        default: "\(verb) \(day)"
+        }
+        tone = days <= 3 ? .danger : .muted
     }
 }
 
@@ -137,6 +164,8 @@ struct CardModel: Identifiable, Equatable {
     /// then the wire's, then nothing at all. Never "Free" where
     /// nobody reported it.
     let plan: String?
+    /// When the subscription renews or expires, where the config says.
+    var billing: BillingLine?
     /// A token seat's age, since it is read only when the user syncs it and
     /// the title bar's synced line leaves it out.
     var dated: String?
@@ -310,6 +339,7 @@ struct PanelModel: Equatable {
                 cards.append(CardModel(id: id, label: name(id), isBest: false, lines: [], pace: nil, stale: stale,
                                        mark: seat?.kind.provider ?? .claude, account: PlanText.said(seat?.account),
                                        plan: PlanText.resolve(tier: nil, declared: seat?.plan, wire: nil),
+                                       billing: seat?.billing.map { BillingLine($0, now: now) },
                                        signsIn: SeatLogin.offers(seat, state),
                                        opens: seat?.open != nil))
                 continue
@@ -330,6 +360,7 @@ struct PanelModel: Equatable {
                 mark: mark,
                 account: PlanText.said(seat?.account),
                 plan: PlanText.resolve(tier: reading.tier, declared: seat?.plan, wire: reading.plan),
+                billing: seat?.billing.map { BillingLine($0, now: now) },
                 dated: polls || stale != nil ? nil : "synced \(Countdown.text(until: now, now: reading.takenAt)) ago",
                 isSyncing: syncing.contains(id),
                 signsIn: SeatLogin.offers(seat, state),

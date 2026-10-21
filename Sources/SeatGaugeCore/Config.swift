@@ -110,6 +110,10 @@ public struct ConfigLoader: Sendable {
             #"  //           { "id": "studio", "label": "Studio", "ssh": "studio.local" }]."#,
             #"  //           `seatgauge-cli machines add studio.local Studio` checks one answers, then adds it."#,
             #"  //           "machineSeconds": seconds between reads, 5 unless set, never under 2."#,
+            #"  // "renews"  optional, any seat, such as "2026-10-29": a day the subscription renews on."#,
+            "  //           The card shows the next one under its windows, rolling on a month each time.",
+            #"  // "ends"    optional, in place of "renews", for a cancelled plan: the last day it is paid."#,
+            "  //           Under a week out the card counts the days, and three days out it turns red.",
             #"  // "spendFrom" optional, such as "2026-08-10": the Spend tab draws from that day on."#,
         ] + none + [
             #"  "seats": ["#,
@@ -186,8 +190,10 @@ public struct ConfigLoader: Sendable {
             /// a list of strings reads as `.some(nil)`, so it is refused
             /// rather than taken as no command.
             let open: [String]??
+            /// A day each, written like "2026-10-29", checked below.
+            let renews, ends: String?
 
-            enum Key: String, CodingKey { case id, label, kind, profile, token, login, account, plan, open }
+            enum Key: String, CodingKey { case id, label, kind, profile, token, login, account, plan, open, renews, ends }
 
             init(from decoder: any Decoder) throws {
                 let values = try decoder.container(keyedBy: Key.self)
@@ -200,6 +206,8 @@ public struct ConfigLoader: Sendable {
                 account = try? values.decode(String.self, forKey: .account)
                 plan = try? values.decode(String.self, forKey: .plan)
                 open = values.contains(.open) ? .some(try? values.decode([String].self, forKey: .open)) : nil
+                renews = try values.decodeIfPresent(String.self, forKey: .renews)
+                ends = try values.decodeIfPresent(String.self, forKey: .ends)
             }
         }
         struct StoredMachine: Decodable {
@@ -240,6 +248,7 @@ public struct ConfigLoader: Sendable {
                 throw ConfigProblem("seats.json: the id \"\(seat.id)\" is used twice.")
             }
             let open = try Self.open(seat.open, id: seat.id, home: home)
+            let billing = try Self.billing(renews: seat.renews, ends: seat.ends, id: seat.id)
             switch seat.kind {
             case "claude":
                 // A claude seat with no profile would read whatever ~/.claude
@@ -283,12 +292,12 @@ public struct ConfigLoader: Sendable {
                 } ?? SeatToken.defaultSource(for: id, in: tokenDirectory)
                 seats.append(Seat(id: id, label: seat.label,
                                   kind: .claude(profileDir: directory), tokenFile: token,
-                                  account: seat.account, plan: seat.plan, open: open))
+                                  account: seat.account, plan: seat.plan, open: open, billing: billing))
             case "codex":
                 // Codex signs in from its own config, so it ignores both
                 // "profile" and "token" the same way.
                 seats.append(Seat(id: SeatID(rawValue: seat.id), label: seat.label, kind: .codex,
-                                  account: seat.account, plan: seat.plan, open: open))
+                                  account: seat.account, plan: seat.plan, open: open, billing: billing))
             default:
                 throw ConfigProblem("seats.json: \"\(seat.id)\" has kind \"\(seat.kind)\", which is neither claude nor codex.")
             }
@@ -302,13 +311,31 @@ public struct ConfigLoader: Sendable {
     /// `spendFrom` as a real calendar day, `2026-08-10`, or nothing.
     private static func day(_ stored: String?) throws -> String? {
         guard let stored else { return nil }
-        let format = DateFormatter()
-        format.locale = Locale(identifier: "en_US_POSIX")
-        format.dateFormat = "yyyy-MM-dd"
-        guard let date = format.date(from: stored), format.string(from: date) == stored else {
+        guard date(stored) != nil else {
             throw ConfigProblem("seats.json: \"spendFrom\" is \"\(stored)\", and a day is written like \"2026-08-10\".")
         }
         return stored
+    }
+
+    /// A real calendar day written `2026-08-10`, as this Mac's local midnight.
+    private static func date(_ stored: String) -> Date? {
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.dateFormat = "yyyy-MM-dd"
+        guard let date = format.date(from: stored), format.string(from: date) == stored else { return nil }
+        return date
+    }
+
+    /// A seat's `renews` or `ends`: one of them at most, each a real day.
+    private static func billing(renews: String?, ends: String?, id: String) throws -> Billing? {
+        guard renews == nil || ends == nil else {
+            throw ConfigProblem("seats.json: \"\(id)\" has both \"renews\" and \"ends\". A subscription that renews has no end; keep one.")
+        }
+        guard let (key, stored) = renews.map({ ("renews", $0) }) ?? ends.map({ ("ends", $0) }) else { return nil }
+        guard let day = date(stored) else {
+            throw ConfigProblem("seats.json: \"\(id)\" has \"\(key)\" \"\(stored)\", and a day is written like \"2026-10-29\".")
+        }
+        return key == "renews" ? .renews(day) : .ends(day)
     }
 
     /// The `machines` list: absent is this Mac alone. An entry without
