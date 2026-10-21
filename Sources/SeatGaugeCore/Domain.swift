@@ -61,9 +61,13 @@ public struct Seat: Identifiable, Equatable, Sendable {
     /// The command a click on the card's mark or name runs, as an argv with
     /// no shell, its program's `~` already expanded. Nil draws no click.
     public let open: [String]?
+    /// When the seat's subscription renews or ends, as the user declares it.
+    /// Nil draws no line.
+    public let billing: Billing?
 
     public init(id: SeatID, label: String, kind: SeatKind, tokenFile: URL? = nil,
-                account: String? = nil, plan: String? = nil, open: [String]? = nil) {
+                account: String? = nil, plan: String? = nil, open: [String]? = nil,
+                billing: Billing? = nil) {
         self.id = id
         self.label = label
         self.kind = kind
@@ -71,6 +75,43 @@ public struct Seat: Identifiable, Equatable, Sendable {
         self.account = account
         self.plan = plan
         self.open = open
+        self.billing = billing
+    }
+}
+
+/// A seat's subscription date. No login file or CLI says when a plan renews
+/// or whether it was cancelled, so this is declared in `seats.json` or it is
+/// nothing.
+public enum Billing: Equatable, Sendable {
+    /// Renews every month on this day's date, so the next renewal rolls
+    /// forward on its own.
+    case renews(Date)
+    /// Cancelled: paid up to this day and not after.
+    case ends(Date)
+
+    /// The day it next renews or ends, as a local midnight. A monthly date
+    /// is counted from the first one each time, so a 31st comes back as the
+    /// 31st after a short month rather than drifting to the 28th.
+    public func next(now: Date, calendar: Calendar = .current) -> Date {
+        switch self {
+        case let .ends(day):
+            return calendar.startOfDay(for: day)
+        case let .renews(first):
+            let anchor = calendar.startOfDay(for: first)
+            let today = calendar.startOfDay(for: now)
+            var months = max(0, calendar.dateComponents([.month], from: anchor, to: today).month ?? 0)
+            while true {
+                let day = calendar.date(byAdding: .month, value: months, to: anchor) ?? anchor
+                if day >= today { return day }
+                months += 1
+            }
+        }
+    }
+
+    /// Whole days from today to `next`: 0 on the day, below 0 once an end
+    /// has passed.
+    public func daysLeft(now: Date, calendar: Calendar = .current) -> Int {
+        calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: next(now: now, calendar: calendar)).day ?? 0
     }
 }
 
