@@ -30,13 +30,7 @@ public struct RefreshService: Sendable {
     /// since, so it is read before the ones nothing is known about.
     static func rank(_ state: SeatState?) -> Int {
         if case .dormant = state { return 2 }
-        return last(state) == nil ? 1 : 0
-    }
-
-    static func last(_ state: SeatState?) -> Reading? {
-        if case let .live(reading) = state { return reading }
-        if case let .unreadable(_, last) = state { return last }
-        return nil
+        return state?.lastReading == nil ? 1 : 0
     }
 
     /// Reads the seats given and keys the answer by them and nothing else.
@@ -52,7 +46,7 @@ public struct RefreshService: Sendable {
             }
             let at = now.addingTimeInterval(start.duration(to: .now).seconds)
             fresh[seat.id] = await fetcher(seat)
-                .fetch(seat, now: at, last: Self.last(states[seat.id])).state
+                .fetch(seat, now: at, last: states[seat.id]?.lastReading).state
         }
         return fresh
     }

@@ -30,6 +30,7 @@ Three SwiftPM targets, Command Line Tools only (no Xcode project).
 | `SeatOpener.swift` | Runs a seat's `open` command when its card is clicked: no shell, a built environment, detached after a short start check. |
 | `SeatToken.swift` | Where a token seat's token file is, read at fetch time and handed to one child process. |
 | `RefreshService.swift`, `Poller.swift`, `GaugeStore.swift` | Fetch the seats one after another, loop on the poll interval, and keep the last readings on disk. |
+| `SeatView.swift`, `Headroom.swift` | What a seat shows, decided once: its windows (an unstarted 5-hour one included), freshness, plan, pace, sign-in offer, best pick, offstage reason, the synced line and the 60 and 85 meter lines. The card, `headroom.json` and `seatgauge-cli` all print from it. |
 | `Pace.swift`, `Alerts.swift` | The pace verdict and countdown text, and when a reset alert is due. |
 | `SpendCoordinator.swift` | The one writer of `spend.csv`. Takes a file lock, runs both collectors, adds up their `SpendCollection`s, merges and writes once. |
 | `ClaudeCollector.swift`, `CodexCollector.swift`, `CodexRollout.swift` | Walk Claude transcripts and Codex rollouts into hourly spend cells. |
@@ -40,7 +41,7 @@ Three SwiftPM targets, Command Line Tools only (no Xcode project).
 | `SessionLog.swift`, `SessionProbe.swift`, `SessionTokens.swift` | The Log snapshot, private pane ledger, machine-local discovery and incremental reads through the Spend parsers. |
 | `State.swift` | `state.json`: roll-up watermark and panel choices, under a file lock. |
 
-In the app, `PanelModel.swift` builds what each card shows from a `Snapshot`, `PanelRoot.swift` holds `GaugeMirror` (the main-actor copy of the latest state), `WindowController.swift` and `PanelHeight.swift` size the window, `SignIn.swift` is a card's Sign in (the browser, the code prompt and the proof around `SeatLogin`), and `main.swift` wires it all together.
+In the app, `PanelModel.swift` turns each seat's `SeatView` into the card's colours and layout, `PanelRoot.swift` holds `GaugeMirror` (the main-actor copy of the latest state), `WindowController.swift` and `PanelHeight.swift` size the window, `SignIn.swift` is a card's Sign in (the browser, the code prompt and the proof around `SeatLogin`), and `main.swift` wires it all together.
 
 ## Check a change
 
@@ -76,7 +77,7 @@ A new quota bucket, beside 5-hour, weekly and Fable.
 
 1. Add a case to the end of `WindowKind` in `Domain.swift`. `readings.json` stores the raw value, so never reorder or insert.
 2. Map it in the parser that reads it, with its length.
-3. Give it a short name in `WindowKind.shortName` (`PanelModel.swift`) and in `describe(_:now:)` in `seatgauge-cli/main.swift`.
+3. Name it in `SeatView.swift`: the card's label in `WindowKind.shortName` and the CLI's word in `WindowKind.word`. The card, `headroom.json` and `seatgauge-cli` all read it from there; `headroom.json` also needs a key for it in `Headroom.SeatRow`.
 
 The best-seat rule, pace and alerts read every window already.
 

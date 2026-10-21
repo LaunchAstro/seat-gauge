@@ -84,6 +84,23 @@ import SeatGaugeCore
         #expect(rows[3]["weekly"] == nil)
     }
 
+    @Test("an unstarted 5-hour window is written used 0, left 100, resets null, as the card draws it")
+    func unstartedFiveHourHasNullReset() throws {
+        let seats = [Self.seat("work"), Self.seat("codex", codex: true)]
+        let snapshot = Snapshot(states: [
+            SeatID(rawValue: "work"): .live(Self.reading("work", used: [.weekly: 40])),
+            SeatID(rawValue: "codex"): .live(Self.reading("codex", used: [.weekly: 40])),
+        ], order: seats.map(\.id))
+        let rows = Self.rows(try Self.json(Headroom(snapshot: snapshot, seats: seats, pollMinutes: 5, now: Self.now)))
+
+        let five = try #require(rows[0]["five_hour"] as? [String: Any])
+        #expect(five["used"] as? Int == 0)
+        #expect(five["left"] as? Int == 100)
+        #expect(five["resets"] is NSNull)
+        // A Codex seat has no 5-hour window to start.
+        #expect(rows[1]["five_hour"] == nil)
+    }
+
     @Test("GaugeStore writes headroom.json beside readings.json on every apply")
     func written() async throws {
         let folder = URL(fileURLWithPath: NSTemporaryDirectory())

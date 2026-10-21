@@ -29,4 +29,20 @@ import SeatGaugeCore
     @Test func aCodexSeatHasNoFiveHourRowToFill() {
         #expect(Self.card(.codex)?.lines.map(\.kind) == [.weekly])
     }
+
+    @Test func theCardAndHeadroomJSONListTheSameWindows() throws {
+        let seat = Seat(id: SeatID(rawValue: "work"), label: "Work",
+                        kind: .claude(profileDir: URL(fileURLWithPath: "/tmp/work")))
+        let weekly = Window(kind: .weekly, usedPercent: 40, resetsAt: Self.now.addingTimeInterval(86_400),
+                            length: .seconds(7 * 86_400))
+        let snapshot = Snapshot(states: [seat.id: .live(Reading(seat: seat.id, windows: [weekly], takenAt: Self.now,
+                                                                plan: "max"))], order: [seat.id])
+        let card = try #require(PanelModel.make(snapshot: snapshot, seats: [seat], now: Self.now).cards.first)
+        let file = try JSONSerialization.jsonObject(with: Headroom(snapshot: snapshot, seats: [seat], pollMinutes: 5,
+                                                                   now: Self.now).data()) as? [String: Any]
+        let row = try #require((file?["seats"] as? [[String: Any]])?.first)
+        #expect(card.lines.map(\.kind) == [.fiveHour, .weekly])
+        #expect(row["five_hour"] != nil && row["weekly"] != nil && row["fable"] == nil)
+        #expect(card.plan == row["plan"] as? String)
+    }
 }

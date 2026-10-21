@@ -5,24 +5,18 @@ import SwiftUI
 /// Everything the panel draws, as values. The views draw this model rather
 /// than a snapshot, so a case reads the card the user sees without a screen.
 
-extension WindowKind {
-    /// The row labels.
-    var shortName: String {
-        switch self {
-        case .fiveHour: "5H"
-        case .weekly: "WK"
-        case .fable: "FABLE"
-        }
-    }
-}
-
-/// The meter's colour: the used percent on two thresholds, or on a weekly
+/// The meter's colour: the used percent on `MeterLines`, or on a weekly
 /// line with a pace, the pace's grade.
 enum MeterTone: Equatable {
     case good, warning, danger
 
     static func of(usedPercent: Int) -> MeterTone {
-        usedPercent >= 85 ? .danger : usedPercent >= 60 ? .warning : .good
+        usedPercent >= MeterLines.danger ? .danger : usedPercent >= MeterLines.warning ? .warning : .good
+    }
+
+    /// An unstarted window has no pace and nothing used.
+    static func of(_ window: WindowView, now: Date) -> MeterTone {
+        window.window.map { of($0, now: now) } ?? .of(usedPercent: window.usedPercent)
     }
 
     static func of(_ window: SeatGaugeCore.Window, now: Date) -> MeterTone {
@@ -91,7 +85,11 @@ struct PaceLine: Equatable {
     let tone: LineTone
 
     init?(weekly window: SeatGaugeCore.Window?, now: Date) {
-        guard let window, let pace = Pace(weekly: window, now: now) else { return nil }
+        self.init(window.flatMap { Pace(weekly: $0, now: now) }, now: now)
+    }
+
+    init?(_ pace: Pace?, now: Date) {
+        guard let pace else { return nil }
         switch pace {
         case let .runsOut(at):
             text = "runs out \(Clock12.text(at, now: now)) at this rate"
@@ -177,7 +175,7 @@ struct CardModel: Identifiable, Equatable {
     var signsIn = false
 
     /// The stale line of a seat that signed itself out.
-    static let signedOut = "signed out"
+    static let signedOut = SeatView.signedOut
     /// True when the seat has an `open` command, which a click on the
     /// header's mark or name runs.
     var opens = false
@@ -289,90 +287,40 @@ struct PanelModel: Equatable {
     static func make(snapshot: Snapshot, seats: [Seat], now: Date, hovered: SeatID?, selected: Int?,
                      histories: [SeatID: SeatHistory], syncing: Set<SeatID> = [],
                      pollMinutes: Int = 5, arrangement: CardArrangement = CardArrangement()) -> PanelModel {
-        let declared = Dictionary(seats.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        // An empty label is not a name, so the card falls back to the id
-        // rather than drawing the provider alone.
-        func name(_ id: SeatID) -> String {
-            guard let label = declared[id]?.label, !label.isEmpty else { return id.rawValue }
-            return label
-        }
+        let gauge = GaugeView(snapshot: snapshot, seats: seats, now: now, pollMinutes: pollMinutes,
+                              arrangement: arrangement)
         var cards: [CardModel] = []
         var notes: [String] = []
-        var polled: [SeatState] = []
         var live: [Reading] = []
         var offstage: [Offstage] = []
-        // A hidden seat is still read and still in `headroom.json`; it is
-        // only off the window, the ALL card and the pick.
-        // The config's seats, so one with no restored reading is offered by
-        // the `+` before the first poll, then any the snapshot alone names.
-        let configured = seats.map(\.id) + snapshot.order.filter { declared[$0] == nil }
-        let onWindow = arrangement.arranged(configured).filter { id in
-            guard arrangement.hidden.contains(id) else { return true }
-            offstage.append(Offstage(id: id, label: name(id), why: "hidden"))
-            return false
-        }
-        let best = Snapshot(states: snapshot.states, order: onWindow).best
-        for id in onWindow {
-            let state = snapshot.states[id]
-            let polls = declared[id]?.pollsAutomatically ?? true
-            if polls, let state, state.canSync { polled.append(state) }
-            var reading: Reading?
-            var stale: String?
-            switch state {
-            case let .live(read):
-                reading = read
-                live.append(read)
-            case let .unreadable(_, last?):
-                reading = last
-                stale = "stale · \(Countdown.text(until: now, now: last.takenAt))"
-            case let .dormant(why), let .unreadable(why, nil):
-                // Drawn only when the user asked for it: an inactive card with
-                // whatever it last reported and why it has nothing now. A seat
-                // that signed itself out is drawn anyway, so its loss is seen
-                // the moment it happens; its × puts it away.
-                let signedOut = SeatLogin.offers(declared[id], state)
-                guard signedOut || arrangement.shown.contains(id) else {
-                    notes.append("\(name(id)): \(why)")
-                    offstage.append(Offstage(id: id, label: name(id), why: why))
-                    continue
-                }
-                reading = snapshot.reported[id]
-                stale = signedOut ? CardModel.signedOut : why
-            case nil:
-                offstage.append(Offstage(id: id, label: name(id), why: "not read yet"))
+        for view in gauge.seats {
+            if let why = view.offstage {
+                // Only a seat with nothing to draw has a note; one the user
+                // hid, or one not read yet, has the `+` alone.
+                if !arrangement.hidden.contains(view.id), view.state != nil { notes.append("\(view.label): \(why)") }
+                offstage.append(Offstage(id: view.id, label: view.label, why: why))
                 continue
             }
-            let seat = declared[id]
-            guard let reading else {
-                cards.append(CardModel(id: id, label: name(id), isBest: false, lines: [], pace: nil, stale: stale,
-                                       mark: seat?.kind.provider ?? .claude, account: PlanText.said(seat?.account),
-                                       plan: PlanText.resolve(tier: nil, declared: seat?.plan, wire: nil),
-                                       billing: seat?.billing.map { BillingLine($0, now: now) },
-                                       signsIn: SeatLogin.offers(seat, state),
-                                       opens: seat?.open != nil))
-                continue
-            }
-            let windows = reading.windows.sorted { $0.kind < $1.kind }
-            let mark = seat?.kind.provider ?? .claude
+            if case let .live(read) = view.state { live.append(read) }
             cards.append(CardModel(
-                id: id, label: name(id), isBest: best == id,
+                id: view.id, label: view.label, isBest: view.isBest,
                 // A stale card's pace is yesterday's, so its meters keep the
                 // usage colours.
-                lines: unstarted(mark, windows) + windows.map {
+                lines: view.windows.map {
                     WindowLine(kind: $0.kind, usedPercent: $0.usedPercent,
-                               countdown: Countdown.text(until: $0.resetsAt, now: now),
-                               tone: stale == nil ? MeterTone.of($0, now: now) : nil)
+                               countdown: $0.countdown(now: now),
+                               tone: view.stale == nil ? MeterTone.of($0, now: now) : nil)
                 },
-                pace: stale == nil ? PaceLine(weekly: windows.first { $0.kind == .weekly }, now: now) : nil,
-                stale: stale,
-                mark: mark,
-                account: PlanText.said(seat?.account),
-                plan: PlanText.resolve(tier: reading.tier, declared: seat?.plan, wire: reading.plan),
-                billing: seat?.billing.map { BillingLine($0, now: now) },
-                dated: polls || stale != nil ? nil : "synced \(Countdown.text(until: now, now: reading.takenAt)) ago",
-                isSyncing: syncing.contains(id),
-                signsIn: SeatLogin.offers(seat, state),
-                opens: seat?.open != nil))
+                pace: PaceLine(view.pace, now: now),
+                stale: view.stale,
+                mark: view.provider,
+                account: view.account,
+                plan: view.plan,
+                billing: view.seat?.billing.map { BillingLine($0, now: now) },
+                dated: view.dated,
+                isSyncing: view.shown != nil && syncing.contains(view.id),
+                signsIn: view.signsIn,
+                opens: view.seat?.open != nil))
         }
         let shown = cards.contains { $0.id == hovered } ? hovered : nil
         // Only the hovered card's detail is drawn, so only it has a status.
@@ -384,44 +332,8 @@ struct PanelModel: Equatable {
         return PanelModel(
             cards: cards, summary: SummaryModel.make(live, now: now), notes: notes,
             emptyMessage: cards.isEmpty ? "no seat is readable" : nil,
-            updated: synced(polled, now: now, pollMinutes: pollMinutes),
+            updated: gauge.synced,
             hovered: shown, details: details, offstage: offstage)
-    }
-}
-
-extension PanelModel {
-    /// A Claude reply whose 5-hour window has no reset is one nobody has
-    /// started yet: none of it is used and all five hours are ahead. The
-    /// reading leaves it out, so the card draws it at 0% rather than losing
-    /// the row.
-    static func unstarted(_ mark: Provider, _ windows: [SeatGaugeCore.Window]) -> [WindowLine] {
-        guard mark == .claude, !windows.isEmpty, !windows.contains(where: { $0.kind == .fiveHour }) else { return [] }
-        return [WindowLine(kind: .fiveHour, usedPercent: 0, countdown: "5:00")]
-    }
-
-    /// The title bar's synced line over the seats that poll themselves: all
-    /// of them read within two intervals says how old the oldest is, else how
-    /// many are.
-    static func synced(_ states: [SeatState], now: Date, pollMinutes: Int) -> String {
-        guard !states.isEmpty else { return "not polled yet" }
-        let limit = TimeInterval(pollMinutes * 120)
-        let fresh = states.compactMap { state -> Date? in
-            guard case let .live(reading) = state, now.timeIntervalSince(reading.takenAt) < limit else { return nil }
-            return reading.takenAt
-        }
-        guard fresh.count == states.count, let oldest = fresh.min() else {
-            return "\(fresh.count) of \(states.count) synced"
-        }
-        return "all seats synced \(Countdown.text(until: now, now: oldest)) ago"
-    }
-}
-
-extension SeatState {
-    /// A seat the synced line counts: any but a dormant one, which is not
-    /// drawn and has nothing to sync.
-    var canSync: Bool {
-        if case .dormant = self { return false }
-        return true
     }
 }
 

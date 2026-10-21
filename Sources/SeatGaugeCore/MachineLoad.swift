@@ -129,14 +129,14 @@ public struct MachineSummary: Equatable, Sendable {
                                 diskFreeGB: Double(reading.diskFreeBytes) / 1e9)
     }
 
-    /// CPU and memory on the seat meters' 60 and 85 percent lines. Load per
+    /// CPU and memory on the seat meters' lines, `MeterLines`. Load per
     /// core busy from 2 and full from 3, about the 50 on 16 cores the build
     /// method allows. Disk by gigabytes left, since a percent of a big disk
     /// can still be plenty.
     static func room(cpu: Int, ram: Int, loadPerCore: Double, diskFreeGB: Double) -> (Room, [String]) {
         let checks: [(busy: Bool, full: Bool, text: String)] = [
-            (cpu >= 60, cpu >= 85, "CPU \(cpu)% over 30 s"),
-            (ram >= 60, ram >= 85, "memory \(ram)% over 30 s"),
+            (cpu >= MeterLines.warning, cpu >= MeterLines.danger, "CPU \(cpu)% over 30 s"),
+            (ram >= MeterLines.warning, ram >= MeterLines.danger, "memory \(ram)% over 30 s"),
             (loadPerCore >= 2, loadPerCore >= 3, String(format: "load %.1f per core", loadPerCore)),
             (diskFreeGB < 25, diskFreeGB < 10, "\(Int(diskFreeGB.rounded())) GB disk left"),
         ]
