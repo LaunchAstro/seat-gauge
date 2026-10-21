@@ -104,8 +104,8 @@ public struct SessionProbe: Sendable {
                     }
                 }
                 paths = Array(Set(paths)).sorted()
-                // A process may hold child rollouts as well. Its reported id
-                // is authoritative; otherwise the oldest file is the root.
+                // A process may hold child rollouts as well, so the id it
+                // reports wins; without one, the oldest file is the root.
                 let primary = reportedID ?? paths.min { creation($0) < creation($1) }.flatMap { path in
                     tool == "codex" ? CodexCollector.firstSession(of: URL(fileURLWithPath: path))
                         : URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent

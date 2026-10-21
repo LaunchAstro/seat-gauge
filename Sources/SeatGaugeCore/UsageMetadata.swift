@@ -1,7 +1,7 @@
 import Foundation
 
-/// Unknown keys are skipped by JSONDecoder without requesting their values.
-/// In particular, neither transcript format's content or prompt is decoded.
+/// JSONDecoder skips every key not asked for without decoding its value, so
+/// neither transcript format's content or prompt is ever decoded.
 struct UsageMetadata: Decodable {
     let object: [String: Any]
     static let selection = CodingUserInfoKey(rawValue: "usage-metadata-fields")!

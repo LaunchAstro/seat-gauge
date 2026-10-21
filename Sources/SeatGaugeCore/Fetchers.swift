@@ -28,8 +28,8 @@ public func seatFetcher(for seat: Seat, runner: any ProcessRunning = RealProcess
 /// The pieces both recipes share: where the CLI is found, how a transcript is
 /// read, and how a parser's answer becomes a seat state.
 enum Fetch {
-    /// `env` resolves the CLI off the PATH the runner augments, so a login
-    /// launched app finds `claude` and `codex` where a shell would.
+    /// `env` resolves the CLI off the PATH the runner augments, so an app
+    /// launched at login finds `claude` and `codex` where a shell would.
     static let env = URL(fileURLWithPath: "/usr/bin/env")
 
     typealias Lines = AsyncThrowingStream<String, Error>.AsyncIterator

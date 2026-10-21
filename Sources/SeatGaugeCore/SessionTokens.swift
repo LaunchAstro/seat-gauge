@@ -1,7 +1,7 @@
 import Foundation
 
-/// Only complete lines advance the offset. Checkpoints retain numeric usage
-/// events so resumes can be reordered exactly as Spend orders them.
+/// Only a whole line moves the offset on. A checkpoint keeps the numeric usage
+/// events, so a resume can be put back in order exactly as Spend orders it.
 struct SessionTokens: Codable, Sendable {
     var offset: UInt64 = 0
     var identity: UInt64 = 0

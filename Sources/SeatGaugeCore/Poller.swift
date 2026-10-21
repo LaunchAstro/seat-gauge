@@ -66,9 +66,8 @@ struct PollAsk: Sendable {
 }
 
 /// The one loop. The panel and `seatgauge-cli watch` both start it through
-/// `Poll`: one
-/// sleep between polls, one poll at a time, and a "poll now" or a sync that
-/// coalesces, so two requests during a poll produce one more poll and not
+/// `Poll`. One sleep between polls, one poll at a time, and a "poll now" or
+/// a sync that coalesces, so two requests during a poll produce one more poll and not
 /// two. Beside it runs a minute tick, which reads the config's mtime once a
 /// minute whatever the poll interval is. It has a clock of its own so the
 /// interval the panel is held to stays the one the poll loop sleeps.

@@ -4,7 +4,7 @@ import Foundation
 ///
 /// A token seat's login does not live in its profile directory: it lives in an
 /// OAuth token handed to the CLI in its environment, so the gauge has to hand
-/// it over too or the CLI is simply not logged in. Token seats are optional,
+/// it over too or the CLI is not logged in. Token seats are optional,
 /// and a seat names its file with `token` in `seats.json`. Only the path is
 /// ever held or said. The value goes from the file straight into one child's
 /// environment, and nowhere else: not to stdout, not to a recorded fixture,
