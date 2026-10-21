@@ -92,8 +92,7 @@ public enum SeatLogin {
         // Neither a token nor another config directory is inherited, so the
         // CLI signs this profile in and no other.
         var environment = ChildEnvironment.make(from: parent, keeping: ["TERM"],
-                                                setting: ClaudeFetcher.noUpdate.merging(
-                                                    ["CLAUDE_CONFIG_DIR": profile.path]) { $1 })
+                                                setting: ClaudeFetcher.variables(profile: profile))
         // The same PATH a poll gets, so the CLI is found wherever a poll finds it.
         environment["PATH"] = searchPath.joined(after: environment["PATH"])
         try login(name, email: email, environment: environment, timeout: timeout, code: code, link: link)
@@ -131,8 +130,14 @@ public enum SeatLogin {
     static func isAddress(_ text: String) -> Bool {
         let parts = text.split(separator: "@", omittingEmptySubsequences: false)
         return parts.count == 2 && !parts[0].isEmpty && !parts[1].isEmpty && !text.hasPrefix("-")
-            && !text.unicodeScalars.contains { CharacterSet.whitespacesAndNewlines.contains($0)
-                || CharacterSet.controlCharacters.contains($0) }
+            && !hasSpaceOrControl(text)
+    }
+
+    /// A space, a line break or a control character anywhere in `text`.
+    static func hasSpaceOrControl(_ text: String) -> Bool {
+        text.unicodeScalars.contains {
+            CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0)
+        }
     }
 
     /// The pasted code once given, from whichever thread read it.
@@ -173,8 +178,7 @@ public enum SeatLogin {
                 guard !typed.isEmpty else {
                     throw ProcessFailure("no code was pasted, so \(name) was not signed in.")
                 }
-                guard !typed.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0)
-                    || CharacterSet.controlCharacters.contains($0) }) else {
+                guard !hasSpaceOrControl(typed) else {
                     throw ProcessFailure("the pasted code has a space or a control character in it, so it was not sent and \(name) was not signed in.")
                 }
                 sent = true

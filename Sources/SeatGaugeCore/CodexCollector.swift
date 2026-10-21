@@ -46,16 +46,9 @@ public struct CodexCollector: Sendable {
             bySession[session, default: []].append(url)
         }
         var files = always
-        for group in bySession.values {
-            let passable = rolledUpAt.map { rolledUpAt in
-                group.allSatisfy { url in
-                    guard let changed = try? url.resourceValues(forKeys: [.contentModificationDateKey])
-                        .contentModificationDate else { return false }
-                    return changed <= rolledUpAt
-                        && SpendCSV.sealedThrough(lastWrite: changed, now: now, calendar: calendar)
-                }
-            } ?? false
-            if !passable { files += group }
+        for group in bySession.values
+        where !group.allSatisfy({ SpendCSV.passedBy($0, rolledUpAt: rolledUpAt, now: now, calendar: calendar) }) {
+            files += group
         }
         return files.sorted { $0.path < $1.path }
     }

@@ -219,15 +219,14 @@ public struct SessionProbe: Sendable {
                         checkpoint.messageOwners[response.messageID] = path
                     }
                     guard checkpoint.messageOwners[response.messageID] == path else { continue }
-                    let model = response.model.replacingOccurrences(of: "[1m]", with: "")
-                    models[model, default: TokenCounts()] = models[model, default: TokenCounts()] + response.counts
+                    models[response.filedModel, default: TokenCounts()] += response.counts
                 }
             }
         }
         if row.tool == "codex" {
             let reading = CodexRollout.read(rollouts: rollouts, calendar: .current,
                                            excluding: AppPaths.primers(beside: AppPaths.codexPrimer))
-            for (cell, counts) in reading.cells { models[cell.model, default: TokenCounts()] = models[cell.model, default: TokenCounts()] + counts }
+            for (cell, counts) in reading.cells { models[cell.model, default: TokenCounts()] += counts }
         }
         row.models = models
         row.tokens = paths.isEmpty ? nil : models.values.reduce(TokenCounts(), +)

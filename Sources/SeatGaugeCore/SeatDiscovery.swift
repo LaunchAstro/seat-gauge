@@ -81,7 +81,7 @@ public struct SeatDiscovery: Sendable {
         let allowed = Set("abcdefghijklmnopqrstuvwxyz0123456789-_")
         guard let first = name.first, first.isASCII, first.isLetter || first.isNumber,
               name.allSatisfy(allowed.contains) else { return false }
-        return ![SpendAttribution.mainDirectory, CodexRollout.seat].contains(name)
+        return !SpendAttribution.keptNames.contains(name)
     }
 
     static func isLink(_ url: URL) -> Bool {

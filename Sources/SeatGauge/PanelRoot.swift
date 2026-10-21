@@ -229,6 +229,16 @@ import SwiftUI
         if configProblem == nil { try? arrange { $0 } }
     }
 
+    /// A snapshot and the config it was read through: the config's problem
+    /// first, so `apply` knows whether the seats are the user's, then the
+    /// cards, the interval and the Spend tab's first day.
+    func take(_ snapshot: Snapshot, seats: [Seat], through watcher: ConfigWatcher) async {
+        configProblem = await watcher.problem
+        apply(snapshot, seats: seats)
+        pollMinutes = await watcher.config.pollMinutes
+        spendFrom = await watcher.config.spendFrom
+    }
+
     func readSpend(csv: URL = SpendCSV.defaultFile, state: URL = StateStore.defaultFile,
                    attribution: URL = AttributionFile.defaultFile) {
         let spend = SpendView.read(csv: csv, state: state, attribution: attribution, start: spendFrom)

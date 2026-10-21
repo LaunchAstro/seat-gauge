@@ -289,18 +289,15 @@ public struct SpendChart: Equatable, Sendable {
             everyDay[day, default: 0] += amount
             // Family and price are separate questions: in dollars a model the
             // rate card has no price for counts its responses as unpriced.
-            let name = ModelName.display(row.model)
             let unpriced = measure == .usd && rates.priceStatus(for: row.model) == .unpriced
-            var cell = byModel[row.seat, default: [:]][unpriced ? Self.unpriced : name] ?? (unpriced ? nil : 0, 0)
+            let model = unpriced ? Self.unpriced : ModelName.display(row.model)
+            var cell = byModel[row.seat, default: [:]][model] ?? (unpriced ? nil : 0, 0)
             cell.amount = cell.amount.map { $0 + amount }
             cell.responses += row.responses
-            byModel[row.seat, default: [:]][unpriced ? Self.unpriced : name] = cell
-            if unpriced {
-                counted[Self.unpriced, default: 0] += row.responses
-            } else {
-                money[ModelFamily(model: row.model).rawValue, default: 0] += amount
-                counted[ModelFamily(model: row.model).rawValue, default: 0] += row.responses
-            }
+            byModel[row.seat, default: [:]][model] = cell
+            let heading = unpriced ? Self.unpriced : ModelFamily(model: row.model).rawValue
+            if !unpriced { money[heading, default: 0] += amount }
+            counted[heading, default: 0] += row.responses
         }
 
         var series = lines.keys.sorted().map { seat in
@@ -341,11 +338,17 @@ extension Decimal {
     /// For the chart axis, which takes a `Double` and nothing else.
     public var asDouble: Double { NSDecimalNumber(decimal: self).doubleValue }
 
-    /// Dollars and cents, for a heading a person reads.
-    public var asMoney: String {
+    /// Cents, for a figure a person reads rather than one the CSV keeps.
+    public var roundedToCents: Decimal {
         var value = self
         var rounded = Decimal()
         NSDecimalRound(&rounded, &value, 2, .plain)
+        return rounded
+    }
+
+    /// Dollars and cents, for a heading a person reads.
+    public var asMoney: String {
+        let rounded = roundedToCents
         let shape = NumberFormatter()
         shape.numberStyle = .currency
         shape.currencyCode = "USD"

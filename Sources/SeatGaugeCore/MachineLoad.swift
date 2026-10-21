@@ -17,6 +17,19 @@ public struct Machine: Identifiable, Equatable, Sendable {
     }
 
     public static let here = Machine(id: "this-mac", label: "This Mac")
+
+    /// `read` run on every machine at once, so a slow ssh never holds up
+    /// another machine's answer, the answers keyed by machine id.
+    static func each<T: Sendable>(_ machines: [Machine],
+                                  _ read: @escaping @Sendable (Machine) async -> Result<T, ProcessFailure>)
+        async -> [String: Result<T, ProcessFailure>] {
+        await withTaskGroup(of: (String, Result<T, ProcessFailure>).self) { group in
+            for machine in machines { group.addTask { (machine.id, await read(machine)) } }
+            var all: [String: Result<T, ProcessFailure>] = [:]
+            for await (id, result) in group { all[id] = result }
+            return all
+        }
+    }
 }
 
 /// How many agents a machine's herdr has, by what each is doing. An agent
@@ -490,14 +503,7 @@ public actor MachineMonitor {
         defer { activity.end() }
         let current = await config()
         let prober = self.prober
-        let results = await withTaskGroup(of: (String, Result<MachineReading, ProcessFailure>).self) { group in
-            for machine in current.machines {
-                group.addTask { (machine.id, await prober.read(machine)) }
-            }
-            var all: [String: Result<MachineReading, ProcessFailure>] = [:]
-            for await (id, result) in group { all[id] = result }
-            return all
-        }
+        let results = await Machine.each(current.machines) { await prober.read($0) }
         var next: [String: MachineState] = [:]
         for machine in current.machines {
             switch results[machine.id] {

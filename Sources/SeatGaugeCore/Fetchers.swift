@@ -94,6 +94,12 @@ public struct ClaudeFetcher: SeatFetching {
     /// A poll never updates the CLI. An update rewrites the install the
     /// user's own sessions run, charged to whichever app spawned it.
     static let noUpdate = ["DISABLE_AUTOUPDATER": "1"]
+
+    /// What every Claude child of a seat is given: its own profile, and no
+    /// update. A poll and a sign-in set the same two.
+    static func variables(profile: URL) -> [String: String] {
+        noUpdate.merging(["CLAUDE_CONFIG_DIR": profile.path]) { $1 }
+    }
     /// The one short turn a token seat needs: its `get_usage` reply is empty,
     /// and its windows arrive only as a `rate_limit_event` during a turn.
     static let turn = ["--model", "haiku", "--max-turns", "1"]
@@ -109,7 +115,7 @@ public struct ClaudeFetcher: SeatFetching {
         guard case let .claude(profileDir) = seat.kind else {
             return Fetched(state: .unreadable(reason: "not a Claude seat", last: last), lines: [])
         }
-        var seatVariables = Self.noUpdate.merging(["CLAUDE_CONFIG_DIR": profileDir.path]) { $1 }
+        var seatVariables = Self.variables(profile: profileDir)
         if let tokenFile = seat.tokenFile {
             switch SeatToken.read(tokenFile) {
             case let .success(token): seatVariables[SeatToken.variable] = token

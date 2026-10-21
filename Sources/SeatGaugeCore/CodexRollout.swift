@@ -10,11 +10,7 @@ public struct CodexReading: Sendable {
     /// The cells as record rows, in the record's order. Pricing and sealing
     /// are the roll-up's to decide, so every row here is unpriced and open.
     public var rows: [SpendRow] {
-        cells.map { cell, counts in
-            SpendRow(seat: cell.seat, day: cell.day, hour: cell.hour, model: cell.model,
-                     counts: counts, usd: nil, sealed: false)
-        }
-        .sorted { ($0.seat, $0.day, $0.hour, $0.model) < ($1.seat, $1.day, $1.hour, $1.model) }
+        cells.map { SpendRow(cell: $0, counts: $1, usd: nil, sealed: false) }.sorted { $0.cell < $1.cell }
     }
 }
 
@@ -68,10 +64,7 @@ public enum CodexRollout {
 
         var cells: [SpendCell: TokenCounts] = [:]
         for rollouts in sessions.values {
-            let polled = rollouts.contains { rollout in
-                rollout.cwd.map { cwd in primers.contains { (cwd + "/").hasPrefix($0 + "/") } } ?? false
-            }
-            if polled { continue }
+            if rollouts.contains(where: { $0.cwd.map { AppPaths.isPrimer($0, in: primers) } ?? false }) { continue }
             // A resume continues the file before it, so the files are read in
             // the order the session wrote them, whatever order they came in.
             let ordered = rollouts.sorted {
@@ -86,7 +79,7 @@ public enum CodexRollout {
                 guard step.added.values.contains(where: { $0 > 0 }) else { continue }
                 let hour = SpendCSV.columns(at: at, calendar: calendar)
                 let cell = SpendCell(seat: seat, day: hour.day, hour: hour.hour, model: event.model)
-                cells[cell] = (cells[cell] ?? TokenCounts()) + counts(step.added)
+                cells[cell, default: TokenCounts()] += counts(step.added)
             }
         }
         return CodexReading(cells: cells, skipped: skipped, unkeyed: unkeyed)

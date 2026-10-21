@@ -32,6 +32,8 @@ public struct TokenCounts: Equatable, Sendable, Codable {
                     cacheWrite5m: a.cacheWrite5m - b.cacheWrite5m,
                     cacheWrite1h: a.cacheWrite1h - b.cacheWrite1h)
     }
+
+    public static func += (a: inout TokenCounts, b: TokenCounts) { a = a + b }
 }
 
 /// One model's list price, per million tokens. The three cache figures are
@@ -156,7 +158,8 @@ extension RateCard {
 }
 
 /// What a row is keyed on: the four columns that make one cell of the CSV.
-public struct SpendCell: Hashable, Sendable {
+/// Cells sort in the record's order: seat, day, hour, model.
+public struct SpendCell: Hashable, Sendable, Comparable {
     public let seat, day, hour, model: String
 
     public init(seat: String, day: String, hour: String, model: String) {
@@ -164,6 +167,10 @@ public struct SpendCell: Hashable, Sendable {
         self.day = day
         self.hour = hour
         self.model = model
+    }
+
+    public static func < (a: SpendCell, b: SpendCell) -> Bool {
+        (a.seat, a.day, a.hour, a.model) < (b.seat, b.day, b.hour, b.model)
     }
 }
 
@@ -194,6 +201,11 @@ public struct SpendRow: Equatable, Sendable, Codable {
         self.sealed = sealed
     }
 
+    public init(cell: SpendCell, counts: TokenCounts, usd: Decimal?, sealed: Bool) {
+        self.init(seat: cell.seat, day: cell.day, hour: cell.hour, model: cell.model,
+                  counts: counts, usd: usd, sealed: sealed)
+    }
+
     public var counts: TokenCounts {
         TokenCounts(responses: responses, input: input, output: output, thinking: thinking,
                     cacheRead: cacheRead, cacheWrite5m: cacheWrite5m, cacheWrite1h: cacheWrite1h)
@@ -204,7 +216,6 @@ public struct SpendRow: Equatable, Sendable, Codable {
     /// The same row, sealed. Sealing is one way: a cell that has been closed
     /// is never opened again by a later run.
     public func sealing(_ shut: Bool) -> SpendRow {
-        SpendRow(seat: seat, day: day, hour: hour, model: model, counts: counts, usd: usd,
-                 sealed: sealed || shut)
+        SpendRow(cell: cell, counts: counts, usd: usd, sealed: sealed || shut)
     }
 }

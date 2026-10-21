@@ -19,14 +19,18 @@ public actor GaugeStore {
             states[reading.seat] = .unreadable(reason: "stale, not polled yet", last: reading)
         }
         self.file = file
-        let reported = Self.read(file.deletingLastPathComponent().appendingPathComponent("reported.json"))
+        let reported = Self.read(Self.reported(beside: file))
         snapshot = Snapshot(states: states, order: order.isEmpty ? restored.map(\.seat) : order,
                             reported: Dictionary(reported.map { ($0.seat, $0) }, uniquingKeysWith: { first, _ in first }))
     }
 
     /// `reported.json`: a dormant seat's last reading, kept apart from
     /// `readings.json` so a relaunch never draws a dormant seat as stale.
-    nonisolated var reportedFile: URL { file.deletingLastPathComponent().appendingPathComponent("reported.json") }
+    nonisolated var reportedFile: URL { Self.reported(beside: file) }
+
+    static func reported(beside readings: URL) -> URL {
+        readings.deletingLastPathComponent().appendingPathComponent("reported.json")
+    }
 
     public static var defaultFile: URL { AppPaths.support.appendingPathComponent("readings.json") }
 
