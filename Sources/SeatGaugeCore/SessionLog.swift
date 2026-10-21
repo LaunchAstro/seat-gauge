@@ -71,8 +71,9 @@ public struct SessionLogFile: Codable, Sendable {
     }
 }
 
-/// Pane observations cannot be recovered from transcripts once a pane goes.
-/// The ledger therefore commits before its replaceable token checkpoint.
+/// What was seen of a pane cannot be read back from its transcripts once the
+/// pane goes, and the token checkpoint can be replaced, so the ledger commits
+/// first.
 struct SessionLedger {
     let directory: URL
     var file: URL { directory.appendingPathComponent("observations.jsonl") }

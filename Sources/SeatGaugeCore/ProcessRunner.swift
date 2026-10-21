@@ -85,9 +85,9 @@ public struct RealProcessRunner: ProcessRunning {
     }
 }
 
-/// The lock is the whole of the concurrency story here: `readabilityHandler`
-/// and `terminationHandler` run in an undefined context, so everything they
-/// touch is behind it.
+/// `readabilityHandler` and `terminationHandler` run in an undefined context,
+/// so everything they touch is behind the lock, and nothing else here guards
+/// shared state.
 final class LiveSession: ProcessSession, @unchecked Sendable {
     private let process: Process
     private let input: Pipe

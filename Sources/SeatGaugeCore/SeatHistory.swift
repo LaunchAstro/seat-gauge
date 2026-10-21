@@ -84,8 +84,8 @@ public struct HistoryBucket: Equatable, Sendable {
 }
 
 /// One seat's usage over a range, in one measure, as the card detail draws
-/// it. Record integrity is the outcome's to say; usage attribution
-/// cannot place is simply not this seat's, and never makes it partial.
+/// it. Whether the record read whole is the outcome's to say. Usage that
+/// attribution cannot place is not this seat's, and never makes it partial.
 public struct SeatHistory: Equatable, Sendable {
     public enum Outcome: Equatable, Sendable {
         case available([HistoryBucket])
