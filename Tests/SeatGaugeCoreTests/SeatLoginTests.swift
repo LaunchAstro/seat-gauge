@@ -127,7 +127,7 @@ import SeatGaugeTestSupport
                 try Self.signIn("work", seats: [Self.seat("work", profile: profile)], scratch: scratch,
                                 code: "c", said: said)
             }
-            #expect(reason == "work has the default login's directory as its profile, so signing it in would sign ~/.claude in instead. Give it a directory of its own.",
+            #expect(reason == "work has the default login's directory, or a folder inside it, as its profile, so signing it in would sign ~/.claude in instead. Give it a directory of its own.",
                     "\(profile.path)")
         }
         // On a volume that ignores case, another spelling is the same place.

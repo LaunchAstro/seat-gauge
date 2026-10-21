@@ -113,38 +113,18 @@ public enum SeatLogin {
         }
         // seats.json refuses these too; a seat list built any other way is
         // checked again here, before anything is written.
-        let place = key(profile)
-        guard ![home, home.appendingPathComponent(".claude")].map(key).contains(place) else {
-            throw ProcessFailure("\(name) has the default login's directory as its profile, so signing it in would sign ~/.claude in instead. Give it a directory of its own.")
+        guard ProfilePlace.of(profile) != nil else {
+            throw ProcessFailure("\(name) has a profile whose path cannot be followed to a folder, since its links go round in a loop or it climbs out of a file. Give it a directory of its own.")
+        }
+        guard !ProfilePlace.isDefaultLogin(profile, home: home) else {
+            throw ProcessFailure("\(name) has the default login's directory, or a folder inside it, as its profile, so signing it in would sign ~/.claude in instead. Give it a directory of its own.")
         }
         for other in seats where other.id != seat.id {
-            if case let .claude(theirs) = other.kind, key(theirs) == place {
+            if case let .claude(theirs) = other.kind, ProfilePlace.same(theirs, profile) {
                 throw ProcessFailure("\(name) has the same profile as \(other.id.rawValue), so signing one in would sign both in. Give each seat a directory of its own.")
             }
         }
         return profile
-    }
-
-    /// A profile's path as a Mac's default volume tells paths apart. A fresh
-    /// machine's profile does not exist yet, but a parent of it may be a link,
-    /// and the profile is made through that link. So `.` and `..` go by name,
-    /// the deepest part that exists is resolved through every link in it, the
-    /// rest is added as written, and the whole is folded for case and Unicode
-    /// form. On a case-sensitive volume this refuses two spellings that are
-    /// really two directories, which is the safe way to be wrong.
-    static func key(_ url: URL) -> String {
-        var existing = url.standardizedFileURL
-        var rest: [String] = []
-        while !FileManager.default.fileExists(atPath: existing.path), existing.pathComponents.count > 1 {
-            rest.insert(existing.lastPathComponent, at: 0)
-            existing = existing.deletingLastPathComponent()
-        }
-        let real = realpath(existing.path, nil).map { resolved in
-            defer { free(resolved) }
-            return String(cString: resolved)
-        } ?? existing.path
-        let path = rest.reduce(URL(fileURLWithPath: real)) { $0.appendingPathComponent($1) }.path
-        return path.decomposedStringWithCanonicalMapping.lowercased()
     }
 
     /// One address, handed to the CLI as a value it cannot take for a flag.
