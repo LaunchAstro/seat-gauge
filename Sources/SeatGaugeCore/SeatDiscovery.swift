@@ -39,13 +39,9 @@ public struct SeatDiscovery: Sendable {
     /// signed in. With no profile, one fresh Claude seat whose folder is not
     /// there yet. Nothing is listed that `ConfigLoader.decode` would refuse.
     public func seats() -> [Found] {
-        let main = Place(home.appendingPathComponent(".claude", isDirectory: true))
-        let homePlace = Place(home)
         // A profile at or inside the default login, or the home itself, would
         // read whatever `~/.claude` is signed into.
-        func refused(_ url: URL) -> Bool {
-            Place(url) == homePlace || main.map { Place.chain(url).contains($0) } == true
-        }
+        func refused(_ url: URL) -> Bool { ProfilePlace.isDefaultLogin(url, home: home) }
         var claude: [Found] = []
         let root = profileRoot
         if !refused(root) {
@@ -71,8 +67,10 @@ public struct SeatDiscovery: Sendable {
             return FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) && isFolder.boolValue
                 && !refused(url)
         }.sorted { Self.isLink($0.1) == Self.isLink($1.1) ? $0.0 < $1.0 : !Self.isLink($0.1) }
-        var taken: Set<Place> = []
-        let kept = candidates.filter { _, url in Place(url).map { taken.insert($0).inserted } ?? false }
+        var taken: Set<ProfilePlace> = []
+        let kept = candidates.filter { _, url in
+            ProfilePlace.of(url).map { places in places.allSatisfy { taken.insert($0).inserted } } ?? false
+        }
         return kept.map(\.0).sorted().map { Found(id: $0, kind: .claude(profile: root.appendingPathComponent($0, isDirectory: true))) }
     }
 
@@ -100,32 +98,5 @@ public struct SeatDiscovery: Sendable {
         var isFolder: ObjCBool = false
         return !FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) && nothing(at: url)
             || isFolder.boolValue
-    }
-}
-
-/// A folder as the disk knows it: its device and inode. A link, `..` and the
-/// data volume's own path for a folder all name one `Place`, where comparing
-/// paths would tell them apart.
-struct Place: Hashable {
-    let device: dev_t
-    let inode: ino_t
-
-    init?(_ url: URL) {
-        var info = stat()
-        guard stat(url.path, &info) == 0 else { return nil }
-        device = info.st_dev
-        inode = info.st_ino
-    }
-
-    /// The place a path lands on and every folder above it.
-    static func chain(_ url: URL) -> [Place] {
-        var at = url.resolvingSymlinksInPath().standardizedFileURL
-        var places: [Place] = []
-        while true {
-            if let place = Place(at) { places.append(place) }
-            let up = at.deletingLastPathComponent().standardizedFileURL
-            guard up.path != at.path else { return places }
-            at = up
-        }
     }
 }
