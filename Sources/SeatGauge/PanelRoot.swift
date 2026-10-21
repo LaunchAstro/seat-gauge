@@ -46,6 +46,14 @@ import SwiftUI
     /// Read by `Tone` and `VerticalFit` in a view body, as the size is.
     var lightAppearance = false
     var verticalFactor: CGFloat = 1
+    /// How many rows of cards the user's height asked for, which `CardGrid`
+    /// reads as how few columns to draw. One is the plain row.
+    var cardRows = 1
+    /// The content's width, which `CardGrid` wraps at when it is asked for
+    /// its ideal size and given no width. Zero before the first layout.
+    /// Read while laying out, never in a body: the window sets it inside its
+    /// own layout pass, and a change there must not redraw the panel.
+    @ObservationIgnored var panelWidth: CGFloat = 0
     /// Why `seats.json` would not read, or nothing. The spend and
     /// attribution records add their own problems after it, in the title
     /// bar's order.
@@ -302,8 +310,8 @@ struct Root: View {
             let seats = mirror.tab == .seats
             let spend = mirror.tab == .spend
             let load = mirror.tab == .load
-            // Every tab, the hidden ones at no opacity and out of reach of the
-            // pointer, so the window is the tallest of them on any.
+            // Every tab but the Log, the hidden ones at no opacity and out of
+            // reach of the pointer, so the window is the tallest of them on any.
             TabStack {
                 Group {
                     if let message = model.emptyMessage {
@@ -315,11 +323,14 @@ struct Root: View {
                 .opacity(seats ? 1 : 0).allowsHitTesting(seats).accessibilityHidden(!seats)
                 SpendTab(chart: mirror.chart, focus: mirror.modelChart)
                     .opacity(spend ? 1 : 0).allowsHitTesting(spend).accessibilityHidden(!spend)
-                LogTab(log: mirror.sessionLog)
-                    .opacity(mirror.tab == .log ? 1 : 0).allowsHitTesting(mirror.tab == .log)
-                    .accessibilityHidden(mirror.tab != .log)
                 LoadTab()
                     .opacity(load ? 1 : 0).allowsHitTesting(load).accessibilityHidden(!load)
+            }
+            // The Log fills the other tabs' height and never sets it, and is
+            // drawn only while it is open: its list is every session, laid
+            // out whole, and every measure of the window would lay it out again.
+            .overlay {
+                if mirror.tab == .log { LogTab(log: mirror.sessionLog) }
             }
             .fixedSize(horizontal: false, vertical: true)
             // The title bar's row is never narrower than itself.

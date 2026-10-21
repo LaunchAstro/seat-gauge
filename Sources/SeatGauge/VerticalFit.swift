@@ -42,6 +42,21 @@ enum VerticalFit {
     }
 }
 
+extension VerticalFit {
+    /// The rows the panel is drawn at, read inside a view body.
+    static var rows: Int { GaugeMirror.shared.cardRows }
+}
+
+/// Rows pinned for one tree, for measuring; nil is the user's.
+private struct PinnedCardRows: EnvironmentKey {
+    static let defaultValue: Int? = nil
+}
+
+/// The width a measured tree wraps its cards at; nil is the window's.
+private struct PinnedPanelWidth: EnvironmentKey {
+    static let defaultValue: CGFloat? = nil
+}
+
 /// A factor pinned for one tree, for measuring; nil is the user's.
 private struct PinnedVerticalFactor: EnvironmentKey {
     static let defaultValue: CGFloat? = nil
@@ -51,5 +66,15 @@ extension EnvironmentValues {
     var pinnedVerticalFactor: CGFloat? {
         get { self[PinnedVerticalFactor.self] }
         set { self[PinnedVerticalFactor.self] = newValue }
+    }
+
+    var pinnedCardRows: Int? {
+        get { self[PinnedCardRows.self] }
+        set { self[PinnedCardRows.self] = newValue }
+    }
+
+    var pinnedPanelWidth: CGFloat? {
+        get { self[PinnedPanelWidth.self] }
+        set { self[PinnedPanelWidth.self] = newValue }
     }
 }

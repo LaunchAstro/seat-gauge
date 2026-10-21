@@ -85,24 +85,18 @@ extension Room {
 }
 
 /// The LOAD tab: one card per machine in `seats.json` order, in the seat
-/// cards' boxes and columns.
+/// cards' boxes, columns and rows.
 struct LoadTab: View {
     var mirror = GaugeMirror.shared
+    @Environment(\.pinnedCardRows) private var pinned
+    @Environment(\.pinnedPanelWidth) private var pinnedWidth
 
     var body: some View {
         let cards = mirror.machines.map {
             MachineCard.make($0, state: mirror.machineStates[$0.id], samples: mirror.machineHistory[$0.id] ?? [], now: Date())
         }
-        // As the seat row does: the cards fill the width while they fit, and
-        // scroll sideways at their minimum when they do not.
-        ViewThatFits(in: .horizontal) {
-            row(cards).frame(idealWidth: PanelLayout.minimumContentWidth(cards: cards.count))
-            CardScroller(ids: cards.map(\.id)) { row(cards) }
-        }
-    }
-
-    private func row(_ cards: [MachineCard]) -> some View {
-        CardRow {
+        // In rows, as the seat cards are.
+        CardGrid(rows: pinned ?? VerticalFit.rows, width: pinnedWidth) {
             ForEach(cards) { MachineCardView(card: $0, history: mirror.machineHistory[$0.id] ?? []).id($0.id) }
         }
     }
