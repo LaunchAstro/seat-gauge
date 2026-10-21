@@ -74,6 +74,12 @@ final class ContentSizedHostingView: NSHostingView<AnyView> {
     }
 
     override func layout() {
+        // The grid wraps at this width when the content's height is read.
+        let mirror = GaugeMirror.shared
+        if abs(mirror.panelWidth - bounds.width) >= 0.5 {
+            mirror.panelWidth = bounds.width
+            invalidateIntrinsicContentSize()
+        }
         super.layout()
         guard let fitter else { return }
         fitter.layoutTitleBar()
@@ -105,17 +111,29 @@ final class ContentSizedHostingView: NSHostingView<AnyView> {
 /// question is laid out in a probe at a pinned factor.
 struct HostingProbe: ContentMeasuring {
     weak var host: NSView?
-    let root: (CGFloat) -> AnyView
+    let root: (CGFloat, Int, CGFloat) -> AnyView
 
     func contentHeight(at factor: CGFloat, width: CGFloat) -> CGFloat {
-        if let host, factor == GaugeMirror.shared.verticalFactor, abs(host.bounds.width - width) < 0.5 {
+        contentHeight(at: factor, rows: GaugeMirror.shared.cardRows, width: width)
+    }
+
+    func contentHeight(at factor: CGFloat, rows: Int, width: CGFloat) -> CGFloat {
+        let mirror = GaugeMirror.shared
+        if let host, factor == mirror.verticalFactor, rows == mirror.cardRows, abs(host.bounds.width - width) < 0.5,
+           abs(mirror.panelWidth - width) < 0.5 {
             // The window's own host runs under the title bar and counts it.
             return host.intrinsicContentSize.height - host.safeAreaInsets.top
         }
-        let probe = NSHostingView(rootView: root(factor))
+        let probe = NSHostingView(rootView: root(factor, rows, width))
         probe.frame = NSRect(x: 0, y: 0, width: width, height: 100)
         probe.layoutSubtreeIfNeeded()
         return probe.intrinsicContentSize.height
+    }
+
+    /// One card a row on the tab with the most cards.
+    var maxRows: Int {
+        let mirror = GaugeMirror.shared
+        return max(1, mirror.model(at: Date()).boxes, mirror.machines.count)
     }
 }
 
@@ -173,8 +191,9 @@ final class WindowController {
         // the content's and leaves the width free.
         let host = ContentSizedHostingView(
             rootView: AnyView(rootView.fixedSize(horizontal: false, vertical: true)))
-        panelHeight = PanelHeight(measuring: HostingProbe(host: host) { factor in
-            AnyView(rootView.environment(\.pinnedVerticalFactor, factor)
+        panelHeight = PanelHeight(measuring: HostingProbe(host: host) { factor, rows, width in
+            AnyView(rootView.environment(\.pinnedVerticalFactor, factor).environment(\.pinnedCardRows, rows)
+                .environment(\.pinnedPanelWidth, width)
                 .fixedSize(horizontal: false, vertical: true))
         })
         hostingView = host
@@ -183,6 +202,7 @@ final class WindowController {
         // has no width to measure a height against, and no constraints to
         // lock the window's content to. A content that cannot be read opens at
         // the height the window has.
+        GaugeMirror.shared.panelWidth = defaultWidth
         host.updateConstraintsForSubtreeIfNeeded()
         host.layoutSubtreeIfNeeded()
         let content = NSSize(width: max(defaultWidth, window.contentMinSize.width),
@@ -253,13 +273,16 @@ final class WindowController {
     }
 
     /// A saved frame is worth restoring for its origin and its width. Its
-    /// height is yesterday's content, so today's is used and the top edge is
-    /// the one that stays put. A width the content cannot be drawn in is not
+    /// height is yesterday's content, so today's is used, read at the saved
+    /// width since the cards wrap into rows at it, and the top edge is the
+    /// one that stays put. A width the content cannot be drawn in is not
     /// restored at all, which is the fails-closed rule.
     private func fitted(_ frame: CGRect, frameHeight: CGFloat) -> CGRect? {
         guard frame.width >= window.contentMinSize.width else { return nil }
-        return CGRect(x: frame.minX, y: frame.maxY - frameHeight,
-                      width: frame.width, height: frameHeight)
+        let width = window.contentRect(forFrameRect: frame).width
+        GaugeMirror.shared.panelWidth = width
+        let height = panelHeight.resting(width: width).map { $0 + chrome } ?? frameHeight
+        return CGRect(x: frame.minX, y: frame.maxY - height, width: frame.width, height: height)
     }
 
     /// Bottom-centre of the portrait display on a first launch, centre when
@@ -311,7 +334,7 @@ final class WindowController {
         // With no frame of the user's, the window widens for every box as
         // boxes arrive, up to the screen's width, since past that the row
         // scrolls. A saved width, or one the user pulled in since, is theirs.
-        let cards = GaugeMirror.shared.model(at: Date()).columns
+        let cards = GaugeMirror.shared.model(at: Date()).boxes
         if !restoredSavedFrame, cards > widenedFor {
             widenedFor = cards
             let screen = visibleScreen?.width ?? .greatestFiniteMagnitude
@@ -319,6 +342,12 @@ final class WindowController {
         }
         if frame.width < narrowest { frame.size.width = narrowest }
         let width = window.contentRect(forFrameRect: frame).width
+        // The grid wraps at the width the content is about to have, so the
+        // height read for it is the one it will draw.
+        if abs(GaugeMirror.shared.panelWidth - width) >= 0.5 {
+            GaugeMirror.shared.panelWidth = width
+            hostingView.invalidateIntrinsicContentSize()
+        }
         settle(panelHeight.contentChanged(width: width, room: room), frame: frame)
     }
 
@@ -329,8 +358,10 @@ final class WindowController {
     private func settle(_ fit: HeightFit, frame proposed: CGRect? = nil) {
         var frame = proposed ?? window.frame
         (window as? FramePreservingWindow)?.contentHeights = fit.range
-        if GaugeMirror.shared.verticalFactor != fit.factor {
-            GaugeMirror.shared.verticalFactor = fit.factor
+        let mirror = GaugeMirror.shared
+        if mirror.verticalFactor != fit.factor || mirror.cardRows != fit.rows {
+            mirror.verticalFactor = fit.factor
+            mirror.cardRows = fit.rows
             hostingView.invalidateIntrinsicContentSize()
             hostingView.layoutSubtreeIfNeeded()
         }

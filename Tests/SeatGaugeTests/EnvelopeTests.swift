@@ -39,7 +39,8 @@ import SeatGaugeCore
     static func contents(width: CGFloat) -> (seats: CGFloat, spend: CGFloat) {
         let mirror = GaugeMirror.shared
         let model = mirror.model(at: now)
-        let seats = Widths.render(ComboLayout(cards: model.cards, details: model.details)
+        // Every box, the ALL card's included, since the boxes stack at a width.
+        let seats = Widths.render(ComboLayout(cards: model.cards, summary: model.summary, details: model.details)
             .environment(\.pinnedVerticalFactor, 1), width: width)?.height ?? 0
         let spend = Widths.render(SpendTab(chart: mirror.chart).fixedSize(horizontal: false, vertical: true),
                                   width: width)?.height ?? 0
@@ -145,6 +146,8 @@ import SeatGaugeCore
         let envelope = reference.window.contentLayoutRect.height
         let chrome = reference.window.frame.height - envelope
         let bounds = reference.heightBounds()
+        // The cards wrap at a width, so the saved frames are as wide as this.
+        let width = reference.window.frame.width
         reference.window.close()
         #expect(bounds.upperBound - envelope > 60)
 
@@ -152,7 +155,7 @@ import SeatGaugeCore
         for (content, kept) in [(envelope - 30, false), (envelope + 40, true)] {
             let name = Height.freshName()
             defer { Height.forget(name) }
-            Ordinary.seed(CGRect(x: screen.minX + 60, y: screen.minY + 60, width: 640, height: content + chrome),
+            Ordinary.seed(CGRect(x: screen.minX + 60, y: screen.minY + 60, width: width, height: content + chrome),
                           under: name, screen: screen)
             let built = Height.controller(name)
             defer { built.window.close() }

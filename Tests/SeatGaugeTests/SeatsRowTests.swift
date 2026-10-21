@@ -28,7 +28,7 @@ import SeatGaugeCore
         #expect(lines.map(\.name) == ["5H", "WK"])
         // 5H over the two seats that report it; WK over all three.
         #expect(lines.map(\.usedPercent) == [40, 30])
-        #expect(model.columns == 4)
+        #expect(model.boxes == 4)
     }
 
     @Test func oneLiveSeatDrawsNoAllCard() {
@@ -44,7 +44,7 @@ import SeatGaugeCore
                                     seats: seats, now: Glance.now)
         #expect(model.cards.count == 2)
         #expect(model.summary == nil)
-        #expect(model.columns == 2)
+        #expect(model.boxes == 2)
     }
 
     @Test func aCombinedWindowThatRunsDryCountsDownToItsRunOut() throws {
@@ -104,25 +104,25 @@ import SeatGaugeCore
         #expect(!sparkles.isEmpty && square.contains(sparkles))
     }
 
-    // MARK: - The row scrolls sideways
+    // MARK: - The row wraps
 
     @Test func allCardTestsDoNotAssertFittingSize() throws {
         let source = try String(contentsOf: URL(fileURLWithPath: #filePath), encoding: .utf8)
         let start = try #require(source.range(of: "// MARK: - The ALL card"))
-        let end = try #require(source.range(of: "// MARK: - The row scrolls sideways"))
+        let end = try #require(source.range(of: "// MARK: - The row wraps"))
         let section = source[start.upperBound..<end.lowerBound]
         #expect(!section.contains(".fitting" + "Size"))
     }
 
-    @Test func aRowTooWideScrollsAtTheSameHeight() {
+    @Test func aRowTooWideWrapsOntoAnotherRow() {
         Widths.atOrdinaryStep { _ in
             let cards = Widths.cards(3)
             let floor = PanelLayout.minimumContentWidth(cards: 3)
             let row = ComboLayout(cards: cards)
             let fits = Self.hosted(row, width: floor)
-            let scrolls = Self.hosted(row, width: floor - 120)
+            let wraps = Self.hosted(row, width: floor - 120)
             #expect(fits > 0)
-            #expect(abs(fits - scrolls) < 1, "\(fits) fitted, \(scrolls) scrolling")
+            #expect(abs(wraps - (fits * 2 + PanelLayout.ruleWidth)) < 1, "\(fits) in one row, \(wraps) wrapped")
             // When they fit, the row is the row it always was.
             #expect(abs(Hug.height(row, width: floor) - fits) < 1)
         }
@@ -151,7 +151,7 @@ import SeatGaugeCore
         }
     }
 
-    @Test func firstLaunchScrollsWhenTheRowExceedsTheDisplay() async throws {
+    @Test func firstLaunchStaysOnTheDisplayWhenTheRowExceedsIt() async throws {
         try await TitleBarTests.keepingMirror {
             GaugeMirror.shared.textScale = .normal
             let widest = try #require(NSScreen.screens.map { $0.visibleFrame.width }.max())
@@ -219,43 +219,12 @@ import SeatGaugeCore
         }
     }
 
-    @Test func aWheelTurnScrollsTheRowSideways() throws {
-        try Widths.atOrdinaryStep { _ in
-            let floor = PanelLayout.minimumContentWidth(cards: 3)
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: floor - 120, height: 200),
-                                  styleMask: [.titled], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            defer { window.close() }
-            let host = NSHostingView(rootView: ComboLayout(cards: Widths.cards(3)).environment(\.pinnedVerticalFactor, 1))
-            window.contentView = host
-            host.layoutSubtreeIfNeeded()
-            let scroller = try #require(Self.scrollView(in: host))
-            let turn = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
-                                            wheel1: -5, wheel2: 0, wheel3: 0))
-            let event = try #require(NSEvent(cgEvent: turn))
-            let sideways = try #require(WindowController.sideways(event))
-            #expect(sideways.scrollingDeltaY == 0 && sideways.scrollingDeltaX != 0)
-            #expect(WindowController.sideways(sideways) == nil)
-            // A turn as it comes does not move the row; the same turn
-            // sideways does, once its smooth scroll has run.
-            scroller.scrollWheel(with: event)
-            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
-            #expect(scroller.contentView.bounds.minX == 0)
-            scroller.scrollWheel(with: sideways)
-            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
-            #expect(scroller.contentView.bounds.minX > 0, "\(scroller.contentView.bounds)")
-        }
-    }
-
-    static func scrollView(in view: NSView) -> NSScrollView? {
-        if let found = view as? NSScrollView { return found }
-        return view.subviews.lazy.compactMap { scrollView(in: $0) }.first
-    }
 
     /// The content's height in a hosting view of this width, as the window
     /// measures it.
     static func hosted<V: View>(_ view: V, width: CGFloat) -> CGFloat {
         let host = NSHostingView(rootView: view.environment(\.pinnedVerticalFactor, 1)
+            .environment(\.pinnedPanelWidth, width)
             .fixedSize(horizontal: false, vertical: true))
         host.frame = NSRect(x: 0, y: 0, width: width, height: 100)
         host.layoutSubtreeIfNeeded()

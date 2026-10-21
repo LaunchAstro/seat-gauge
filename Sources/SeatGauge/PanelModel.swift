@@ -259,8 +259,8 @@ struct PanelModel: Equatable {
 
     func face(_ id: SeatID) -> CardFace { hovered == id ? .detail : .glance }
 
-    /// Boxes in the row, the ALL card's included.
-    var columns: Int { cards.count + (summary == nil ? 0 : 1) }
+    /// Boxes on the tab, the ALL card's included.
+    var boxes: Int { cards.count + (summary == nil ? 0 : 1) }
 
     /// Each seat's history by its name in the record; none before a read.
     static func histories(seats: [Seat], spend: SpendRecord?, through: AttributionRecord?,
