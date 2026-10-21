@@ -140,4 +140,18 @@ import SeatGaugeCore
         #expect(failed.stale == "stale · 1:00")
         #expect(failed.windows == live.windows)
     }
+
+    @Test("the CLI's line lists the windows the card draws, a failed read's held ones and the unstarted one included")
+    func cliLineListsTheHeldWindows() {
+        let seat = Self.seat("work")
+        let reading = Self.reading("work", used: [.weekly: 40])
+        let live = Self.view(seat, .live(reading))
+        let failed = Self.view(seat, .unreadable(reason: "timed out", last: reading))
+        #expect(live.describe(now: Self.now) == "live    5h 0% not started, week 40% resets in 1:00")
+        #expect(failed.describe(now: Self.now)
+            == "stale   timed out, last read held: 5h 0% not started, week 40% resets in 1:00")
+        #expect(Self.view(seat, .unreadable(reason: "timed out", last: nil)).describe(now: Self.now)
+            == "stale   timed out")
+        #expect(Self.view(seat, .dormant(reason: "not logged in")).describe(now: Self.now) == "dormant not logged in")
+    }
 }

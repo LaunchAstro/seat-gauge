@@ -11,27 +11,6 @@ import SeatGaugeCore
 /// CLI never reads a seat without its own profile.
 let templateSeats: [Seat] = (try? ConfigLoader.decode(Data(ConfigLoader.template.utf8)).seats) ?? []
 
-/// One window as the panel will read it: the kind, the count-up percentage and
-/// how long until it resets. Seconds are never shown.
-func describe(_ window: WindowView, now: Date) -> String {
-    let when = window.resetsAt == nil ? "not started" : "resets in \(window.countdown(now: now))"
-    return "\(window.kind.word) \(window.usedPercent)% \(when)"
-}
-
-/// One seat as its card shows it, from the same `SeatView`.
-func describe(_ view: SeatView, now: Date) -> String {
-    switch view.state {
-    case .live:
-        return "live    " + view.windows.map { describe($0, now: now) }.joined(separator: ", ")
-    case let .dormant(reason):
-        return "dormant \(reason)"
-    case let .unreadable(reason, last):
-        return "stale   \(reason)" + (last == nil ? "" : ", last read held")
-    case nil:
-        return "not read yet"
-    }
-}
-
 /// A seat read just now, as one view.
 func view(_ seat: Seat, _ state: SeatState, now: Date) -> SeatView {
     SeatView(id: seat.id, seat: seat, snapshot: Snapshot(states: [seat.id: state], order: [seat.id]), now: now)
@@ -68,7 +47,7 @@ func read(_ path: String?) async throws {
         let shown = view(seat, outcome.state, now: now)
         print(PlanText.column(seat.id.rawValue, width: 8)
               + PlanText.column(shown.plan ?? "no plan", width: 10) + " "
-              + "\(describe(shown, now: now))"
+              + "\(shown.describe(now: now))"
               + "  (\(String(format: "%.1f", now.timeIntervalSince(started))) s)")
     }
 }
@@ -82,7 +61,7 @@ func record(_ name: String, from path: String?) async throws {
     try makePrimer()
     let outcome = await liveFetcher(seat).fetch(seat, now: Date(), last: nil)
     guard !outcome.lines.isEmpty else {
-        throw ProcessFailure("\(name) printed nothing to record: \(describe(view(seat, outcome.state, now: Date()), now: Date()))")
+        throw ProcessFailure("\(name) printed nothing to record: \(view(seat, outcome.state, now: Date()).describe(now: Date()))")
     }
     let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Tests/Fixtures", isDirectory: true)

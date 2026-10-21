@@ -189,6 +189,32 @@ public struct SeatView: Equatable, Sendable, Identifiable {
     }
 }
 
+extension WindowView {
+    /// The window as `seatgauge-cli` prints it: the kind, the count-up
+    /// percentage and how long until it resets. Seconds are never shown.
+    public func describe(now: Date) -> String {
+        "\(kind.word) \(usedPercent)% " + (resetsAt == nil ? "not started" : "resets in \(countdown(now: now))")
+    }
+}
+
+extension SeatView {
+    /// The seat as `seatgauge-cli` prints it, with the same windows its card
+    /// draws, a failed read's held ones included.
+    public func describe(now: Date) -> String {
+        let shown = windows.map { $0.describe(now: now) }.joined(separator: ", ")
+        switch state {
+        case .live:
+            return "live    " + shown
+        case let .dormant(reason):
+            return "dormant \(reason)"
+        case let .unreadable(reason, last):
+            return "stale   \(reason)" + (last == nil ? "" : ", last read held: " + shown)
+        case nil:
+            return "not read yet"
+        }
+    }
+}
+
 /// Every seat's view, in the user's arrangement, and the title bar's synced
 /// line over them.
 public struct GaugeView: Equatable, Sendable {
