@@ -171,9 +171,8 @@ final class WindowController {
     /// pulled in is kept until more boxes arrive.
     private var widenedFor = 0
 
-    init<Content: View>(autosaveName: String = "SeatGaugePanel",
-                        defaultWidth: CGFloat = 520,
-                        rootView: Content) {
+    init<Content: View>(autosaveName: String = "SeatGaugePanel", rootView: Content) {
+        let defaultWidth: CGFloat = 520
         window = FramePreservingWindow(
             contentRect: NSRect(x: 0, y: 0, width: defaultWidth, height: 120),
             // The content runs under a transparent title bar, which carries

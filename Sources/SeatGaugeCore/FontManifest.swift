@@ -23,9 +23,9 @@ public enum FontManifest {
 
     /// The faces with no file in `directory`. A directory that is not there
     /// answers with all of them rather than trapping.
-    public static func missing(in directory: URL, fileManager: FileManager = .default) -> [Face] {
+    public static func missing(in directory: URL) -> [Face] {
         fonts.filter { face in
-            !fileManager.fileExists(atPath: directory.appendingPathComponent(face.file).path)
+            !FileManager.default.fileExists(atPath: directory.appendingPathComponent(face.file).path)
         }
     }
 

@@ -74,8 +74,6 @@ import SeatGaugeCore
         let narrowed = try #require(view.modelChart(picked, now: Self.now, calendar: Self.utc))
         #expect(narrowed == SpendChart.make(record: view.record, through: view.attribution, rates: .bundled,
                                             measure: .tokens, now: Self.now, calendar: Self.utc, model: "Sonnet 5"))
-        let whole = view.chart(measure: .tokens, now: Self.now, calendar: Self.utc)
-        #expect(view.modelRows(whole, SpendChoices(hidden: ["total"])) == whole.modelRows(hiding: ["total"]))
         let history = view.history(seat: "personal", range: .week, measure: .tokens, now: Self.now, calendar: Self.utc)
         #expect(history.outcome.buckets.map(\.amount).reduce(0, +) == 2_000_000)
     }

@@ -250,7 +250,7 @@ import SeatGaugeCore
         let work = SeatID(rawValue: "work")
         let personal = SeatID(rawValue: "personal")
         let store = GaugeStore(file: scratch.readings, order: [work, personal])
-        #expect(await store.snapshot.visible.isEmpty)
+        #expect(await store.snapshot.states.isEmpty)
 
         let reading = Self.reading("work", used: 42, at: now)
         _ = await store.apply(states: [work: .live(reading), personal: .dormant(reason: "not logged in")],
@@ -260,7 +260,7 @@ import SeatGaugeCore
         // A cold start: a second store over the same file, nothing fetched yet.
         let restarted = GaugeStore(file: scratch.readings, order: [work, personal])
         let cold = await restarted.snapshot
-        #expect(cold.visible == [work])
+        #expect(GaugeView(snapshot: cold, seats: [], now: now).seats.filter { $0.offstage == nil }.map(\.id) == [work])
         guard case let .unreadable(_, last) = cold.states[work] else {
             Issue.record("a restored reading is drawn dimmed, not live")
             return

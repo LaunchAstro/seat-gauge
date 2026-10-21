@@ -83,7 +83,7 @@ import SeatGaugeCore
         let last = try #require(try Self.spans(file).last)
         #expect(last == Self.span(900, nil, 1200, "unattributed"))
         #expect(last.end == Self.at(1200))
-        #expect(await writer.problem == nil)
+        #expect(PanelProblem.reading(spend: .empty, attribution: AttributionFile.read(file), zone: Self.guam).isEmpty)
     }
 
     // MARK: - An incomplete observation records nothing and breaks continuity
@@ -158,13 +158,13 @@ import SeatGaugeCore
             await writer.observe(.match("work"), now: Self.at(1000))
             await writer.observe(.match("personal"), now: Self.at(2000))
             #expect(try Data(contentsOf: file) == bytes)
-            #expect(await writer.problem == .attributionRecord)
-            #expect(await writer.problem?.sentence == "attribution record unreadable")
+            #expect(PanelProblem.reading(spend: .empty, attribution: AttributionFile.read(file), zone: Self.guam)
+                    == [.attributionRecord])
             #expect(AttributionFile.record(at: file).directories.isEmpty)
 
             try FileManager.default.removeItem(at: file)
             await writer.observe(.match("personal"), now: Self.at(3000))
-            #expect(await writer.problem == nil)
+            #expect(PanelProblem.reading(spend: .empty, attribution: AttributionFile.read(file), zone: Self.guam).isEmpty)
             #expect(try Self.spans(file) == [Self.span(3000, nil, 3000, "personal")])
         }
     }

@@ -179,11 +179,6 @@ struct SummaryCard: View {
     }
 }
 
-struct GlanceFace: View {
-    let card: CardModel
-    var body: some View { CardView.glance(card) }
-}
-
 /// A card's header, provider first and the seat after it, then the pick, the
 /// plan and the sync icon at the far end. Short of room, the plan gives way
 /// before the seat. `CardMetrics.headerWidth` is its width, box

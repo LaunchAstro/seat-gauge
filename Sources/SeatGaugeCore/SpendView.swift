@@ -78,11 +78,6 @@ public struct SpendView: Sendable {
         choices.model.map { chart(measure: choices.measure, model: $0, now: now, calendar: calendar) }
     }
 
-    /// The list beside the graph: every model, given the lines clicked off.
-    public func modelRows(_ chart: SpendChart, _ choices: SpendChoices) -> [SpendModelRow] {
-        chart.modelRows(hiding: choices.hidden)
-    }
-
     /// One seat's history chart, by its name in the record.
     public func history(seat: String, range: HistoryRange, measure: Measure, now: Date,
                         calendar: Calendar = .current) -> SeatHistory {

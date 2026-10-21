@@ -141,17 +141,6 @@ public enum PlanText {
         said(tier) ?? said(declared) ?? said(wire)
     }
 
-    /// The plan a seat is shown with, from its reading or the last one held.
-    /// It is what `seatgauge-cli read` prints and the card draws.
-    public static func shown(for seat: Seat, state: SeatState) -> String? {
-        switch state {
-        case let .live(reading), let .unreadable(_, reading?):
-            return resolve(tier: reading.tier, declared: seat.plan, wire: reading.plan)
-        default:
-            return resolve(tier: nil, declared: seat.plan, wire: nil)
-        }
-    }
-
     /// `text` padded with spaces to at least `width`, and never cut, so a
     /// long plan such as "enterprise max" prints whole. `read` lines up its
     /// columns with it.
@@ -235,17 +224,6 @@ public struct Snapshot: Sendable {
         self.states = states
         self.order = order
         self.reported = reported
-    }
-
-    /// Live seats, and stale ones that still have a last reading to dim.
-    public var visible: [SeatID] {
-        order.filter { id in
-            switch states[id] {
-            case .live: return true
-            case .unreadable(_, let last): return last != nil
-            default: return false
-            }
-        }
     }
 
     /// The most headroom in its tightest window, among live seats only. The

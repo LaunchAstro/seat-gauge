@@ -243,8 +243,8 @@ import SeatGaugeCore
         let fresh = Glance.copy(stale, pace: nil, stale: nil)
         Glance.appearances { light in
             let width = CardMetrics.minimumWidth + 40
-            let old = Widths.render(GlanceFace(card: stale).modifier(CardBox()), width: width)
-            let new = Widths.render(GlanceFace(card: fresh).modifier(CardBox()), width: width)
+            let old = Widths.render(CardView.glance(stale).modifier(CardBox()), width: width)
+            let new = Widths.render(CardView.glance(fresh).modifier(CardBox()), width: width)
             #expect((old?.height ?? 0) > (new?.height ?? 0) + Int(8 * Widths.scale), "light \(light)")
         }
 

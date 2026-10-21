@@ -268,7 +268,8 @@ import SeatGaugeTestSupport
                                      order[2]: .dormant(reason: "not logged in")],
                             order: order)
         #expect(none.best == nil)
-        #expect(none.visible == [order[1]])
+        #expect(GaugeView(snapshot: none, seats: [], now: now).seats.filter { $0.offstage == nil }.map(\.id)
+                == [order[1]])
     }
 
     // MARK: - Failing closed

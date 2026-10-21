@@ -119,7 +119,7 @@ import SeatGaugeCore
         let card = Self.claude()
         let detail = CardDetail.make(card: card, history: nil, selected: nil)
         let width = CardMetrics.minimumWidth + 60
-        let glance = Self.height(GlanceFace(card: card).modifier(CardBox()), width: width)
+        let glance = Self.height(CardView.glance(card).modifier(CardBox()), width: width)
         for face in [CardFace.glance, .detail] {
             #expect(abs(Self.height(CardView(card: card, detail: detail, face: face), width: width) - glance) <= 0.5,
                     "\(face)")
@@ -189,7 +189,7 @@ import SeatGaugeCore
             + CardDetailMetrics.minimumBody(1)
         let drawn = Self.height(CardView(card: card), width: width)
         #expect(abs(drawn - expected) <= 1, "\(drawn) against \(expected)")
-        #expect(drawn > Self.height(GlanceFace(card: card).modifier(CardBox()), width: width))
+        #expect(drawn > Self.height(CardView.glance(card).modifier(CardBox()), width: width))
 
         #expect(card.plan == nil)
         #expect(CardMetrics.headerWidth(provider: "Claude", seat: "work", picked: false, plan: nil)
