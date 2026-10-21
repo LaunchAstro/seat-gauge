@@ -49,4 +49,10 @@ public enum AppPaths {
             base.appendingPathComponent("\($0)/\(name)").path
         }
     }
+
+    /// Whether `cwd` is one of `primers` or inside one, so a log written
+    /// there is the gauge's own polling rather than the user's work.
+    static func isPrimer(_ cwd: String, in primers: [String]) -> Bool {
+        primers.contains { (cwd + "/").hasPrefix($0 + "/") }
+    }
 }

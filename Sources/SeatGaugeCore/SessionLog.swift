@@ -147,12 +147,7 @@ public actor SessionLogMonitor {
     @discardableResult public func read() async -> SessionLogFile {
         let machines = await config().machines
         let prober = self.prober
-        let results = await withTaskGroup(of: (String, Result<SessionLogFile, ProcessFailure>).self) { group in
-            for machine in machines { group.addTask { (machine.id, await prober.readLog(machine)) } }
-            var all: [String: Result<SessionLogFile, ProcessFailure>] = [:]
-            for await (machine, result) in group { all[machine] = result }
-            return all
-        }
+        let results = await Machine.each(machines) { await prober.readLog($0) }
         var problems: [String: String] = [:]
         let now = Date()
         for machine in machines {

@@ -114,6 +114,17 @@ public enum SpendCSV {
         return sealed(day: at.day, hour: at.hour, now: now, calendar: calendar)
     }
 
+    /// A log file a run passes by: not written since the roll-up that
+    /// counted it, and every cell it can feed sealed. Both collectors walk by
+    /// this one test (`ClaudeCollector.transcripts`). With no roll-up behind
+    /// the run, or no write date to read, the file is read.
+    static func passedBy(_ file: URL, rolledUpAt: Date?, now: Date, calendar: Calendar) -> Bool {
+        guard let rolledUpAt,
+              let changed = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        else { return false }
+        return changed <= rolledUpAt && sealedThrough(lastWrite: changed, now: now, calendar: calendar)
+    }
+
     // MARK: - The merge
 
     /// The fresh walk replaces an unsealed cell and is refused a sealed one.
@@ -150,8 +161,6 @@ public enum SpendCSV {
         }
         return rows.values
             .map { $0.sealing(sealed(day: $0.day, hour: $0.hour, now: now, calendar: calendar)) }
-            .sorted {
-                ($0.seat, $0.day, $0.hour, $0.model) < ($1.seat, $1.day, $1.hour, $1.model)
-            }
+            .sorted { $0.cell < $1.cell }
     }
 }

@@ -116,10 +116,7 @@ struct SettingsView: View {
     }
 
     /// The panel's appearance, so the system's controls draw in it too.
-    func applyAppearance() {
-        window?.appearance = NSAppearance(named: GaugeMirror.shared.lightAppearance ? .aqua : .darkAqua)
-        window?.backgroundColor = NSColor(Tone.bg)
-    }
+    func applyAppearance() { window?.paintPanelAppearance() }
 
     /// Back from System Settings, where the login item is approved.
     func windowDidBecomeKey(_ notification: Notification) { loginItem?.refresh() }

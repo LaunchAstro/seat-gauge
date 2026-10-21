@@ -16,12 +16,16 @@ func view(_ seat: Seat, _ state: SeatState, now: Date) -> SeatView {
     SeatView(id: seat.id, seat: seat, snapshot: Snapshot(states: [seat.id: state], order: [seat.id]), now: now)
 }
 
+/// `seats.json` at `path`, or the panel's own.
+func configFile(_ path: String?) -> URL {
+    path.map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) } ?? ConfigLoader.defaultFile
+}
+
 /// The seats `read`, `record` and `spend` work on: the named file, else the
 /// panel's own `seats.json`, else the template's. A file that will not parse is said,
 /// not skipped, since a login it declares would silently go unread.
 func readSeats(_ path: String?) throws -> [Seat] {
-    let file = path.map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) }
-        ?? ConfigLoader.defaultFile
+    let file = configFile(path)
     guard path != nil || FileManager.default.fileExists(atPath: file.path) else { return templateSeats }
     return try ConfigLoader(file: file).load().seats
 }
@@ -84,8 +88,7 @@ func watch() async throws {
 /// Every listed machine read once, printed in `machines.json`'s shape.
 /// The file itself is the app's to write.
 func machines(_ path: String?) async throws {
-    let file = path.map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) }
-        ?? ConfigLoader.defaultFile
+    let file = configFile(path)
     let config = FileManager.default.fileExists(atPath: file.path)
         ? try ConfigLoader(file: file).load() : Config(seats: [], pollMinutes: 5)
     let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("machines-\(UUID().uuidString).json")
@@ -190,16 +193,6 @@ func login(_ arguments: ArraySlice<String>) throws {
                                           fflush(stdout)
                                       })
     print(signed.sentence(request.seat))
-}
-
-extension Decimal {
-    /// Cents, for a figure a person reads rather than one the CSV keeps.
-    var roundedToCents: Decimal {
-        var value = self
-        var out = Decimal()
-        NSDecimalRound(&out, &value, 2, .plain)
-        return out
-    }
 }
 
 let arguments = Array(CommandLine.arguments.dropFirst())

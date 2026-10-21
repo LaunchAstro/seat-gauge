@@ -56,10 +56,7 @@ if let poll = try? Poll(options: Poll.Options(
     wakes: WakeSource.stream(),
     notify: { snapshot, seats, watcher in
         Task { @MainActor in
-            GaugeMirror.shared.configProblem = await watcher.problem
-            GaugeMirror.shared.apply(snapshot, seats: seats)
-            GaugeMirror.shared.pollMinutes = await watcher.config.pollMinutes
-            GaugeMirror.shared.spendFrom = await watcher.config.spendFrom
+            await GaugeMirror.shared.take(snapshot, seats: seats, through: watcher)
             // Cards that changed ask for a height.
             controller.refit(.drawn)
             await alerter.consider(snapshot, seats: seats, now: Date())
@@ -107,10 +104,7 @@ if let poll = try? Poll(options: Poll.Options(
         // The store restores `readings.json` as it is built, so a cold
         // start is instant: last night's cards are
         // up, dimmed and dated, before the first fetch answers.
-        GaugeMirror.shared.configProblem = await watcher.problem
-        GaugeMirror.shared.apply(await store.snapshot, seats: await watcher.config.seats)
-        GaugeMirror.shared.pollMinutes = await watcher.config.pollMinutes
-        GaugeMirror.shared.spendFrom = await watcher.config.spendFrom
+        await GaugeMirror.shared.take(await store.snapshot, seats: await watcher.config.seats, through: watcher)
         // The cards are in, so the user's height has something to fill.
         controller.refit(.drawn)
         await poll.run()

@@ -269,7 +269,7 @@ public struct ConfigLoader: Sendable {
                 }
                 // Spend history files a seat under its id, and keeps these two
                 // names for the default login and for Codex.
-                guard ![SpendAttribution.mainDirectory, CodexRollout.seat].contains(seat.id) else {
+                guard !SpendAttribution.keptNames.contains(seat.id) else {
                     throw ConfigProblem("seats.json: a claude seat cannot have the id \"\(seat.id)\", which spend history keeps for \(seat.id == CodexRollout.seat ? "Codex" : "the default login").")
                 }
                 let id = SeatID(rawValue: seat.id)

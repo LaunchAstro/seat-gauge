@@ -99,6 +99,15 @@ final class ContentSizedHostingView: NSHostingView<AnyView> {
     }
 }
 
+extension NSWindow {
+    /// The panel's dark or light appearance, which the system's controls and
+    /// the marks read, and its ground.
+    func paintPanelAppearance() {
+        appearance = NSAppearance(named: GaugeMirror.shared.lightAppearance ? .aqua : .darkAqua)
+        backgroundColor = NSColor(Tone.bg)
+    }
+}
+
 /// The real content: the adapter `PanelHeight` measures through, and the one
 /// place the app reads a content height. The window's own hosting view
 /// answers for the factor it is drawn at and the width it has; any other
@@ -421,10 +430,7 @@ final class WindowController {
 
     /// Dark or light: the window's appearance, which the marks read, and its
     /// ground.
-    func applyAppearance() {
-        window.appearance = NSAppearance(named: GaugeMirror.shared.lightAppearance ? .aqua : .darkAqua)
-        window.backgroundColor = NSColor(Tone.bg)
-    }
+    func applyAppearance() { window.paintPanelAppearance() }
 
     func show() {
         window.makeKeyAndOrderFront(nil)

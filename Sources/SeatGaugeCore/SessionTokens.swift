@@ -48,8 +48,7 @@ struct SessionTokens: Codable, Sendable {
                                     let step = CodexRollout.contribution(total: total, last: last, after: baseline)
                                     baseline = step.baseline
                                     if step.added.values.contains(where: { $0 > 0 }) {
-                                        models[model, default: TokenCounts()] = models[model, default: TokenCounts()]
-                                            + CodexRollout.counts(step.added)
+                                        models[model, default: TokenCounts()] += CodexRollout.counts(step.added)
                                     }
                                 }
                             }
@@ -60,8 +59,7 @@ struct SessionTokens: Codable, Sendable {
                     let reading = ClaudeCollector.read(data: data, primer: AppPaths.primer, seen: &seen)
                     responses += reading.responses
                     for response in reading.responses {
-                        let name = response.model.replacingOccurrences(of: "[1m]", with: "")
-                        models[name, default: TokenCounts()] = models[name, default: TokenCounts()] + response.counts
+                        models[response.filedModel, default: TokenCounts()] += response.counts
                     }
                 }
                 offset += UInt64(data.count)

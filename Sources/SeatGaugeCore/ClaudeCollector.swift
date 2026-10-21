@@ -5,6 +5,11 @@ public struct SpendResponse: Equatable, Sendable, Codable {
     public let requestID, messageID, model: String
     public let at: Date
     public let counts: TokenCounts
+
+    /// The model the response is filed under. `[1m]` is stripped, which
+    /// merges a long-context request into its model's row: fewer rows, at the
+    /// cost of understating a 1M-context premium if one is ever charged.
+    public var filedModel: String { model.replacingOccurrences(of: "[1m]", with: "") }
 }
 
 /// What one transcript gave up: its responses, the session cost it carries if
@@ -46,20 +51,16 @@ public struct ClaudeCollector: Sendable {
                 guard seen.insert(response.messageID).inserted else { continue }
                 out.responses += 1
                 let cell = self.cell(seat: seat, response: response)
-                out.cells[cell] = (out.cells[cell] ?? TokenCounts()) + response.counts
+                out.cells[cell, default: TokenCounts()] += response.counts
             }
         }
         return out
     }
 
-    /// The local day, hour and model one response buckets under. `[1m]` is
-    /// stripped, which merges a long-context request into its model's row:
-    /// fewer rows, at the cost of understating a 1M-context premium if one is
-    /// ever charged.
+    /// The local day, hour and model one response buckets under.
     func cell(seat: String, response: SpendResponse) -> SpendCell {
         let at = SpendCSV.columns(at: response.at, calendar: calendar)
-        return SpendCell(seat: seat, day: at.day, hour: at.hour,
-                         model: response.model.replacingOccurrences(of: "[1m]", with: ""))
+        return SpendCell(seat: seat, day: at.day, hour: at.hour, model: response.filedModel)
     }
 
     /// Every `.jsonl` under each profile's `projects/`, which is where the
@@ -82,12 +83,8 @@ public struct ClaudeCollector: Sendable {
             guard let walk = FileManager.default.enumerator(
                 at: profile.projects, includingPropertiesForKeys: [.contentModificationDateKey],
                 options: [.skipsHiddenFiles]) else { continue }
-            for case let url as URL in walk where url.pathExtension == "jsonl" {
-                if let rolledUpAt,
-                   let changed = try? url.resourceValues(forKeys: [.contentModificationDateKey])
-                       .contentModificationDate,
-                   changed <= rolledUpAt,
-                   SpendCSV.sealedThrough(lastWrite: changed, now: now, calendar: calendar) { continue }
+            for case let url as URL in walk where url.pathExtension == "jsonl"
+                && !SpendCSV.passedBy(url, rolledUpAt: rolledUpAt, now: now, calendar: calendar) {
                 files.append((profile.seat, url))
             }
         }
@@ -161,7 +158,7 @@ public struct ClaudeCollector: Sendable {
                   let at = JSON.date(object["timestamp"]) else { continue }
             // Either build's own Claude calls run in its `primer/`, and counting
             // them would have the panel report its polling as the user's work.
-            if let cwd = object["cwd"] as? String, here.contains(where: { (cwd + "/").hasPrefix($0 + "/") }) { continue }
+            if let cwd = object["cwd"] as? String, AppPaths.isPrimer(cwd, in: here) { continue }
             guard seen.insert(id).inserted else { continue }
             responses.append(SpendResponse(requestID: request, messageID: id, model: model,
                                            at: at, counts: Self.counts(usage)))

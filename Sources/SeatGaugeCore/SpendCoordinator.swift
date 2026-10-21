@@ -150,8 +150,7 @@ public actor SpendCoordinator {
             try StateStore(file: self.state).update { $0.timeZone = calendar.timeZone.identifier }
             return changed.map { row in
                 guard let before = held[row.cell] else { return row }
-                return SpendRow(seat: row.seat, day: row.day, hour: row.hour, model: row.model,
-                                counts: row.counts - before, usd: nil, sealed: row.sealed)
+                return SpendRow(cell: row.cell, counts: row.counts - before, usd: nil, sealed: row.sealed)
             }
         }
     }
@@ -169,8 +168,7 @@ public actor SpendCoordinator {
 
     static func priced(_ cells: [SpendCell: TokenCounts], rates: RateCard) -> [SpendRow] {
         cells.map { cell, counts in
-            SpendRow(seat: cell.seat, day: cell.day, hour: cell.hour, model: cell.model,
-                     counts: counts, usd: rates.usd(model: cell.model, counts: counts), sealed: false)
+            SpendRow(cell: cell, counts: counts, usd: rates.usd(model: cell.model, counts: counts), sealed: false)
         }
     }
 

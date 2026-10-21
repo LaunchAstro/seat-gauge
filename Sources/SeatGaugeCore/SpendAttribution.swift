@@ -6,6 +6,9 @@ import Foundation
 public struct SpendAttribution: Sendable {
     /// The directory the roll-up files the main login's usage under.
     public static let mainDirectory = "default"
+    /// The names spend history keeps for the main login and for Codex, which
+    /// no Claude seat may take as its id.
+    static let keptNames = [mainDirectory, CodexRollout.seat]
 
     public let record: AttributionRecord
     let zone: TimeZone?
