@@ -350,7 +350,7 @@ struct PanelModel: Equatable {
                 id: id, label: name(id), isBest: best == id,
                 // A stale card's pace is yesterday's, so its meters keep the
                 // usage colours.
-                lines: windows.map {
+                lines: unstarted(mark, windows) + windows.map {
                     WindowLine(kind: $0.kind, usedPercent: $0.usedPercent,
                                countdown: Countdown.text(until: $0.resetsAt, now: now),
                                tone: stale == nil ? MeterTone.of($0, now: now) : nil)
@@ -382,6 +382,15 @@ struct PanelModel: Equatable {
 }
 
 extension PanelModel {
+    /// A Claude reply whose 5-hour window has no reset is one nobody has
+    /// started yet: none of it is used and all five hours are ahead. The
+    /// reading leaves it out, so the card draws it at 0% rather than losing
+    /// the row.
+    static func unstarted(_ mark: Provider, _ windows: [SeatGaugeCore.Window]) -> [WindowLine] {
+        guard mark == .claude, !windows.isEmpty, !windows.contains(where: { $0.kind == .fiveHour }) else { return [] }
+        return [WindowLine(kind: .fiveHour, usedPercent: 0, countdown: "5:00")]
+    }
+
     /// The title bar's synced line over the seats that poll themselves: all
     /// of them read within two intervals says how old the oldest is, else how
     /// many are.
