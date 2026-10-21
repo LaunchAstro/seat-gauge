@@ -51,35 +51,24 @@ if Alerter.wantsTestBanner(Array(CommandLine.arguments.dropFirst())) {
 
 // A config that will not open at all is the one thing the window cannot poll
 // through, and it says so in the one line the empty state already has.
-if let watcher = try? ConfigWatcher() {
-    let store = GaugeStore()
-    let spend = SpendCoordinator()
-    // The one place the panel runs the user's login shell, to find the CLIs.
-    let service = RefreshService { seatFetcher(for: $0, runner: RealProcessRunner(searchPath: .loginShell)) }
-    let poller = Poller(watcher: watcher, service: service, store: store,
-                        clock: ContinuousClock(),
-                        rollup: {
-                            // At launch and every sixth poll, off the main
-                            // actor, after the cards are up.
-                            let seats = await watcher.config.seats
-                            _ = try? await spend.run(profiles: SpendProfile.from(seats: seats),
-                                                     rates: RateCard.load(), now: Date())
-                            await MainActor.run { GaugeMirror.shared.readSpend() }
-                        },
-                        identity: IdentityObserver.hook(writer: AttributionWriter()),
-                        notify: { snapshot, seats in
-                            Task { @MainActor in
-                                GaugeMirror.shared.configProblem = await watcher.problem
-                                GaugeMirror.shared.apply(snapshot, seats: seats)
-                                GaugeMirror.shared.pollMinutes = await watcher.config.pollMinutes
-                                GaugeMirror.shared.spendFrom = await watcher.config.spendFrom
-                                // Cards that changed ask for a height.
-                                controller.refit(.drawn)
-                                await alerter.consider(snapshot, seats: seats, now: Date())
-                            }
-                        },
-                        // The seats a poll is reading, then none, for the busy icons.
-                        syncing: { ids in Task { @MainActor in GaugeMirror.shared.syncing = ids } })
+if let poll = try? Poll(options: Poll.Options(
+    identity: true,
+    wakes: WakeSource.stream(),
+    notify: { snapshot, seats, watcher in
+        Task { @MainActor in
+            GaugeMirror.shared.configProblem = await watcher.problem
+            GaugeMirror.shared.apply(snapshot, seats: seats)
+            GaugeMirror.shared.pollMinutes = await watcher.config.pollMinutes
+            GaugeMirror.shared.spendFrom = await watcher.config.spendFrom
+            // Cards that changed ask for a height.
+            controller.refit(.drawn)
+            await alerter.consider(snapshot, seats: seats, now: Date())
+        }
+    },
+    // The seats a poll is reading, then none, for the busy icons.
+    syncing: { ids in Task { @MainActor in GaugeMirror.shared.syncing = ids } },
+    rolledUp: { await MainActor.run { GaugeMirror.shared.readSpend() } })) {
+    let watcher = poll.watcher, store = poll.store, poller = poll.poller
     // Each machine's load, on its own loop beside the seat poll, into the
     // LOAD tab and `machines.json`.
     let machineMonitor = MachineMonitor(prober: MachineProber(runner: RealProcessRunner()),
@@ -124,7 +113,7 @@ if let watcher = try? ConfigWatcher() {
         GaugeMirror.shared.spendFrom = await watcher.config.spendFrom
         // The cards are in, so the user's height has something to fill.
         controller.refit(.drawn)
-        await poller.run()
+        await poll.run()
     }
 }
 

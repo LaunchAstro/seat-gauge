@@ -16,11 +16,6 @@ func view(_ seat: Seat, _ state: SeatState, now: Date) -> SeatView {
     SeatView(id: seat.id, seat: seat, snapshot: Snapshot(states: [seat.id: state], order: [seat.id]), now: now)
 }
 
-/// The primer directory has to be there before `claude` is asked to run in it.
-func makePrimer() throws {
-    try FileManager.default.createDirectory(at: AppPaths.primer, withIntermediateDirectories: true)
-}
-
 /// The seats `read`, `record` and `spend` work on: the named file, else the
 /// panel's own `seats.json`, else the template's. A file that will not parse is said,
 /// not skipped, since a login it declares would silently go unread.
@@ -39,7 +34,7 @@ func readSeats(_ path: String?) throws -> [Seat] {
 /// Each seat's plan beside its name, from its own login first. A seat
 /// with none says so, and is never called free.
 func read(_ path: String?) async throws {
-    try makePrimer()
+    try AppPaths.makePrimer()
     let started = Date()
     for seat in try readSeats(path) {
         let outcome = await liveFetcher(seat).fetch(seat, now: Date(), last: nil)
@@ -58,7 +53,7 @@ func record(_ name: String, from path: String?) async throws {
         throw ProcessFailure("no seat named \(name). Seats: "
                              + seats.map(\.id.rawValue).joined(separator: ", "))
     }
-    try makePrimer()
+    try AppPaths.makePrimer()
     let outcome = await liveFetcher(seat).fetch(seat, now: Date(), last: nil)
     guard !outcome.lines.isEmpty else {
         throw ProcessFailure("\(name) printed nothing to record: \(view(seat, outcome.state, now: Date()).describe(now: Date()))")
@@ -74,27 +69,16 @@ func record(_ name: String, from path: String?) async throws {
 /// a person can read them going by.
 func watch() async throws {
     setvbuf(stdout, nil, _IOLBF, 0)   // a poll a person is watching for, piped or not
-    try makePrimer()
-    let watcher = try ConfigWatcher()
-    let clock = ContinuousClock()
     let say: @Sendable (String) -> Void = { line in
         let at = Date().formatted(date: .omitted, time: .standard)
         print("\(at)  \(line)")
         PollLog.system(line)
     }
-    // The same roll-up the panel runs, on the same schedule, so `watch` is the
-    // headless twin of a launch rather than a poll loop with a piece missing.
-    let roller = SpendCoordinator(log: say)
-    let poller = Poller(watcher: watcher, service: RefreshService(clock: clock, fetcher: liveFetcher),
-                        store: GaugeStore(), clock: clock,
-                        rollup: {
-                            let seats = await watcher.config.seats
-                            _ = try? await roller.run(profiles: SpendProfile.from(seats: seats),
-                                                      rates: RateCard.load(), now: Date())
-                        },
-                        log: say)
+    // No identity observer: the app's is the only one, so `watch` never
+    // writes a second observation.
+    let poll = try Poll(options: Poll.Options(log: say))
     print("watching \(ConfigLoader.defaultFile.path), logged under \(PollLog.subsystem).")
-    await poller.run()
+    await poll.run()
 }
 
 /// Every listed machine read once, printed in `machines.json`'s shape.

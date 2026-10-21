@@ -29,6 +29,7 @@ Three SwiftPM targets, Command Line Tools only (no Xcode project).
 | `SeatLogin.swift` | Signs one seat in: `claude auth login` on a pseudo-terminal under the seat's own profile, the link out, the pasted code in, and `claude auth status` as the proof. Every front end signs in through it. |
 | `SeatOpener.swift` | Runs a seat's `open` command when its card is clicked: no shell, a built environment, detached after a short start check. |
 | `SeatToken.swift` | Where a token seat's token file is, read at fetch time and handed to one child process. |
+| `Poll.swift` | The seat loop as every front end starts it, from the config file and a few options: the watcher, the store, the primer, the login shell's `PATH`, the spend roll-up on its schedule, and a timer poll a few seconds after each wake. The app's `main.swift` and `seatgauge-cli watch` each start one. |
 | `RefreshService.swift`, `Poller.swift`, `GaugeStore.swift` | Fetch the seats one after another, loop on the poll interval, and keep the last readings on disk. |
 | `SeatView.swift`, `Headroom.swift` | What a seat shows, decided once: its windows (an unstarted 5-hour one included), freshness, plan, pace, sign-in offer, best pick, offstage reason, the synced line and the 60 and 85 meter lines. The card, `headroom.json` and `seatgauge-cli` all print from it. |
 | `Pace.swift`, `Alerts.swift` | The pace verdict and countdown text, and when a reset alert is due. |
@@ -41,7 +42,7 @@ Three SwiftPM targets, Command Line Tools only (no Xcode project).
 | `SessionLog.swift`, `SessionProbe.swift`, `SessionTokens.swift` | The Log snapshot, private pane ledger, machine-local discovery and incremental reads through the Spend parsers. |
 | `State.swift` | `state.json`: roll-up watermark and panel choices, under a file lock. |
 
-In the app, `PanelModel.swift` turns each seat's `SeatView` into the card's colours and layout, `PanelRoot.swift` holds `GaugeMirror` (the main-actor copy of the latest state), `WindowController.swift` and `PanelHeight.swift` size the window, `SignIn.swift` is a card's Sign in (the browser, the code prompt and the proof around `SeatLogin`), and `main.swift` wires it all together.
+In the app, `PanelModel.swift` turns each seat's `SeatView` into the card's colours and layout, `PanelRoot.swift` holds `GaugeMirror` (the main-actor copy of the latest state), `WindowController.swift` and `PanelHeight.swift` size the window, `WakeSource.swift` turns `NSWorkspace.didWakeNotification` into the wakes `Poll` reads, `SignIn.swift` is a card's Sign in (the browser, the code prompt and the proof around `SeatLogin`), and `main.swift` wires it all together.
 
 ## Check a change
 

@@ -65,7 +65,8 @@ struct PollAsk: Sendable {
     }
 }
 
-/// The one loop. The panel drives it and so does `seatgauge-cli watch`: one
+/// The one loop. The panel and `seatgauge-cli watch` both start it through
+/// `Poll`: one
 /// sleep between polls, one poll at a time, and a "poll now" or a sync that
 /// coalesces, so two requests during a poll produce one more poll and not
 /// two. Beside it runs a minute tick, which reads the config's mtime once a
@@ -127,8 +128,9 @@ public actor Poller<C: Clock, T: Clock> where C.Duration == Duration, T.Duration
     }
 
     /// A wake is a poll: the machine has been asleep, so every figure on the
-    /// panel is old. The stream is filled from `NSWorkspace.didWakeNotification`
-    /// where AppKit already is, since this target is Foundation only.
+    /// panel is old. The app's `WakeSource` fills the stream from
+    /// `NSWorkspace.didWakeNotification`, through `Poll`, since this target is
+    /// Foundation only.
     public func run() async {
         let waking = Task { [weak self, wakes] in
             for await _ in wakes {
