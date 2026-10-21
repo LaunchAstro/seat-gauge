@@ -42,32 +42,41 @@ public struct Headroom: Encodable, Equatable, Sendable {
     public struct WindowRow: Encodable, Equatable, Sendable {
         public let used: Int
         public let left: Int
-        public let resets: String
+        /// Nil while the window is not started.
+        public let resets: String?
+
+        enum CodingKeys: String, CodingKey { case used, left, resets }
+
+        // Written out so a window nobody has started says `"resets": null`.
+        public func encode(to encoder: Encoder) throws {
+            var keys = encoder.container(keyedBy: CodingKeys.self)
+            try keys.encode(used, forKey: .used)
+            try keys.encode(left, forKey: .left)
+            try keys.encode(resets, forKey: .resets)
+        }
     }
 
-    /// One row per configured seat, in config order. A seat is stale when
-    /// its last read failed, when it has never been read, or when its reading
-    /// is older than two poll intervals. A dormant or never-read seat has no
-    /// windows; a stale one keeps its last, as its dimmed card does.
+    /// One row per configured seat, in config order, from the seat's own
+    /// `SeatView`. A seat is stale unless it is fresh by `SeatState.isFresh`.
+    /// A dormant or never-read seat has no windows; a stale one keeps its
+    /// last, as its dimmed card does, and an unstarted 5-hour window is
+    /// written with no reset.
     public init(snapshot: Snapshot, seats: [Seat], pollMinutes: Int, now: Date,
                 timeZone: TimeZone = .current) {
         let dates = ISO8601DateFormatter()
         dates.timeZone = timeZone
-        let oldest = now.addingTimeInterval(-2 * 60 * Double(pollMinutes))
         updated = dates.string(from: now)
         self.seats = seats.map { seat in
-            let state = snapshot.states[seat.id] ?? .dormant(reason: "never read")
-            let reading = RefreshService.last(state)
-            var fresh = false
-            if case let .live(live) = state { fresh = live.takenAt >= oldest }
+            let view = SeatView(id: seat.id, seat: seat, snapshot: snapshot, now: now, pollMinutes: pollMinutes)
             func row(_ kind: WindowKind) -> WindowRow? {
-                reading?.windows.first { $0.kind == kind }.map {
-                    WindowRow(used: $0.usedPercent, left: $0.headroom, resets: dates.string(from: $0.resetsAt))
+                guard view.last != nil else { return nil }
+                return view.windows.first { $0.kind == kind }.map {
+                    WindowRow(used: $0.usedPercent, left: $0.left, resets: $0.resetsAt.map(dates.string(from:)))
                 }
             }
-            return SeatRow(id: seat.id.rawValue, kind: seat.kind.provider.rawValue,
-                           plan: PlanText.shown(for: seat, state: state), stale: !fresh,
-                           readAt: reading.map { dates.string(from: $0.takenAt) },
+            return SeatRow(id: seat.id.rawValue, kind: view.provider.rawValue,
+                           plan: view.plan, stale: !view.fresh,
+                           readAt: view.last.map { dates.string(from: $0.takenAt) },
                            fiveHour: row(.fiveHour), weekly: row(.weekly), fable: row(.fable))
         }
     }

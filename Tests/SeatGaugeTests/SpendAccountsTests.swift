@@ -257,7 +257,7 @@ import SeatGaugeCore
         #expect(MeterTone.of(usedPercent: 59) == .good)
         #expect(MeterTone.of(usedPercent: 60) == .warning)
         #expect(MeterTone.of(usedPercent: 85) == .danger)
-        #expect(Tab.allCases.map(\.title) == ["SEATS", "LOAD", "SPEND"])
+        #expect(Tab.allCases.map(\.title) == ["SEATS", "LOAD", "SPEND", "LOG"])
         #expect(PanelMenu().menu.items.prefix(4).map(\.title) == ["Sync all", "Launch at login", "Reveal config", "Quit"])
         #expect(Self.chart(Self.rows, .tokens).days == 28)
     }

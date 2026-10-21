@@ -105,8 +105,8 @@ After every poll or sync the app writes `headroom.json` beside `readings.json` i
 
 - `updated`: when the file was written.
 - `seats`: one object per seat in `seats.json` order, with `id`, `kind` (`claude` or `codex`), `plan` as the card shows it (or `null`), `stale` and `read_at`.
-- `stale` is true when the seat's last read failed, it has never been read, or its figures are older than two poll intervals. `read_at` is when those figures were taken, or `null` when there are none.
-- `five_hour`, `weekly` and `fable`, for each window the seat has: `used` and `left` in percent (they add up to 100) and `resets`. A dormant or never-read seat has no windows.
+- `stale` is true when the seat's last read failed, it has never been read, or its figures are two poll intervals old or more. `read_at` is when those figures were taken, or `null` when there are none.
+- `five_hour`, `weekly` and `fable`, for each window the seat has: `used` and `left` in percent (they add up to 100) and `resets`. A dormant or never-read seat has no windows. A Claude seat whose 5-hour window nobody has started yet has it as `used` 0, `left` 100 and `resets` `null`: `null` means not started.
 
 Dates are ISO 8601 with the local offset. The file names no single seat to use, so the reader spreads its work across the seats with room rather than sending it all to one.
 

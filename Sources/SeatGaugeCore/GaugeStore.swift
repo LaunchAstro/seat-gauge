@@ -39,13 +39,13 @@ public actor GaugeStore {
                       pollMinutes: Int = 5, now: Date = Date()) -> Snapshot {
         let reported = order.compactMap { id -> (SeatID, Reading)? in
             guard case .dormant = states[id],
-                  let last = RefreshService.last(snapshot.states[id]) ?? snapshot.reported[id] else { return nil }
+                  let last = snapshot.states[id]?.lastReading ?? snapshot.reported[id] else { return nil }
             return (id, last)
         }
         snapshot = Snapshot(states: states, order: order,
                             reported: Dictionary(reported, uniquingKeysWith: { first, _ in first }))
         let headroom = Headroom(snapshot: snapshot, seats: seats, pollMinutes: pollMinutes, now: now)
-        let kept = order.compactMap { RefreshService.last(states[$0]) }
+        let kept = order.compactMap { states[$0]?.lastReading }
         let readings = write(file) { try JSONEncoder().encode(kept) }
         // Only while a dormant seat has something to show, so an ordinary
         // folder holds no more files than it did.

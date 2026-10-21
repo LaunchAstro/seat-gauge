@@ -11,27 +11,9 @@ import SeatGaugeCore
 /// CLI never reads a seat without its own profile.
 let templateSeats: [Seat] = (try? ConfigLoader.decode(Data(ConfigLoader.template.utf8)).seats) ?? []
 
-/// One window as the panel will read it: the kind, the count-up percentage and
-/// how long until it resets. Seconds are never shown.
-func describe(_ window: Window, now: Date) -> String {
-    let name = switch window.kind {
-    case .fiveHour: "5h"
-    case .weekly: "week"
-    case .fable: "fable"
-    }
-    return "\(name) \(window.usedPercent)% resets in \(Countdown.text(until: window.resetsAt, now: now))"
-}
-
-func describe(_ state: SeatState, now: Date) -> String {
-    switch state {
-    case let .live(reading):
-        let windows = reading.windows.map { describe($0, now: now) }.joined(separator: ", ")
-        return "live    \(windows)"
-    case let .dormant(reason):
-        return "dormant \(reason)"
-    case let .unreadable(reason, last):
-        return "stale   \(reason)" + (last == nil ? "" : ", last read held")
-    }
+/// A seat read just now, as one view.
+func view(_ seat: Seat, _ state: SeatState, now: Date) -> SeatView {
+    SeatView(id: seat.id, seat: seat, snapshot: Snapshot(states: [seat.id: state], order: [seat.id]), now: now)
 }
 
 /// The primer directory has to be there before `claude` is asked to run in it.
@@ -62,10 +44,10 @@ func read(_ path: String?) async throws {
     for seat in try readSeats(path) {
         let outcome = await liveFetcher(seat).fetch(seat, now: Date(), last: nil)
         let now = Date()
-        let plan = PlanText.shown(for: seat, state: outcome.state) ?? "no plan"
+        let shown = view(seat, outcome.state, now: now)
         print(PlanText.column(seat.id.rawValue, width: 8)
-              + PlanText.column(plan, width: 10) + " "
-              + "\(describe(outcome.state, now: now))"
+              + PlanText.column(shown.plan ?? "no plan", width: 10) + " "
+              + "\(shown.describe(now: now))"
               + "  (\(String(format: "%.1f", now.timeIntervalSince(started))) s)")
     }
 }
@@ -79,7 +61,7 @@ func record(_ name: String, from path: String?) async throws {
     try makePrimer()
     let outcome = await liveFetcher(seat).fetch(seat, now: Date(), last: nil)
     guard !outcome.lines.isEmpty else {
-        throw ProcessFailure("\(name) printed nothing to record: \(describe(outcome.state, now: Date()))")
+        throw ProcessFailure("\(name) printed nothing to record: \(view(seat, outcome.state, now: Date()).describe(now: Date()))")
     }
     let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("Tests/Fixtures", isDirectory: true)
