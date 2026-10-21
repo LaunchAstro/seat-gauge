@@ -18,9 +18,9 @@ public protocol SeatFetching: Sendable {
 
 /// The fetcher for a seat's kind, with the runner that spawns real CLIs.
 public func seatFetcher(for seat: Seat, runner: any ProcessRunning = RealProcessRunner(),
-                        timeout: Duration = .seconds(60)) -> any SeatFetching {
+                        timeout: Duration = .seconds(60), primer: URL = AppPaths.primer) -> any SeatFetching {
     switch seat.kind {
-    case .claude: return ClaudeFetcher(runner: runner, timeout: timeout)
+    case .claude: return ClaudeFetcher(runner: runner, primer: primer, timeout: timeout)
     case .codex: return CodexFetcher(runner: runner, timeout: timeout)
     }
 }

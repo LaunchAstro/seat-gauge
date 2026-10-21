@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-import SeatGaugeCore
+@testable import SeatGaugeCore
 
 /// The seat loop as every front end starts it: `Poll`, from the config file
 /// and a few options.
@@ -47,6 +47,21 @@ import SeatGaugeCore
         var isDirectory: ObjCBool = false
         #expect(FileManager.default.fileExists(atPath: primer.path, isDirectory: &isDirectory))
         #expect(isDirectory.boolValue)
+    }
+
+    @Test("the primer the loop makes is the one its Claude reads run in")
+    func pollsInThePrimerItMakes() async throws {
+        let folder = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let seats = folder.appendingPathComponent("seats.json")
+        try Data(Loop.config(Loop.workLine).utf8).write(to: seats)
+        let primer = folder.appendingPathComponent("primer", isDirectory: true)
+        let poll = try Poll(file: seats, readings: folder.appendingPathComponent("readings.json"), primer: primer)
+        let seat = Seat(id: SeatID(rawValue: "work"), label: "Work",
+                        kind: .claude(profileDir: folder.appendingPathComponent("profile")))
+        let service = await poll.poller.service
+        let fetcher = try #require(service.fetcher(seat) as? ClaudeFetcher)
+        #expect(fetcher.primer.standardizedFileURL == primer.standardizedFileURL)
     }
 
     // MARK: - Wake

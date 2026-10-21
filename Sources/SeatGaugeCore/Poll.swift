@@ -24,9 +24,9 @@ public final class Poll<C: Clock>: Sendable where C.Duration == Duration {
         public var syncing: @Sendable (Set<SeatID>) -> Void
         /// Runs after each spend roll-up, for a front end that reads the record.
         public var rolledUp: @Sendable () async -> Void
-        /// Each seat's fetcher. By default the seat's CLI, found wherever the
-        /// user's login shell would find it.
-        public var fetcher: @Sendable (Seat) -> any SeatFetching
+        /// Each seat's fetcher. Nil is the seat's CLI, found wherever the
+        /// user's login shell would find it, run in the primer `Poll` makes.
+        public var fetcher: (@Sendable (Seat) -> any SeatFetching)?
 
         public init(identity: Bool = false,
                     wakes: AsyncStream<Void> = AsyncStream { $0.finish() },
@@ -35,9 +35,7 @@ public final class Poll<C: Clock>: Sendable where C.Duration == Duration {
                     notify: @escaping @Sendable (Snapshot, [Seat], ConfigWatcher) -> Void = { _, _, _ in },
                     syncing: @escaping @Sendable (Set<SeatID>) -> Void = { _ in },
                     rolledUp: @escaping @Sendable () async -> Void = {},
-                    fetcher: @escaping @Sendable (Seat) -> any SeatFetching = { seat in
-                        seatFetcher(for: seat, runner: RealProcessRunner(searchPath: .loginShell))
-                    }) {
+                    fetcher: (@Sendable (Seat) -> any SeatFetching)? = nil) {
             self.identity = identity
             self.wakes = wakes
             self.wakeDelay = wakeDelay
@@ -70,7 +68,10 @@ public final class Poll<C: Clock>: Sendable where C.Duration == Duration {
         if options.identity { identity = IdentityObserver.hook(writer: AttributionWriter()) }
         self.watcher = watcher
         self.store = store
-        poller = Poller(watcher: watcher, service: RefreshService(clock: clock, fetcher: options.fetcher),
+        let fetcher = options.fetcher ?? { seat in
+            seatFetcher(for: seat, runner: RealProcessRunner(searchPath: .loginShell), primer: primer)
+        }
+        poller = Poller(watcher: watcher, service: RefreshService(clock: clock, fetcher: fetcher),
                         store: store, clock: clock,
                         wakes: Wake.after(options.wakes, delay: options.wakeDelay, clock: clock),
                         rollup: {
