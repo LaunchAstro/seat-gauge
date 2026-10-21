@@ -31,6 +31,7 @@ struct SharedMirror: SuiteTrait, TestTrait, TestScoping {
     @MainActor static func rest() {
         let mirror = GaugeMirror.shared
         mirror.verticalFactor = 1
+        mirror.cardRows = 1
         mirror.choice = DetailChoice()
         mirror.hover(nil)
     }
