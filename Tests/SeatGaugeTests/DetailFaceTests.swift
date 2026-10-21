@@ -63,8 +63,8 @@ import SeatGaugeCore
         Glance.appearances { light in
             Widths.atOrdinaryStep { step in
                 let width = CardMetrics.minimumWidth + 40
-                #expect(Glance.same(GlanceFace(card: with).modifier(CardBox()),
-                                    GlanceFace(card: without).modifier(CardBox()), width: width),
+                #expect(Glance.same(CardView.glance(with).modifier(CardBox()),
+                                    CardView.glance(without).modifier(CardBox()), width: width),
                         "light \(light), step \(step)")
             }
         }
@@ -103,7 +103,7 @@ import SeatGaugeCore
         let seat = Seat(id: SeatID(rawValue: "work"), label: "Work",
                         kind: .claude(profileDir: home), account: "office account")
         let fetched = await Plan.claude(seat, replies: try Plan.claudeReplies())
-        #expect(PlanText.shown(for: seat, state: fetched.fetched.state) == "Max 20x")
+        #expect(Plan.shown(seat, fetched.fetched.state) == "Max 20x")
         let model = PanelModel.make(
             snapshot: Snapshot(states: [seat.id: fetched.fetched.state], order: [seat.id]),
             seats: [seat], now: Plan.now)
@@ -114,11 +114,11 @@ import SeatGaugeCore
         #expect(PlanText.column("Max 5x", width: 10) == "Max 5x    ")
 
         // Fails closed: nothing reported and nothing declared is no plan.
-        #expect(PlanText.shown(for: seat, state: .dormant(reason: "not logged in")) == nil)
+        #expect(Plan.shown(seat, .dormant(reason: "not logged in")) == nil)
         let bare = Seat(id: SeatID(rawValue: "personal"), label: "Personal", kind: .claude(profileDir: home))
         let reading = Reading(seat: bare.id, windows: [], takenAt: Plan.now, plan: nil)
-        #expect(PlanText.shown(for: bare, state: .live(reading)) == nil)
-        #expect(PlanText.shown(for: bare, state: .unreadable(reason: "x", last: reading)) == nil)
+        #expect(Plan.shown(bare, .live(reading)) == nil)
+        #expect(Plan.shown(bare, .unreadable(reason: "x", last: reading)) == nil)
     }
 
     // MARK: - The account in the detail face's header
@@ -182,7 +182,7 @@ import SeatGaugeCore
                     let shown = Widths.render(CardView(card: card, detail: detail, face: .detail), width: width)
                     #expect(glance != nil && glance?.width == shown?.width && glance?.height == shown?.height,
                             "light \(light), step \(step), width \(width)")
-                    let faces = [Self.height(GlanceFace(card: card).modifier(CardBox()), width: width),
+                    let faces = [Self.height(CardView.glance(card).modifier(CardBox()), width: width),
                                  Self.height(DetailFace(card: card, detail: detail ?? CardDetail.make(
                                     card: card, history: nil, selected: nil)).modifier(CardBox()), width: width)]
                     #expect(abs((glance?.height ?? 0) - faces[0]) <= 1 && faces[1] <= faces[0],

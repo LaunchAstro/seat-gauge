@@ -4,7 +4,7 @@ import Foundation
 /// file, applies the change and writes it back atomically, all under an
 /// exclusive lock on `attribution.json.lock`, so the seeding command can never
 /// write between the read and the write. A malformed file is never written
-/// over: the writer stops, says so in `problem`, and reads again next time.
+/// over: the writer stops and reads again next time.
 public actor AttributionWriter {
     let file: URL
     let timeZone: TimeZone
@@ -12,7 +12,6 @@ public actor AttributionWriter {
     /// Directories whose open span an unrecorded observation has cut: the next
     /// successful observation starts a new span even for the same account.
     private var broken: Set<String> = []
-    public private(set) var problem: PanelProblem?
 
     public init(file: URL = AttributionFile.defaultFile, timeZone: TimeZone = .current,
                 lockTimeout: Duration = .seconds(10)) {
@@ -68,24 +67,17 @@ public actor AttributionWriter {
     @discardableResult
     func change(_ apply: (inout AttributionRecord) -> Void) -> Bool {
         let lock = FileLock.file(for: file)
-        var read: AttributionFile.Read?
-        let wrote = (try? FileLock.holding(lock, timeout: lockTimeout) { () -> Bool in
-            read = AttributionFile.read(file)
+        return (try? FileLock.holding(lock, timeout: lockTimeout) { () -> Bool in
             var record: AttributionRecord
-            switch read {
+            switch AttributionFile.read(file) {
             case let .record(existing): record = existing
             case .missing: record = AttributionRecord(timeZone: timeZone.identifier)
-            case .malformed, nil: return false
+            case .malformed: return false
             }
             apply(&record)
             guard (try? record.validate()) != nil,
                   let data = try? JSONEncoder.attribution.encode(record) else { return false }
             return (try? data.write(to: file, options: .atomic)) != nil
         }) ?? false
-        // A held lock read nothing, so it says nothing about the file.
-        if let read {
-            if case .malformed = read { problem = .attributionRecord } else { problem = nil }
-        }
-        return wrote
     }
 }

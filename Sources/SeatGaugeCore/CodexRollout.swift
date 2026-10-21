@@ -6,12 +6,6 @@ public struct CodexReading: Sendable {
     public let cells: [SpendCell: TokenCounts]
     public let skipped: Int
     public let unkeyed: Int
-
-    /// The cells as record rows, in the record's order. Pricing and sealing
-    /// are the roll-up's to decide, so every row here is unpriced and open.
-    public var rows: [SpendRow] {
-        cells.map { SpendRow(cell: $0, counts: $1, usd: nil, sealed: false) }.sorted { $0.cell < $1.cell }
-    }
 }
 
 /// Codex's own session logs, `rollout-*.jsonl`, read into the spend record's

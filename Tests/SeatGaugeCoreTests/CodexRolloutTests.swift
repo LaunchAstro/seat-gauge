@@ -107,8 +107,6 @@ import SeatGaugeCore
         #expect(Set(reading.cells.keys) == [first, second])
         #expect(reading.cells[first] == TokenCounts(responses: 1, input: 1000, output: 100))
         #expect(reading.cells[second] == TokenCounts(responses: 1, input: 500, output: 100))
-        #expect(reading.rows.map(\.cell) == [first, second])
-        #expect(reading.rows.allSatisfy { $0.usd == nil && !$0.sealed && $0.seat == "codex" })
     }
 
     @Test func modelComesFromTheLatestTurnContext() throws {
@@ -327,7 +325,7 @@ import SeatGaugeCore
         #expect(Self.sum(reading, model: "model-child") == TokenCounts(responses: 2, input: 500, output: 50))
     }
 
-    @Test func secondReadIsByteIdentical() throws {
+    @Test func secondReadIsIdentical() throws {
         let scratch = try Scratch()
         var files: [URL] = []
         for (index, model) in ["model-x", "model-y", "model-z"].enumerated() {
@@ -341,12 +339,12 @@ import SeatGaugeCore
                             last: Self.usage(input: 200, output: 20, total: 220)),
             ]))
         }
-        let once = SpendCSV.text(CodexRollout.read(files: files, calendar: Self.utc).rows)
-        let again = SpendCSV.text(CodexRollout.read(files: files, calendar: Self.utc).rows)
-        let reversed = SpendCSV.text(CodexRollout.read(files: files.reversed(), calendar: Self.utc).rows)
-        #expect(once.split(separator: "\n").count == 7)
-        #expect(Data(once.utf8) == Data(again.utf8))
-        #expect(Data(once.utf8) == Data(reversed.utf8))
+        let once = CodexRollout.read(files: files, calendar: Self.utc).cells
+        let again = CodexRollout.read(files: files, calendar: Self.utc).cells
+        let reversed = CodexRollout.read(files: files.reversed(), calendar: Self.utc).cells
+        #expect(once.count == 6)
+        #expect(once == again)
+        #expect(once == reversed)
     }
 
     @Test func failsClosedOnUnreadableInput() throws {

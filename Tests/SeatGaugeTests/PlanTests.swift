@@ -82,6 +82,11 @@ import SeatGaugeTestSupport
         return PlanText.resolve(tier: reading.tier, declared: nil, wire: reading.plan)
     }
 
+    /// The plan the seat's view resolves, which the card draws and `seatgauge-cli read` prints.
+    static func shown(_ seat: Seat, _ state: SeatState) -> String? {
+        SeatView(id: seat.id, seat: seat, snapshot: Snapshot(states: [seat.id: state], order: [seat.id]), now: now).plan
+    }
+
     // MARK: - The tier from the config dir's `.claude.json`
 
     @Test func theClaudePlanIsReadFromTheConfigDirTier() throws {
@@ -143,7 +148,7 @@ import SeatGaugeTestSupport
         let seat = Seat(id: SeatID(rawValue: "personal"), label: "Personal", kind: .claude(profileDir: home))
         let fetched = await Self.claude(seat, replies: try Self.claudeReplies())
         #expect(Self.plan(fetched.fetched.state) == "Pro")
-        #expect(PlanText.shown(for: seat, state: fetched.fetched.state) == "Pro")
+        #expect(Self.shown(seat, fetched.fetched.state) == "Pro")
         guard case let .live(reading) = fetched.fetched.state else { Issue.record("not live"); return }
         let encoded = String(decoding: try JSONEncoder().encode(reading), as: UTF8.self)
         for text in fetched.fetched.lines + [encoded, "\(fetched.fetched.state)"] {
@@ -174,18 +179,18 @@ import SeatGaugeTestSupport
                         kind: .claude(profileDir: home), plan: "Max 20x")
         let fetched = await Self.claude(seat, replies: try Self.claudeReplies())
         #expect(Self.plan(fetched.fetched.state) == "Max 5x")
-        #expect(PlanText.shown(for: seat, state: fetched.fetched.state) == "Max 5x")
+        #expect(Self.shown(seat, fetched.fetched.state) == "Max 5x")
         // No file: the declaration beats the wire's `max`, which the reading keeps.
         let bare = try Self.temporary()
         defer { try? FileManager.default.removeItem(at: bare) }
         let wire = await Self.claude(Seat(id: seat.id, label: seat.label, kind: .claude(profileDir: bare),
                                           plan: seat.plan), replies: try Self.claudeReplies())
         #expect(Self.plan(wire.fetched.state) == "max")
-        #expect(PlanText.shown(for: seat, state: wire.fetched.state) == "Max 20x")
+        #expect(Self.shown(seat, wire.fetched.state) == "Max 20x")
         // Nothing anywhere is nil, never "Free".
         let silent = Seat(id: SeatID(rawValue: "personal"), label: "Personal", kind: .claude(profileDir: bare))
         let empty = Reading(seat: silent.id, windows: [], takenAt: Self.now, plan: nil)
-        #expect(PlanText.shown(for: silent, state: .live(empty)) == nil)
+        #expect(Self.shown(silent, .live(empty)) == nil)
     }
 
     // MARK: - Codex: the wire's planType, then the login's claim
@@ -303,7 +308,7 @@ import SeatGaugeTestSupport
         let claude = await Self.claude(seat, replies: replies)
         guard case .live = claude.fetched.state else { Issue.record("not live"); return }
         #expect(Self.plan(claude.fetched.state) == nil)
-        #expect(PlanText.shown(for: seat, state: claude.fetched.state) == nil)
+        #expect(Self.shown(seat, claude.fetched.state) == nil)
 
         let quiet = try Fixture.lines("codex").map {
             $0.replacingOccurrences(of: #""planType":"prolite""#, with: #""planType":null"#)
@@ -312,7 +317,7 @@ import SeatGaugeTestSupport
         let codex = await Self.codex(lines: quiet, authFile: broken)
         let codexSeat = Seat(id: SeatID(rawValue: "codex"), label: "Codex", kind: .codex)
         #expect(Self.plan(codex.state) == nil)
-        #expect(PlanText.shown(for: codexSeat, state: codex.state) == nil)
+        #expect(Self.shown(codexSeat, codex.state) == nil)
 
         let model = PanelModel.make(
             snapshot: Snapshot(states: [seat.id: claude.fetched.state, codexSeat.id: codex.state],
