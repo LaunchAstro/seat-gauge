@@ -15,7 +15,7 @@ protocol BannerPosting: Sendable {
 /// A bundle whose code-signing identifier does not match `CFBundleIdentifier`
 /// is refused here silently, with `UNErrorDomain Code=1`, because usernoted
 /// names its client by that identifier. `scripts/build-app.sh` passes
-/// `--identifier` for exactly this reason.
+/// `--identifier` for this reason.
 final class Notifier: BannerPosting, @unchecked Sendable {
     static let options: UNAuthorizationOptions = [.alert]
     static let sound: UNNotificationSound? = nil

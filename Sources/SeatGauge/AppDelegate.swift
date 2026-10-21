@@ -124,13 +124,14 @@ final class SeatGaugeDelegate: NSObject, NSApplicationDelegate {
     /// The Dock icon and Cmd-Tab both land here. The controller owns one
     /// window and hands that one back, so its frame and its contents are the
     /// ones that were there when it was closed.
-    /// Refitted on the way back, and here rather than in `refit` itself,
-    /// because a closed window is not a window the content can be measured in:
-    /// SwiftUI does not lay the hosting view out off screen, and the height
-    /// correction in `ContentSizedHostingView.layout()` is visible-only. So a
-    /// text size the user changed while the numbers were away, or a poll that
-    /// landed taller cards, is fitted at the first moment it can be, which is
-    /// once the window is back on screen.
+    ///
+    /// It refits here, not in `refit` itself, because content cannot be
+    /// measured in a closed window: SwiftUI does not lay the hosting view out
+    /// off screen, and the height correction in
+    /// `ContentSizedHostingView.layout()` runs only while the window is
+    /// visible. So a text size the user changed while the window was closed,
+    /// or a poll that landed taller cards, is fitted once the window is back
+    /// on screen.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         controller.show()
         controller.refit()

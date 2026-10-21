@@ -78,8 +78,8 @@ enum LineTone: Equatable {
     }
 }
 
-/// The three pace verdicts, in words, over `Pace`. There is no line for a week nothing has been
-/// spent in, which is what `Pace` returning nil means.
+/// The three pace verdicts, in words, over `Pace`. There is no line for a
+/// week nothing has been spent in, which is what `Pace` returning nil means.
 struct PaceLine: Equatable {
     let text: String
     let tone: LineTone
@@ -159,8 +159,8 @@ struct CardModel: Identifiable, Equatable {
     /// guesses it, so nothing declared is nothing drawn.
     let account: String?
     /// What the card pays for: the login's own tier, then the config's word,
-    /// then the wire's, then nothing at all. Never "Free" where
-    /// nobody reported it.
+    /// then the wire's, then nothing at all. Never "Free" where nobody
+    /// reported it.
     let plan: String?
     /// When the subscription renews or expires, where the config says.
     var billing: BillingLine?

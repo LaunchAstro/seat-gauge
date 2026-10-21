@@ -89,9 +89,9 @@ final class PanelMenu: NSObject, NSMenuDelegate {
 
     @objc private func syncAll() { GaugeMirror.shared.syncAll() }
 
-    /// `SMAppService` is behind this. With no login item wired up,
-    /// which is every case that builds a bare menu, the tick is this object's
-    /// own state.
+    /// `SMAppService` is behind this. With no login item wired up, which is
+    /// every case that builds a bare menu, the tick is this object's own
+    /// state.
     @objc private func toggleLoginItem() {
         guard let loginItem else { loginItemOn.toggle(); return }
         loginItem.toggle()

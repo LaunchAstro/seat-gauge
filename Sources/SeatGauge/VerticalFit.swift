@@ -2,9 +2,9 @@ import CoreGraphics
 import SeatGaugeCore
 import SwiftUI
 
-/// Where the user's extra height goes: one factor over the
-/// meter's thickness, the gap between window lines and the box's padding, so
-/// the text stays on its `Cmd +` ladder. The range's top keeps the tallest
+/// Where the user's extra height goes: one factor over the meter's
+/// thickness, the gap between window lines and the box's padding, so the
+/// text stays on its `Cmd +` ladder. The range's top keeps the tallest
 /// window reading as the same panel.
 enum VerticalFit {
     static let range: ClosedRange<CGFloat> = 1...3

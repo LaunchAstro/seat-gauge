@@ -6,8 +6,8 @@ import SwiftUI
 /// width without a display that size plugged in. The layouts at the end of
 /// this file place the cards and their lines with these, so what a case reads
 /// is what the cards get. Every number is written at the ordinary text size
-/// and read at the one the user chose, so a bigger size is a wider card rather than a second set of
-/// numbers beside the first.
+/// and read at the one the user chose, so a bigger size is a wider card
+/// rather than a second set of numbers beside the first.
 enum CardMetrics {
     /// The rules as they are written, at the ordinary text size.
     enum Base {
@@ -40,8 +40,8 @@ enum CardMetrics {
 
     /// The countdown and percent digits' letter spacing, about a point at the
     /// ordinary size and growing with it, so the numbers stop reading as one
-    /// block. The two columns above are wide enough for
-    /// `12d 23h` and `100%` with it.
+    /// block. The two columns above are wide enough for `12d 23h` and `100%`
+    /// with it.
     static var digitTracking: CGFloat { scaled(1) }
 
     /// The glance face's type, written at the ordinary text size.
@@ -77,8 +77,8 @@ enum CardMetrics {
     /// What the meter gets on a line of a given width, less whatever a
     /// countdown or percent wider than its column takes. Worked from the line
     /// in the order an `HStack` takes its columns off, so the columns after the
-    /// meter land on the pixels the stack's did. A width that is no
-    /// width at all gets the floor.
+    /// meter land on the pixels the stack's did. A width that is no width at
+    /// all gets the floor.
     static func meterWidth(lineWidth: CGFloat, overflow: CGFloat = 0) -> CGFloat {
         let room = lineWidth - columnSpacing * 2 - meterGap - nameWidth - countdownWidth - percentWidth - max(0, overflow)
         return room.isFinite && room > minimumMeter ? room : minimumMeter
@@ -108,9 +108,8 @@ enum CardMetrics {
     /// How wide a header draws, card padding and box inset included, at the
     /// size the panel is drawn at: the mark when the provider has one, the
     /// provider in capitals, the seat, the spacer after it, the pick when the
-    /// card carries it, the plan when it has one and the sync icon.
-    /// Measured in the faces `Type` draws, so a case reads the width
-    /// `CardHeader` gets.
+    /// card carries it, the plan when it has one and the sync icon. Measured
+    /// in the faces `Type` draws, so a case reads the width `CardHeader` gets.
     static func headerWidth(provider: String, seat: String, picked: Bool, plan: String? = nil,
                             marked: Bool = true) -> CGFloat {
         var width = horizontalPadding * 2 + PanelLayout.boxInset * 2

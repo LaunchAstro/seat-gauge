@@ -322,14 +322,10 @@ struct SpendTab: View {
         }.min { $0.2 < $1.2 }.map { ($0.0, $0.1) }
     }
 
-    /// Every line's name, drawn or not, after a square that reads as its
-    /// toggle. A click turns its line off or back on; an off entry is dim,
-    /// struck through and its square an empty outline.
-
     /// A model's range total, its name at the left and its figure at the
     /// right. Unpriced counts responses, because it has no dollars to show
-    /// and hiding it would make the total look whole.
-    /// A click draws that model alone on the graph; the picked one is in the accent.
+    /// and hiding it would make the total look whole. A click draws that
+    /// model alone on the graph; the picked one is in the accent.
     private func model(_ row: SpendModelRow) -> some View {
         let picked = mirror.spendModel == row.model
         return HStack(alignment: .firstTextBaseline, spacing: 4) {

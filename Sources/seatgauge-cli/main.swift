@@ -22,8 +22,8 @@ func configFile(_ path: String?) -> URL {
 }
 
 /// The seats `read`, `record` and `spend` work on: the named file, else the
-/// panel's own `seats.json`, else the template's. A file that will not parse is said,
-/// not skipped, since a login it declares would silently go unread.
+/// panel's own `seats.json`, else the template's. A file that will not parse
+/// is an error, not skipped, since a login it declares would silently go unread.
 func readSeats(_ path: String?) throws -> [Seat] {
     let file = configFile(path)
     guard path != nil || FileManager.default.fileExists(atPath: file.path) else { return templateSeats }
@@ -135,8 +135,8 @@ func addMachine(_ arguments: ArraySlice<String>) async throws {
     }
 }
 
-/// One named transcript's distinct responses, the figure to hold the dedupe
-/// to against `jq ... | sort -u | wc -l`.
+/// One named transcript's distinct responses, the figure to check the dedupe
+/// against `jq ... | sort -u | wc -l`.
 func spend(file path: String) {
     let file = URL(fileURLWithPath: path)
     let reading = ClaudeCollector.read(file: file, primer: AppPaths.primer)

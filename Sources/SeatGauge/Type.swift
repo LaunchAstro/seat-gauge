@@ -1,9 +1,9 @@
 import SeatGaugeCore
 import SwiftUI
 
-/// The panel's type, with one swap point: a family that
-/// registered is drawn with, and anything else falls back to the system font,
-/// so a bundle missing a face is still a readable panel.
+/// The panel's type, with one swap point: a family that registered draws in
+/// its own face, and anything else falls back to the system font, so a
+/// bundle missing a face is still a readable panel.
 enum Type {
     static var registered: Set<String> = []
 
