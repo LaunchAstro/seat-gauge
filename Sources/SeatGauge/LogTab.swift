@@ -13,7 +13,10 @@ struct LogTab: View {
                 Text("\(machine): \(log.problems[machine] ?? "unreachable")")
                     .font(Type.mono(9)).foregroundStyle(Tone.inkMuted)
             }
-            WheelScroll {
+            // SwiftUI's own scroll view, so the stack is lazy and lays out
+            // the rows in sight: in AppKit's, every session was laid out on
+            // every update, and a text size change left them where they were.
+            ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(log.sessions) { row in
                         VStack(alignment: .leading, spacing: 3) {

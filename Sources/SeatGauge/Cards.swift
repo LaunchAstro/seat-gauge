@@ -97,7 +97,8 @@ struct CardView: View {
             ForEach(card.lines) { line in lineView(line) }
             if let note = card.stale ?? card.dated {
                 HStack(spacing: CardMetrics.headerSpacing) {
-                    Text(note).font(Type.mono(CardMetrics.Glance.note)).foregroundStyle(Tone.inkDim)
+                    Text(note).font(Type.mono(CardMetrics.Glance.note))
+                        .foregroundStyle(card.signsIn ? Tone.danger : Tone.inkDim)
                     if card.signsIn {
                         Spacer(minLength: 0)
                         SignInButton(card: card)
@@ -233,8 +234,31 @@ struct CardHeader: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
-            SyncButton(busy: card.isSyncing, label: "Sync \(card.heading)") { GaugeMirror.shared.sync(card.id) }
+            if card.signsIn {
+                CloseButton(label: "Hide \(card.heading)") { GaugeMirror.shared.hide(card.id) }
+            } else {
+                SyncButton(busy: card.isSyncing, label: "Sync \(card.heading)") { GaugeMirror.shared.sync(card.id) }
+            }
         }
+    }
+}
+
+/// The × on a signed-out card: the card goes to the `+` menu, which brings
+/// it back. The same size and tone as the sync icon it stands in for.
+struct CloseButton: View {
+    let label: String
+    var side = SeatMark.side(TextScale.current)
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark").resizable().scaledToFit().foregroundStyle(Tone.inkDim)
+                .padding(side * 0.2)
+                .frame(width: side, height: side)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 }
 
