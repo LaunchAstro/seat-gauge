@@ -28,6 +28,13 @@ public enum AppPaths {
     /// transcripts land somewhere the spend roll-up can exclude.
     public static var primer: URL { support.appendingPathComponent("primer", isDirectory: true) }
 
+    /// The Claude fetcher runs in its primer and does not make it, so it has
+    /// to be there before `claude` is asked to run in it. `Poll` makes it, and
+    /// so do the CLI's one-off reads.
+    public static func makePrimer(_ primer: URL = primer) throws {
+        try FileManager.default.createDirectory(at: primer, withIntermediateDirectories: true)
+    }
+
     /// The working directory the gauge's own `codex app-server` polls run in,
     /// beside the Claude one, so the Codex roll-up can exclude them.
     public static var codexPrimer: URL { support.appendingPathComponent("codex-primer", isDirectory: true) }
