@@ -240,8 +240,15 @@ final class WindowController {
     /// Whether the pointer is over a list that scrolls up and down, such as
     /// the Spend tab's models, whose wheel turns are wanted as they came.
     /// Hidden tabs also lay their lists out, so the selected tab matters.
+    /// The Log is one such list and nothing on it scrolls sideways, so the
+    /// whole tab takes its turns as they came.
     static func overVerticalList(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        [.spend, .log].contains(GaugeMirror.shared.tab) && event.window === window && VerticalLists.contain(event)
+        guard event.window === window else { return false }
+        switch GaugeMirror.shared.tab {
+        case .log: return true
+        case .spend: return VerticalLists.contain(event)
+        default: return false
+        }
     }
 
     /// A wheel's line-step turn with no sideways part, as the same turn

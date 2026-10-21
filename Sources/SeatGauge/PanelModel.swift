@@ -171,8 +171,13 @@ struct CardModel: Identifiable, Equatable {
     var dated: String?
     /// True while a sync or poll is reading this seat.
     var isSyncing = false
-    /// True when the card offers Sign in, by `SeatLogin.offers`.
+    /// True when the card offers Sign in, by `SeatLogin.offers`. Such a seat
+    /// signed itself out: its stale line is the warning, in red, and its
+    /// header's × puts the card away in place of a sync that cannot read it.
     var signsIn = false
+
+    /// The stale line of a seat that signed itself out.
+    static let signedOut = "signed out"
     /// True when the seat has an `open` command, which a click on the
     /// header's mark or name runs.
     var opens = false
@@ -322,14 +327,17 @@ struct PanelModel: Equatable {
                 stale = "stale · \(Countdown.text(until: now, now: last.takenAt))"
             case let .dormant(why), let .unreadable(why, nil):
                 // Drawn only when the user asked for it: an inactive card with
-                // whatever it last reported and why it has nothing now.
-                guard arrangement.shown.contains(id) else {
+                // whatever it last reported and why it has nothing now. A seat
+                // that signed itself out is drawn anyway, so its loss is seen
+                // the moment it happens; its × puts it away.
+                let signedOut = SeatLogin.offers(declared[id], state)
+                guard signedOut || arrangement.shown.contains(id) else {
                     notes.append("\(name(id)): \(why)")
                     offstage.append(Offstage(id: id, label: name(id), why: why))
                     continue
                 }
                 reading = snapshot.reported[id]
-                stale = why
+                stale = signedOut ? CardModel.signedOut : why
             case nil:
                 offstage.append(Offstage(id: id, label: name(id), why: "not read yet"))
                 continue
