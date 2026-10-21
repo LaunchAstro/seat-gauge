@@ -32,4 +32,55 @@ import SeatGaugeCore
         let line = try #require(mirror.chart.series.first { $0.name == "personal" })
         #expect(line.points.map(\.amount).reduce(0, +) == 1234)
     }
+
+    @Test("seatgauge-cli spend reads back from the config's spendFrom, as the Spend tab does")
+    func cliReadBackHonoursSpendFrom() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("sol-spend-read-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let support = root.appendingPathComponent("Library/Application Support/com.launchastro.seatgauge")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".claude/projects"),
+                                                withIntermediateDirectories: true)
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.dateFormat = "yyyy-MM-dd"
+        let today = format.string(from: Date())
+        let oldDay = format.string(from: Calendar.current.date(byAdding: .day, value: -7, to: Date())!)
+        let config = "{\"seats\":[],\"spendFrom\":\"\(today)\"}"
+        try Data(config.utf8).write(to: support.appendingPathComponent("seats.json"))
+        let rows = [oldDay, today].map { day in
+            SpendRow(seat: "personal", day: day, hour: "00", model: "claude-opus-5",
+                     counts: TokenCounts(responses: 1, input: 1_000_000), usd: 5, sealed: true)
+        }
+        let csv = support.appendingPathComponent("spend.csv")
+        try SpendCSV.write(rows, to: csv)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/debug/seatgauge-cli")
+        process.arguments = ["spend"]
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
+        process.environment = environment
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+
+        let mirror = GaugeMirror()
+        mirror.spendFrom = try ConfigLoader.decode(Data(config.utf8)).spendFrom
+        mirror.readSpend(csv: csv, state: support.appendingPathComponent("state.json"),
+                         attribution: support.appendingPathComponent("attribution.json"))
+        let amount = try #require(mirror.chart.showing(.all).series.first { $0.isTotal })
+            .points.map(\.amount).reduce(0, +)
+        #expect(amount == 1_000_000)
+        let readBack = try #require(output.split(separator: "\n").first { $0.hasPrefix("read back:") })
+        let expected = "read back: \(Measure.tokens.figure(amount)), $5.00 on record, as the Spend tab's All draws it"
+        #expect(String(readBack) == expected)
+    }
 }
