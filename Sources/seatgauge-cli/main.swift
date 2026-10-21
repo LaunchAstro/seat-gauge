@@ -158,6 +158,13 @@ func spend() async throws {
     let unpriced = run.rows.filter { $0.usd == nil }.reduce(0) { $0 + $1.responses }
     print("value: $\(priced.roundedToCents) at list price, \(unpriced) response(s) unpriced")
     print("took: \(run.took.formattedSeconds) s")
+    // Read back the way the panel reads it, so the figures here are the Spend tab's All.
+    let view = SpendView.read(rates: rates)
+    func total(_ measure: Measure) -> String {
+        let line = view.chart(measure: measure, now: Date()).whole?.series.first(where: \.isTotal)
+        return measure.figure(line?.points.map(\.amount).reduce(0, +) ?? 0)
+    }
+    print("read back: \(total(.tokens)), \(total(.usd)) on record, as the Spend tab's All draws it")
 }
 
 /// One seat signed in through `claude auth login` under its own profile: the

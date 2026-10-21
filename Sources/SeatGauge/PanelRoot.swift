@@ -10,24 +10,36 @@ import SwiftUI
 
     private(set) var snapshot = Snapshot(states: [:], order: [])
     private(set) var seats: [Seat] = []
-    /// What the Spend tab draws, read off `spend.csv` at launch and after
-    /// every roll-up. The file is the record; this is a reading of it.
+    /// The spend record, read off `spend.csv` at launch and after every
+    /// roll-up. The file is the record; this is a reading of it, and every
+    /// spend figure the panel draws is answered from it.
+    private(set) var spend: SpendView?
+    /// What the Spend tab is drawing: range, measure, picked model and the
+    /// lines clicked off.
+    private(set) var spendChoices = SpendChoices()
+    /// What the Spend tab draws, from `spend` in the chosen measure.
     private(set) var chart = SpendChart.empty
-    /// The model the Spend graph is narrowed to, picked from the list, and
-    /// the chart of that model alone. Nil draws every model.
-    private(set) var spendModel: String?
+    /// The chart of the picked model alone, or nil for every model.
+    private(set) var modelChart: SpendChart?
     /// The first day the Spend tab and the cards' charts draw, from
     /// `spendFrom` in `seats.json`. A change re-reads the record.
     var spendFrom: String? {
         didSet { if spendFrom != oldValue { readSpend() } }
     }
-    private(set) var modelChart: SpendChart?
+    var spendModel: String? { spendChoices.model }
 
     /// A click on a model in the list draws it alone; a second click, or
     /// one on ALL, draws every model again.
     func pick(model: String?) {
-        spendModel = model == spendModel ? nil : model
+        spendChoices = spendChoices.picking(model)
         drawSpend()
+    }
+
+    /// The range the Spend tab shows. Not saved: a launch opens on the
+    /// recent days.
+    var spendRange: SpendRange {
+        get { spendChoices.range }
+        set { spendChoices.range = newValue }
     }
     /// Every tab is laid out in one envelope, so a switch moves nothing.
     var tab: Tab = .seats
@@ -119,10 +131,12 @@ import SwiftUI
     /// The card under the pointer and the bucket under it.
     private(set) var hovered: SeatID?
     private(set) var selected: Int?
-    var choice = DetailChoice()
-    /// What the last `readSpend` met, so a hover reads no file.
-    private(set) var record: SpendRecord?
-    private(set) var through: AttributionRecord?
+    /// The cards' history range. The measure is the Spend tab's.
+    private var historyRange = HistoryRange.week
+    var choice: DetailChoice {
+        get { DetailChoice(range: historyRange, measure: spendChoices.measure) }
+        set { historyRange = newValue.range; spendChoices.measure = newValue.measure }
+    }
     /// The histories for one record, choice and day, which the pointer
     /// and the minute tick outlast.
     @ObservationIgnored private var histories: (key: [AnyHashable], value: [SeatID: SeatHistory])?
@@ -136,12 +150,12 @@ import SwiftUI
     func select(_ index: Int?) { if index != selected { selected = index } }
 
     func choose(range: HistoryRange, store: StateStore = StateStore()) throws {
-        choice.range = range
+        historyRange = range
         try store.update { $0.historyRange = range }
     }
 
     func choose(measure: Measure, store: StateStore = StateStore()) throws {
-        choice.measure = measure
+        spendChoices.measure = measure
         try store.update { $0.measure = measure }
         drawSpend()
     }
@@ -159,14 +173,14 @@ import SwiftUI
     /// The focused line's point under the pointer, which draws its callout.
     var spendPoint: SpendPoint?
     /// The Spend lines clicked off in the legend, read with the record.
-    private(set) var hiddenLines: Set<String> = []
+    var hiddenLines: Set<String> { spendChoices.hidden }
 
     /// Turns one Spend line off, or back on, by key. The panel changes only
     /// once the choice is saved, so what it shows is what a relaunch shows.
     func toggle(line: String, store: StateStore = StateStore()) throws {
         let hidden = hiddenLines.symmetricDifference([line])
         try store.update { $0.hiddenSpendLines = hidden }
-        hiddenLines = hidden
+        spendChoices.hidden = hidden
         if spendFocus == line, hidden.contains(line) { spendFocus = nil; spendPoint = nil }
     }
 
@@ -217,39 +231,27 @@ import SwiftUI
 
     func readSpend(csv: URL = SpendCSV.defaultFile, state: URL = StateStore.defaultFile,
                    attribution: URL = AttributionFile.defaultFile) {
-        let record = SpendCSV.read(csv, state: state).from(spendFrom)
-        let spans = AttributionFile.read(attribution)
-        // A missing or malformed record holds no spans: every main login
-        // cell is unattributed.
-        var through = AttributionRecord(timeZone: TimeZone.current.identifier)
-        if case let .record(kept) = spans { through = kept }
-        self.record = record
-        self.through = through
+        let spend = SpendView.read(csv: csv, state: state, attribution: attribution, start: spendFrom)
+        self.spend = spend
         histories = nil
+        spendChoices.hidden = spend.hiddenLines
+        recordProblems = spend.problems
         drawSpend()
-        let kept = StateStore(file: state).load()
-        hiddenLines = kept.hiddenSpendLines
-        recordProblems = PanelProblem.reading(spend: record, attribution: spans, rebuilt: kept.spendRebuiltAt != nil)
     }
 
     /// The Spend tab from the last record read, in the chosen measure.
     func drawSpend() {
-        guard let record, let through else { return }
-        let rates = RateCard.load()
-        chart = SpendChart.make(record: record, through: through, rates: rates, measure: choice.measure, now: Date(),
-                                start: spendFrom)
-        modelChart = spendModel.map {
-            SpendChart.make(record: record, through: through, rates: rates, measure: choice.measure, now: Date(),
-                            model: $0, start: spendFrom)
-        }
+        guard let spend else { return }
+        chart = spend.chart(measure: spendChoices.measure, now: Date())
+        modelChart = spend.modelChart(spendChoices, now: Date())
     }
 
     func model(at now: Date) -> PanelModel {
         let calendar = Calendar.current
         let key: [AnyHashable] = [choice.range, choice.measure, calendar.startOfDay(for: now), seats.map(\.id)]
         if histories?.key != key {
-            histories = (key, PanelModel.histories(seats: seats, spend: record, through: through, choice: choice,
-                                                   now: now, calendar: calendar))
+            histories = (key, PanelModel.histories(seats: seats, spend: spend, choice: choice, now: now,
+                                                   calendar: calendar))
         }
         return PanelModel.make(snapshot: snapshot, seats: seats, now: now, hovered: hovered, selected: selected,
                                histories: histories?.value ?? [:], syncing: syncing, pollMinutes: pollMinutes,
