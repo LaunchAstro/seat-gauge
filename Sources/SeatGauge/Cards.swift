@@ -87,16 +87,14 @@ struct CardView: View {
         }
     }
 
-    /// The glance face: the header, one line per window, the subscription
-    /// date and a stale card's age, one even gap apart. The pace line is the
-    /// detail face's.
+    /// The glance face: the header, one line per window and a stale card's
+    /// age, one even gap apart, and the subscription date on the card's
+    /// floor, so every card's date sits on one line across the row. The pace
+    /// line is the detail face's.
     static func glance(_ card: CardModel) -> some View {
         VStack(alignment: .leading, spacing: CardMetrics.rowSpacing) {
             CardHeader(card: card)
             ForEach(card.lines) { line in lineView(line) }
-            if let billing = card.billing {
-                Text(billing.text).font(Type.mono(CardMetrics.Glance.note)).foregroundStyle(billing.tone.color)
-            }
             if let note = card.stale ?? card.dated {
                 HStack(spacing: CardMetrics.headerSpacing) {
                     Text(note).font(Type.mono(CardMetrics.Glance.note)).foregroundStyle(Tone.inkDim)
@@ -106,7 +104,12 @@ struct CardView: View {
                     }
                 }
             }
+            if let billing = card.billing {
+                Spacer(minLength: 0)
+                Text(billing.text).font(Type.mono(CardMetrics.Glance.note)).foregroundStyle(billing.tone.color)
+            }
         }
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     /// One window line, as every glance face and the ALL card draw it. A
