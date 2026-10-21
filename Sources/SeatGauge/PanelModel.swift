@@ -266,13 +266,12 @@ struct PanelModel: Equatable {
     var boxes: Int { cards.count + (summary == nil ? 0 : 1) }
 
     /// Each seat's history by its name in the record; none before a read.
-    static func histories(seats: [Seat], spend: SpendRecord?, through: AttributionRecord?,
-                          choice: DetailChoice, now: Date, calendar: Calendar) -> [SeatID: SeatHistory] {
+    static func histories(seats: [Seat], spend: SpendView?, choice: DetailChoice, now: Date,
+                          calendar: Calendar) -> [SeatID: SeatHistory] {
         guard let spend else { return [:] }
-        let attribution = through ?? AttributionRecord(timeZone: calendar.timeZone.identifier)
         return Dictionary(seats.map { seat in
-            (seat.id, SeatHistory.make(record: spend, through: attribution, seat: seat.historyName,
-                                       range: choice.range, measure: choice.measure, now: now, calendar: calendar))
+            (seat.id, spend.history(seat: seat.historyName, range: choice.range, measure: choice.measure,
+                                    now: now, calendar: calendar))
         }, uniquingKeysWith: { first, _ in first })
     }
 
@@ -280,8 +279,12 @@ struct PanelModel: Equatable {
                      spend: SpendRecord? = nil, through: AttributionRecord? = nil,
                      choice: DetailChoice = DetailChoice(), calendar: Calendar = .current) -> PanelModel {
         make(snapshot: snapshot, seats: seats, now: now, hovered: hovered, selected: selected,
-             histories: histories(seats: seats, spend: spend, through: through, choice: choice,
-                                  now: now, calendar: calendar))
+             histories: histories(seats: seats,
+                                  spend: spend.map {
+                                      SpendView(record: $0, attribution: through.map { .record($0) } ?? .missing,
+                                                rates: .load(), zone: calendar.timeZone)
+                                  },
+                                  choice: choice, now: now, calendar: calendar))
     }
 
     static func make(snapshot: Snapshot, seats: [Seat], now: Date, hovered: SeatID?, selected: Int?,

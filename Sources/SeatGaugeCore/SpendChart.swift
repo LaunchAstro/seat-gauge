@@ -217,8 +217,8 @@ public struct SpendChart: Equatable, Sendable {
                             attribution: URL = AttributionFile.defaultFile, rates: RateCard = .bundled,
                             measure: Measure = .usd, now: Date = Date(), calendar: Calendar = .current,
                             days: Int = 28) -> SpendChart {
-        make(record: SpendCSV.read(csv, state: state), through: AttributionFile.record(at: attribution),
-             rates: rates, measure: measure, now: now, calendar: calendar, days: days)
+        SpendView.read(csv: csv, state: state, attribution: attribution, rates: rates)
+            .chart(measure: measure, now: now, calendar: calendar, days: days)
     }
 
     /// The record's rows under their accounts. Unattributed usage

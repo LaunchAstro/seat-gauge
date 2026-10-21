@@ -120,7 +120,6 @@ public enum AttributionFile {
     /// The record to read spend through. A missing or malformed file holds no
     /// spans, so every cell reads as unattributed.
     public static func record(at file: URL) -> AttributionRecord {
-        if case let .record(record) = read(file) { return record }
-        return AttributionRecord(timeZone: TimeZone.current.identifier)
+        read(file).kept()
     }
 }

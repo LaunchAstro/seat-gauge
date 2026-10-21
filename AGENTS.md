@@ -37,6 +37,7 @@ Three SwiftPM targets, Command Line Tools only (no Xcode project).
 | `ClaudeCollector.swift`, `CodexCollector.swift`, `CodexRollout.swift` | Walk Claude transcripts and Codex rollouts into hourly spend cells. |
 | `Spend.swift`, `SpendCSV.swift`, `SpendRecord.swift` | Token counts, the rate card, and the CSV record: its day and hour columns and its sealing rule. |
 | `Attribution*.swift`, `IdentityObserver.swift`, `SpendAttribution.swift` | Which seat the default `~/.claude` login was at each hour, so its spend lands on the right account. |
+| `SpendView.swift` | The spend read side: `spend.csv` from `spendFrom`, through `attribution.json` (one fallback when it is missing or malformed), on one rate card, read once. It answers the Spend tab's chart and model rows, a card's history and the record problems, and holds the tab's choices (`SpendChoices`). Read only. |
 | `SpendChart.swift`, `SeatHistory.swift` | Series for the Spend tab and a card's history chart. |
 | `MachineLoad.swift` | The LOAD tab's figures: the probe each machine runs (here in `sh`, elsewhere over `ssh`), its parse into CPU, memory, disk and herdr's agent count, the room verdict, `MachineMonitor`'s loop and `machines.json`. |
 | `SessionLog.swift`, `SessionProbe.swift`, `SessionTokens.swift` | The Log snapshot, private pane ledger, machine-local discovery and incremental reads through the Spend parsers. |

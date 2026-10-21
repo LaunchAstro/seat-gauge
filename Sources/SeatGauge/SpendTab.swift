@@ -10,10 +10,10 @@ struct SpendTab: View {
     private let record: SpendChart
     /// One model's chart, when one is picked from the list.
     private let focus: SpendChart?
-    @State private var range = SpendRange.recent
     /// What the left column lists: every model, or the seats with their toggles.
     @State private var showsSeats = false
     private var mirror: GaugeMirror { .shared }
+    private var range: SpendRange { mirror.spendRange }
 
     init(chart: SpendChart, focus: SpendChart? = nil) {
         record = chart
@@ -120,7 +120,7 @@ struct SpendTab: View {
                     if showsSeats {
                         ForEach(Self.byFigure(listed.series), id: \.key) { seat($0) }
                     } else {
-                        let rows = listed.modelRows(hiding: mirror.hiddenLines)
+                        let rows = listed.modelRows(hiding: mirror.spendChoices.hidden)
                         all(rows.compactMap(\.amount).reduce(0, +))
                         ForEach(rows, id: \.model) { model($0) }
                     }
@@ -161,7 +161,7 @@ struct SpendTab: View {
             ForEach([(SpendRange.recent, "28D"), (SpendRange.all, "ALL")], id: \.1) { choice, word in
                 if choice == .all { Text("·").foregroundStyle(Tone.inkDim) }
                 Text(word).foregroundStyle(range == choice ? Tone.ink : Tone.inkDim)
-                    .onTapGesture { range = choice }
+                    .onTapGesture { mirror.spendRange = choice }
             }
         }
         .font(Type.mono(10))
