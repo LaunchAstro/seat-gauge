@@ -89,14 +89,23 @@ extension Room {
 struct LoadTab: View {
     var mirror = GaugeMirror.shared
     @Environment(\.pinnedCardRows) private var pinned
-    @Environment(\.pinnedPanelWidth) private var pinnedWidth
 
     var body: some View {
         let cards = mirror.machines.map {
             MachineCard.make($0, state: mirror.machineStates[$0.id], samples: mirror.machineHistory[$0.id] ?? [], now: Date())
         }
-        // In rows, as the seat cards are.
-        CardGrid(rows: pinned ?? VerticalFit.rows, width: pinnedWidth) {
+        let rows = pinned ?? VerticalFit.rows
+        let columns = PanelLayout.columns(cards: cards.count, rows: rows)
+        // As the seat cards do: in rows, filling the width while a row fits,
+        // and sliding sideways at their minimum when it does not.
+        ViewThatFits(in: .horizontal) {
+            grid(cards, rows).frame(idealWidth: PanelLayout.minimumContentWidth(cards: columns))
+            CardScroller(ids: cards.prefix(columns).map(\.id)) { grid(cards, rows) }
+        }
+    }
+
+    private func grid(_ cards: [MachineCard], _ rows: Int) -> some View {
+        CardGrid(rows: rows) {
             ForEach(cards) { MachineCardView(card: $0, history: mirror.machineHistory[$0.id] ?? []).id($0.id) }
         }
     }

@@ -32,17 +32,13 @@ import Testing
     static let width: CGFloat = 900
     static let room = CGFloat.greatestFiniteMagnitude
 
-    @Test func aRowTakesAsFewCardsAsTheRowsLeaveAndNeverMoreThanFit() {
-        let card = CardMetrics.minimumWidth
-        let wide = 5 * card + 4 * PanelLayout.ruleWidth
-        #expect(PanelLayout.columns(width: wide, cards: 5, rows: 1) == 5)
-        #expect(PanelLayout.columns(width: wide, cards: 5, rows: 2) == 3)
-        #expect(PanelLayout.columns(width: wide, cards: 5, rows: 5) == 1)
-        // Too narrow for the asked row, the cards wrap.
-        #expect(PanelLayout.columns(width: 2 * card + PanelLayout.ruleWidth, cards: 5, rows: 1) == 2)
-        #expect(PanelLayout.columns(width: card / 2, cards: 5, rows: 1) == 1)
-        // Spread over the rows they take: four across room for five is 3 and 2.
-        #expect(PanelLayout.columns(width: 4 * card + 3 * PanelLayout.ruleWidth, cards: 5, rows: 1) == 3)
+    @Test func theCardsSpreadEvenlyOverTheAskedRows() {
+        #expect(PanelLayout.columns(cards: 5, rows: 1) == 5)
+        #expect(PanelLayout.columns(cards: 5, rows: 2) == 3)
+        #expect(PanelLayout.columns(cards: 5, rows: 3) == 2)
+        #expect(PanelLayout.columns(cards: 5, rows: 5) == 1)
+        // More rows than cards is one card a row.
+        #expect(PanelLayout.columns(cards: 2, rows: 4) == 1)
     }
 
     @Test func aTallerHeightStretchesTheRowThenStacksAnother() {

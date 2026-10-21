@@ -327,23 +327,125 @@ struct CardBox: ViewModifier {
     }
 }
 
-/// The seat cards in rows: as many as the user's height asks for, and more
-/// when the window is too narrow for a row of them at their minimum.
+/// The seat cards in as many rows as the user's height asks for. When every
+/// box of a row fits at its minimum the rows fill the width; when not, they
+/// slide sideways together at the same height, so a narrow window never
+/// jumps.
 struct ComboLayout: View {
     let cards: [CardModel]
     var summary: SummaryModel?
     var details: [SeatID: CardDetail] = [:]
     var hovered: SeatID?
     @Environment(\.pinnedCardRows) private var pinned
-    @Environment(\.pinnedPanelWidth) private var pinnedWidth
 
     var body: some View {
-        CardGrid(rows: pinned ?? VerticalFit.rows, width: pinnedWidth) {
+        let ids: [AnyHashable] = (summary == nil ? [] : [SummaryModel.label]) + cards.map(\.id)
+        let rows = pinned ?? VerticalFit.rows
+        let columns = PanelLayout.columns(cards: ids.count, rows: rows)
+        ViewThatFits(in: .horizontal) {
+            // Only the ideal is set, so the fitting grid still fills the width
+            // and `ViewThatFits` measures it against the floor.
+            grid(rows).frame(idealWidth: PanelLayout.minimumContentWidth(cards: columns))
+            // The first row's cards are where an arrow's step lands.
+            CardScroller(ids: Array(ids.prefix(columns))) { grid(rows) }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func grid(_ rows: Int) -> some View {
+        CardGrid(rows: rows) {
             if let summary { SummaryCard(summary: summary).id(SummaryModel.label) }
             ForEach(cards) { card in
                 CardView(card: card, detail: details[card.id], face: card.id == hovered ? .detail : .glance)
                     .id(card.id)
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The row too wide for the window: as many whole cards as fit, widened to
+/// fill it, and the rest past an edge that fades under an arrow. An arrow
+/// scrolls one card; the wheel and the trackpad scroll freely.
+struct CardScroller<Row: View>: View {
+    let ids: [AnyHashable]
+    @ViewBuilder let row: Row
+    /// The row's leading edge in the scroller, zero or less.
+    @State private var offset: CGFloat = 0
+    @State private var viewport: CGFloat = 0
+    /// The pointer over the row, which alone draws the arrows.
+    @State private var hovered = false
+
+    private static var space: String { "cards" }
+
+    /// Which edges draw an arrow and its fade: only while the pointer is on
+    /// the row, so a passive glance sees every card whole, and only at an
+    /// edge with more row past it.
+    static func arrows(hovered: Bool, offset: CGFloat, width: CGFloat,
+                       viewport: CGFloat) -> (leading: Bool, trailing: Bool) {
+        guard hovered else { return (false, false) }
+        return (offset < -0.5, offset + width > viewport + 0.5)
+    }
+
+    var body: some View {
+        let width = PanelLayout.scrolledRowWidth(viewport: viewport, cards: ids.count)
+        let arrows = Self.arrows(hovered: hovered, offset: offset, width: width, viewport: viewport)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                row.containerRelativeFrame(.horizontal) { length, _ in
+                    PanelLayout.scrolledRowWidth(viewport: length, cards: ids.count)
+                }
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(Self.space)).minX } action: { offset = $0 }
+            }
+            .scrollIndicators(.never)
+            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+            .coordinateSpace(name: Self.space)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewport = $0 }
+            .overlay(alignment: .leading) {
+                if arrows.leading { EdgeArrow(edge: .leading) { step(-1, width: width, proxy) } }
+            }
+            .overlay(alignment: .trailing) {
+                if arrows.trailing { EdgeArrow(edge: .trailing) { step(1, width: width, proxy) } }
+            }
+            .onHover { hovered = $0 }
+        }
+        .frame(minWidth: CardMetrics.minimumWidth)
+    }
+
+    /// The card at the leading edge, one along, brought to that edge.
+    private func step(_ by: Int, width: CGFloat, _ proxy: ScrollViewProxy) {
+        let pitch = (width + PanelLayout.ruleWidth) / CGFloat(max(1, ids.count))
+        let leading = Int((-offset / pitch).rounded())
+        let next = min(ids.count - 1, max(0, leading + by))
+        withAnimation(.easeInOut(duration: CardDetailMetrics.fade)) { proxy.scrollTo(ids[next], anchor: .leading) }
+    }
+}
+
+/// A soft fade from half the ground over the cards at one edge, and a small
+/// arrow on it. Only the arrow takes the pointer, so the card under the fade
+/// still hovers and scrolls.
+struct EdgeArrow: View {
+    let edge: HorizontalEdge
+    let action: () -> Void
+
+    static let width: CGFloat = 28
+
+    var body: some View {
+        let leading = edge == .leading
+        ZStack {
+            LinearGradient(colors: [Tone.bg.opacity(0.5), Tone.bg.opacity(0)],
+                           startPoint: leading ? .leading : .trailing, endPoint: leading ? .trailing : .leading)
+                .allowsHitTesting(false)
+            Button(action: action) {
+                Image(systemName: leading ? "chevron.left" : "chevron.right")
+                    .font(.system(size: CardMetrics.scaled(10), weight: .semibold))
+                    .foregroundStyle(Tone.inkMuted)
+                    .frame(width: CardMetrics.scaled(Self.width) / 2, height: CardMetrics.scaled(Self.width))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(leading ? "Scroll left" : "Scroll right")
+        }
+        .frame(width: CardMetrics.scaled(Self.width))
     }
 }

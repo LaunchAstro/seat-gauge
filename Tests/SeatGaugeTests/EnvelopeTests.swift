@@ -20,7 +20,7 @@ import SeatGaugeCore
     /// The mirror as a case found it, put back by `restore`.
     static func populated(cards: Int = 4) -> () -> Void {
         let mirror = GaugeMirror.shared
-        let was = (mirror.textScale, mirror.snapshot, mirror.seats, mirror.verticalFactor, mirror.tab)
+        let was = (mirror.textScale, mirror.snapshot, mirror.seats, mirror.verticalFactor, mirror.tab, mirror.cardRows)
         let (seats, snapshot) = Height.populate(now: now)
         let kept = Array(snapshot.order.prefix(cards))
         mirror.apply(Snapshot(states: snapshot.states.filter { kept.contains($0.key) }, order: kept), seats: seats)
@@ -31,6 +31,7 @@ import SeatGaugeCore
             mirror.apply(was.1, seats: was.2)
             mirror.verticalFactor = was.3
             mirror.tab = was.4
+            mirror.cardRows = was.5
             mirror.hover(nil)
         }
     }
@@ -205,7 +206,8 @@ import SeatGaugeCore
 
         let bounds = built.heightBounds()
         #expect(bounds.upperBound - bounds.lowerBound > 20)
-        let chosen = (bounds.lowerBound + bounds.upperBound) / 2
+        // Inside one row's span: the range runs on to every row stacked.
+        let chosen = bounds.lowerBound + 20
         built.panelHeight.chosen = chosen
         built.refit()
         await Height.settle()
