@@ -15,17 +15,16 @@ final class FramePreservingWindow: NSWindow {
 
     /// The content has a widest sensible size; the window does not. AppKit
     /// reads this one when a drag is tracked, so widening it here is what lets
-    /// the window be pulled across a display, while the content
-    /// maximum beside it still describes the content.
+    /// the window be pulled across a display, while the content maximum beside
+    /// it still describes the content.
     override var maxSize: NSSize {
         get { NSSize(width: .greatestFiniteMagnitude,
                      height: max(super.maxSize.height, frameHeight(contentHeights?.upperBound) ?? 0)) }
         set { super.maxSize = newValue }
     }
 
-    /// The content heights the user can drag between. It
-    /// only ever widens the content lock, so a stale range never holds the
-    /// window under its cards.
+    /// The content heights the user can drag between. It only ever widens the
+    /// content lock, so a stale range never holds the window under its cards.
     var contentHeights: ClosedRange<CGFloat>?
 
     override var minSize: NSSize {
@@ -151,8 +150,8 @@ final class WindowController {
     /// The height the content asks for at the width the window is. The window's
     /// content minimum is the height at the content's narrowest, where the
     /// cards are at their tallest, so it is not the height that leaves no
-    /// strip of empty space under the cards. This is, because it
-    /// is measured at the width the view has.
+    /// strip of empty space under the cards. This is, because it is measured
+    /// at the width the view has.
     var contentHeight: CGFloat { panelHeight.resting(width: hostingView.bounds.width) ?? 0 }
 
     /// The content size the window opens at, kept so a saved frame that is

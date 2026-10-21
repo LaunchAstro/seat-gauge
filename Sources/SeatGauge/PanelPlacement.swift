@@ -27,8 +27,8 @@ enum PanelPlacement {
     }
 
     /// A window shorter or narrower than the minimum counts when all of that
-    /// side is on the screen: the empty state is
-    /// under 80 points tall, and wholly visible is visible.
+    /// side is on the screen: the empty state is under 80 points tall, and
+    /// wholly visible is visible.
     static func isOnScreen(_ frame: CGRect, visibleFrames: [CGRect]) -> Bool {
         visibleFrames.contains { screen in
             let shared = screen.intersection(frame)

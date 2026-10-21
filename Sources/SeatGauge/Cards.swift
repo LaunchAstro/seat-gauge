@@ -1,9 +1,10 @@
 import SeatGaugeCore
 import SwiftUI
 
-/// The combo layout over `PanelModel`: cards side by side, each in its own box on one ground,
-/// one tight line per window. A seat's glance face carries no pace line; its
-/// verdict is on the detail face. The ALL card draws its own while hovered.
+/// The combo layout over `PanelModel`: cards side by side, each in its own
+/// box on one ground, one tight line per window. A seat's glance face carries
+/// no pace line; its verdict is on the detail face. The ALL card draws its
+/// own while hovered.
 
 struct Meter: View {
     let fill: Double
@@ -181,8 +182,8 @@ struct SummaryCard: View {
 
 /// A card's header, provider first and the seat after it, then the pick, the
 /// plan and the sync icon at the far end. Short of room, the plan gives way
-/// before the seat. `CardMetrics.headerWidth` is its width, box
-/// included. On the detail face the seat reads as its account.
+/// before the seat. `CardMetrics.headerWidth` is its width, box included. On
+/// the detail face the seat reads as its account.
 struct CardHeader: View {
     let card: CardModel
     var face = CardFace.glance
@@ -190,8 +191,9 @@ struct CardHeader: View {
     var body: some View {
         HStack(spacing: CardMetrics.headerSpacing) {
             // Provider first, seat second: the mark when there is one, the
-            // provider in the display face, the seat in the smaller muted Label face. The
-            // provider never truncates; an overlong seat name does.
+            // provider in the display face, the seat in the smaller muted
+            // Label face. The provider never truncates; an overlong seat name
+            // does.
             HStack(spacing: CardMetrics.headerSpacing) {
                 SeatMarkView(provider: card.mark)
                 HStack(alignment: .firstTextBaseline, spacing: CardMetrics.headerSpacing) {
@@ -328,9 +330,9 @@ struct SyncButton: View {
     }
 }
 
-/// Every card's box: square corners, one padding, one tint from `Tone` and ground
-/// round it, so twenty seats read as twenty panes and the best is told only by
-/// its pick.
+/// Every card's box: square corners, one padding, one tint from `Tone` and
+/// ground round it, so twenty seats read as twenty panes and the best is told
+/// only by its pick.
 struct CardBox: ViewModifier {
     var fill = Tone.box
     @Environment(\.pinnedVerticalFactor) private var pinned

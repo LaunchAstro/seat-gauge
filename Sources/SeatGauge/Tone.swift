@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The panel's colours, in two sets of the same names: dark, the default,
-/// and light. Every
-/// colour the panel draws is one of these; no view picks its own.
+/// and light. Every colour the panel draws is one of these; no view picks
+/// its own.
 struct Palette {
     let bg: Color
     let ink: Color

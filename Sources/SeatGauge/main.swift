@@ -12,7 +12,7 @@ let running = RunningLock.claim()
 SeatGaugeApp.start(application)
 FontLoader.registerBundledFonts()
 // The size the user last chose, before the first card is measured, so the
-// window opens at it rather than at the ordinary size and jumping.
+// window opens at it rather than opening at the ordinary size and jumping.
 GaugeMirror.shared.textScale = TextSizeStore.load()
 GaugeMirror.shared.lightAppearance = AppearanceStore.load()
 GaugeMirror.shared.choice = DetailChoiceStore.load()
@@ -102,8 +102,8 @@ if let poll = try? Poll(options: Poll.Options(
     }
     Task {
         // The store restores `readings.json` as it is built, so a cold
-        // start is instant: last night's cards are
-        // up, dimmed and dated, before the first fetch answers.
+        // start is instant: last night's cards are up, dimmed and dated,
+        // before the first fetch answers.
         await GaugeMirror.shared.take(await store.snapshot, seats: await watcher.config.seats, through: watcher)
         // The cards are in, so the user's height has something to fill.
         controller.refit(.drawn)
