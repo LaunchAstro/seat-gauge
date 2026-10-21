@@ -147,6 +147,15 @@ import Testing
             #expect(Self.config([Self.claude("one", composed), Self.claude("two", decomposed)], home: home) != nil)
             #expect(Self.login([composed, decomposed], home: home) != nil)
             #expect(Self.config([Self.claude("one", work.path), Self.claude("two", work.path + "-two")], home: home) == nil)
+            // Sign in is handed a seat list built any way at all, so another
+            // seat whose path cannot be walked still counts by the name the
+            // CLI would join it to.
+            try Data().write(to: home.url.appendingPathComponent("profiles/file"))
+            try home.link("profiles/loop", to: "loop")
+            for other in [home.url.path + "/profiles/file/../work", home.url.path + "/profiles/loop/../work"] {
+                #expect(Self.login([work.path, other], home: home)?.contains("same profile") == true,
+                        "made \(made), \(other): sign in accepted")
+            }
         }
     }
 

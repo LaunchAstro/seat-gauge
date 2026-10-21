@@ -39,20 +39,29 @@ struct ProfilePlace: Hashable {
         return named == walked ? [named] : [named, walked]
     }
 
+    /// Whichever meanings of a path can be followed, so a comparison still
+    /// counts the one the CLI would use when the other goes round a loop or
+    /// through a file.
+    static func meanings(_ url: URL) -> [ProfilePlace] {
+        var places: [ProfilePlace] = []
+        for byName in [true, false] {
+            if let place = place(url, byName: byName), !places.contains(place) { places.append(place) }
+        }
+        return places
+    }
+
     /// Two profiles that share a place, by any meaning of either.
     static func same(_ a: URL, _ b: URL) -> Bool {
-        guard let mine = of(a), let theirs = of(b) else { return false }
-        return mine.contains(where: theirs.contains)
+        meanings(a).contains(where: meanings(b).contains)
     }
 
     /// True when `url` is the home itself, `~/.claude` or anything inside
     /// `~/.claude`, by any meaning of it, so a seat there would read whatever
     /// the default login is signed into.
     static func isDefaultLogin(_ url: URL, home: URL) -> Bool {
-        guard let places = of(url) else { return false }
-        let homes = of(home) ?? []
-        let mains = of(home.appendingPathComponent(".claude", isDirectory: true)) ?? []
-        return places.contains { place in
+        let homes = meanings(home)
+        let mains = meanings(home.appendingPathComponent(".claude", isDirectory: true))
+        return meanings(url).contains { place in
             homes.contains(place) || mains.contains { place.isAtOrInside($0) }
         }
     }
