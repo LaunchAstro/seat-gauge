@@ -9,6 +9,11 @@ public struct SessionProbe: Sendable {
     let profiles: [SpendProfile]
     let byteBudget: Int
 
+    /// How often an open session that changed in nothing else is written
+    /// again, so a row that later goes stale says roughly when it was last
+    /// seen. A closed one is not: a pass sets its time on every read.
+    static let seenEvery: TimeInterval = 600
+
     public init(runner: any ProcessRunning = RealProcessRunner(),
                 directory: URL = AppPaths.support.appendingPathComponent("log-private"),
                 home: URL = URL(fileURLWithPath: NSHomeDirectory()), profiles: [SpendProfile] = [], byteBudget: Int = 32 << 20) {
@@ -42,7 +47,8 @@ public struct SessionProbe: Sendable {
 
     func collect(now: Date, rates: RateCard) async throws -> SessionLogFile {
         let ledger = SessionLedger(directory: directory)
-        var observations = try ledger.rows()
+        let stored = try ledger.read()
+        var observations = stored.rows
         let checkpointFile = directory.appendingPathComponent("offsets.json")
         var checkpoint = (try? Data(contentsOf: checkpointFile))
             .flatMap { try? JSONDecoder().decode(SessionCheckpoint.self, from: $0) } ?? SessionCheckpoint()
@@ -180,7 +186,36 @@ public struct SessionProbe: Sendable {
             observations[id] = observation
             changes.append(observation)
         }
-        try ledger.append(changes)
+        // A line is written for a session that changed in more than its seen
+        // time, and for an open one (no `closedAt`) on two more counts that
+        // keep what `asOf` is read for: its ledger time is `seenEvery` old, so
+        // a row that goes stale is dated near when it was last seen, or it
+        // was seen this pass beside a written one of the same process, so the
+        // ledger keeps their order for `matches` above. A closed session's
+        // time is set on every pass and read by nothing, so only a real
+        // change writes it.
+        func process(_ observation: SessionObservation) -> [String] {
+            [String(observation.pid), Self.start(observation.processStart).map { "\($0.timeIntervalSince1970)" }
+                ?? observation.processStart, observation.row.pane]
+        }
+        let changed = Set(changes.filter { change in
+            guard let last = stored.rows[change.row.sessionId], last.matches(change) else { return true }
+            return change.row.closedAt == nil && change.row.asOf.timeIntervalSince(last.row.asOf) >= Self.seenEvery
+        }.map(\.row.sessionId))
+        let moved = Set(changes.filter { changed.contains($0.row.sessionId) }.map(process))
+        let novel = changes.filter {
+            changed.contains($0.row.sessionId)
+                || ($0.row.closedAt == nil && $0.row.asOf == now && moved.contains(process($0)))
+        }
+        // `recorded` is what a read of the ledger gives after the append,
+        // which is what compaction writes. The append's first newline ends a
+        // torn last line, so a whole one is read from then on.
+        var recorded = stored.rows
+        if !novel.isEmpty, let tail = stored.tail { recorded[tail.row.sessionId] = tail }
+        for change in novel { recorded[change.row.sessionId] = change }
+        try ledger.append(novel)
+        do { try ledger.compactIfLong(recorded, lines: stored.lines + (novel.isEmpty ? 0 : novel.count + 1)) }
+        catch { PollLog.system("log: the pane ledger could not be compacted") }
         try JSONEncoder().encode(checkpoint).write(to: checkpointFile, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: checkpointFile.path)
         return SessionLogFile(updated: now, sessions: observations.values.map(\.row).filter { $0.status != "superseded" })

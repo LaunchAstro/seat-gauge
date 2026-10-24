@@ -73,26 +73,59 @@ public struct SessionLogFile: Codable, Sendable {
 
 /// What was seen of a pane cannot be read back from its transcripts once the
 /// pane goes, and the token checkpoint can be replaced, so the ledger commits
-/// first.
+/// first. The last line for a session is the one that counts, so a pass
+/// appends only what changed, and a ledger grown past a few lines per session
+/// is rewritten as one line each.
 struct SessionLedger {
     let directory: URL
+    /// A ledger this big was written before compaction, when every pass
+    /// appended every session again. The first compaction keeps it beside the
+    /// new one, under a name the probe never reads, for the owner to delete.
+    var keepAbove = 64 << 20
+    /// How much is read at a time.
+    var chunk = 1 << 20
     var file: URL { directory.appendingPathComponent("observations.jsonl") }
 
-    func rows() throws -> [String: SessionObservation] {
-        guard FileManager.default.fileExists(atPath: file.path) else { return [:] }
-        let data = try Data(contentsOf: file)
+    func rows() throws -> [String: SessionObservation] { try read().rows }
+
+    /// Line by line, so a long ledger is never held whole. `lines` counts
+    /// every line, blank and skipped ones included, since all of them are
+    /// what compaction would save. A last line with no newline is a torn
+    /// append and is left out of `rows`; `tail` is that line when it is a
+    /// whole observation, which the next append's newline makes readable.
+    func read() throws -> (rows: [String: SessionObservation], lines: Int, tail: SessionObservation?) {
+        guard FileManager.default.fileExists(atPath: file.path) else { return ([:], 0, nil) }
+        let handle = try FileHandle(forReadingFrom: file)
+        defer { try? handle.close() }
         var rows: [String: SessionObservation] = [:]
-        for line in data.split(separator: 0x0A).dropLast(data.last == 0x0A ? 0 : 1) {
-            guard let observation = try? JSONDecoder().decode(SessionObservation.self, from: Data(line)) else {
-                PollLog.system("log: incomplete pane observation skipped")
-                continue
+        var lines = 0
+        var pending = Data()
+        let decoder = JSONDecoder()
+        // Each chunk's bridged buffers go with it, or a long ledger is held
+        // whole after all.
+        while try autoreleasepool(invoking: {
+            guard let chunk = try handle.read(upToCount: self.chunk), !chunk.isEmpty else { return false }
+            pending.append(chunk)
+            var start = pending.startIndex
+            while let end = pending[start...].firstIndex(of: 0x0A) {
+                lines += 1
+                if end > start {
+                    if let observation = try? decoder.decode(SessionObservation.self, from: pending[start..<end]) {
+                        rows[observation.row.sessionId] = observation
+                    } else {
+                        PollLog.system("log: incomplete pane observation skipped")
+                    }
+                }
+                start = pending.index(after: end)
             }
-            rows[observation.row.sessionId] = observation
-        }
-        return rows
+            pending = Data(pending[start...])
+            return true
+        }) {}
+        return (rows, lines, pending.isEmpty ? nil : try? decoder.decode(SessionObservation.self, from: pending))
     }
 
     func append(_ observations: [SessionObservation]) throws {
+        guard !observations.isEmpty else { return }
         if !FileManager.default.fileExists(atPath: file.path) {
             FileManager.default.createFile(atPath: file.path, contents: nil,
                                            attributes: [.posixPermissions: 0o600])
@@ -106,6 +139,44 @@ struct SessionLedger {
         }
         try handle.synchronize()
     }
+
+    /// Rewrites the ledger as `rows`, one line per session, once it holds
+    /// more than four lines for each (and more than 256), so it stays a few
+    /// times the size of what it records. `rows` must be what a read of the
+    /// ledger gives now.
+    func compactIfLong(_ rows: [String: SessionObservation], lines: Int) throws {
+        guard lines > 4 * max(rows.count, 64) else { return }
+        let fresh = directory.appendingPathComponent("observations.jsonl.new")
+        try? FileManager.default.removeItem(at: fresh)
+        guard FileManager.default.createFile(atPath: fresh.path, contents: nil,
+                                             attributes: [.posixPermissions: 0o600]) else {
+            throw ProcessFailure("log: the compacted ledger could not be created")
+        }
+        let handle = try FileHandle(forWritingTo: fresh)
+        do {
+            for key in rows.keys.sorted() {
+                try handle.write(contentsOf: JSONEncoder().encode(rows[key]) + Data([0x0A]))
+            }
+            try handle.synchronize()
+            try handle.close()
+        } catch {
+            try? handle.close()
+            try? FileManager.default.removeItem(at: fresh)
+            throw error
+        }
+        let size = (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0
+        if size > keepAbove {
+            // A second name for the same bytes, so nothing is copied and the
+            // rename below cannot lose them.
+            let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
+            try FileManager.default.linkItem(
+                at: file, to: directory.appendingPathComponent("observations-before-compaction-\(stamp).jsonl"))
+        }
+        guard rename(fresh.path, file.path) == 0 else {
+            try? FileManager.default.removeItem(at: fresh)
+            throw ProcessFailure("log: the compacted ledger could not replace the old one")
+        }
+    }
 }
 
 struct SessionObservation: Codable, Equatable {
@@ -113,6 +184,14 @@ struct SessionObservation: Codable, Equatable {
     var pid: Int
     var processStart: String
     var paths: [String]
+
+    /// The same in all but when it was last seen, which a pass sets on every
+    /// session it reads and the ledger need not record again.
+    func matches(_ other: SessionObservation) -> Bool {
+        var seen = self
+        seen.row.asOf = other.row.asOf
+        return seen == other
+    }
 }
 
 struct SessionCheckpoint: Codable {
