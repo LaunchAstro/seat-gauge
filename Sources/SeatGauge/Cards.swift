@@ -261,22 +261,28 @@ struct CloseButton: View {
 }
 
 /// A signed-out card takes a click anywhere on its box as Sign in, with the
-/// pointing hand over it. VoiceOver already has the header and the Sign in
-/// button for it, so the box adds no element of its own.
+/// pointing hand over it; its own buttons and words keep their clicks.
+/// VoiceOver already has the header and the Sign in button for it, so the box
+/// adds no element of its own. A card that signs in, or goes, under the
+/// pointer takes the hand with it.
 struct SignsInCard: ViewModifier {
     let card: CardModel
 
     func body(content: Content) -> some View {
-        if card.signsIn {
-            content
-                .contentShape(Rectangle())
-                .onTapGesture { GaugeMirror.shared.click(card) }
-                .onContinuousHover { phase in
-                    if case .active = phase { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
-                }
-        } else {
-            content
+        Group {
+            if card.signsIn {
+                content
+                    .contentShape(Rectangle())
+                    .onTapGesture { GaugeMirror.shared.click(card) }
+                    .onContinuousHover { phase in
+                        if case .active = phase { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+                    }
+                    .onDisappear { NSCursor.arrow.set() }
+            } else {
+                content
+            }
         }
+        .onChange(of: card.signsIn) { _, signsIn in if !signsIn { NSCursor.arrow.set() } }
     }
 }
 

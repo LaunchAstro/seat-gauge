@@ -50,10 +50,14 @@ struct CardDetail: Equatable {
         case let .unavailable(reason): DetailLine(text: reason, tone: .warning)
         default: nil
         }
-        let status = picked.map { DetailLine(text: buckets[$0].readOut, tone: .ink) }
+        // A signed-out seat says so before anything else, in red beside its
+        // Sign in, whatever its history or the pointer picks.
+        let signedOut = card.signsIn ? card.stale.map { DetailLine(text: $0, tone: .danger) } : nil
+        let status = signedOut
+            ?? picked.map { DetailLine(text: buckets[$0].readOut, tone: .ink) }
             ?? reason
             ?? card.pace.map { DetailLine(text: $0.text, tone: $0.tone) }
-            ?? card.stale.map { DetailLine(text: $0, tone: card.signsIn ? .danger : .dim) }
+            ?? card.stale.map { DetailLine(text: $0, tone: .dim) }
         return CardDetail(status: status, plot: plot(history, picked), history: history, signsIn: card.signsIn)
     }
 
