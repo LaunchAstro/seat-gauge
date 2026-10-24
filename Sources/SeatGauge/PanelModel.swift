@@ -39,6 +39,10 @@ enum MeterTone: Equatable {
     }
 }
 
+enum CardClick: Equatable {
+    case signIn, open
+}
+
 /// One window on one card: the name, the bar, the countdown and the percent.
 struct WindowLine: Equatable, Identifiable {
     let kind: WindowKind
@@ -182,6 +186,13 @@ struct CardModel: Identifiable, Equatable {
 
     /// What VoiceOver reads for that click.
     var openLabel: String { "Open \(label)" }
+
+    /// What a click on the header's mark or name does. A signed-out seat
+    /// signs in first, since its open command would start a session with no
+    /// login; the whole card takes that click too.
+    var click: CardClick? { signsIn ? .signIn : opens ? .open : nil }
+
+    var clickLabel: String { click == .signIn ? "Sign in \(label)" : openLabel }
 
     var isDimmed: Bool { stale != nil }
 
