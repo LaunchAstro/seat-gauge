@@ -1,18 +1,59 @@
 import Foundation
 
+/// The app's Sign in, as a one-off script Terminal opens. It runs the app's
+/// own `seatgauge-cli login`, so Claude's login takes the pasted code in a
+/// real terminal and prints its own result there. The app sees none of it,
+/// only the marker the script leaves once the login has ended.
 public enum SignInScript {
+
     public struct Written: Sendable {
+        /// Private to the user; the app removes it once the login has ended.
         public let folder: URL
         public let script: URL
+        /// The helper's exit status, written once the login has ended.
         public let marker: URL
     }
 
+    /// A fresh folder for this sign-in alone, readable by the user only,
+    /// since the script names the seat and its seats file.
     public static func write(helper: URL, seat: String, seatsFile: URL,
                              in parent: URL = FileManager.default.temporaryDirectory) throws -> Written {
-        let folder = parent.appendingPathComponent("stub", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let folder = parent.appendingPathComponent("seat-gauge-sign-in-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
         let script = folder.appendingPathComponent("sign-in.command")
-        try Data("exit 1\n".utf8).write(to: script)
-        return Written(folder: folder, script: script, marker: folder.appendingPathComponent("ended"))
+        let marker = folder.appendingPathComponent("ended")
+        let text = text(helper: helper, seat: seat, seatsFile: seatsFile, marker: marker)
+        guard FileManager.default.createFile(atPath: script.path, contents: Data(text.utf8),
+                                             attributes: [.posixPermissions: 0o700]) else {
+            try? FileManager.default.removeItem(at: folder)
+            throw ProcessFailure("the sign-in script could not be written, so nothing was opened.")
+        }
+        return Written(folder: folder, script: script, marker: marker)
+    }
+
+    /// Every value is passed quoted, so whatever a seat id or path holds it
+    /// reaches the helper as one argument and never runs as shell.
+    static func text(helper: URL, seat: String, seatsFile: URL, marker: URL) -> String {
+        """
+        #!/bin/sh
+        # One sign-in, opened by Seat Gauge. It removes itself as it starts.
+        rm -f "$0"
+        ended() { printf '%s\\n' "$1" > \(quoted(marker.path)); trap - HUP INT TERM; }
+        # A window closed mid-login still tells Seat Gauge the login ended.
+        trap 'ended 129; exit 129' HUP
+        trap 'ended 130; exit 130' INT
+        trap 'ended 143; exit 143' TERM
+        \(quoted(helper.path)) login \(quoted(seat)) \(quoted(seatsFile.path))
+        ended $?
+        echo
+        printf 'Press Return to close this window. '
+        read -r _
+
+        """
+    }
+
+    static func quoted(_ text: String) -> String {
+        "'" + text.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
     }
 }

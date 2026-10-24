@@ -60,13 +60,13 @@ Every Claude seat needs its own `profile` directory, so no card reads whatever `
 
 ### Signing a Claude seat in
 
-A seat with `"login": "own"` has its own login, and reads the 5-hour, weekly and Fable windows plus its exact plan. In the app, a seat that is not logged in says "signed out" on its card, and a click on that card (anywhere but its × and the chart's range and measure words), on its name or on Sign in (on the card and on its hover view) starts the sign-in: it opens the sign-in page in your default browser, asks for the code the page shows, and says whether the seat is signed in. From a terminal, sign it in by its id:
+A seat with `"login": "own"` has its own login, and reads the 5-hour, weekly and Fable windows plus its exact plan. In the app, a seat that is not logged in says "signed out" on its card, and a click on that card (anywhere but its × and the chart's range and measure words), on its name or on Sign in (on the card and on its hover view) starts the sign-in: it opens Terminal running the command below for that seat, where you paste the code the sign-in page shows, and the card reads the seat again once that login ends. From a terminal, sign it in by its id:
 
 ```sh
 swift run seatgauge-cli login work
 ```
 
-This runs `claude auth login` under the seat's own profile. If the profile is not there yet, it creates it, readable by you alone. It prints a link. Open it in any browser, sign in to the account this seat is for, and paste the code the page shows. `claude auth status` then says whether the seat is signed in. The app's Sign in runs these same steps. `--email <address>` fills the address in on the sign-in page. The code goes to `claude` and nowhere else, so it is never printed or logged. The command refuses a Codex seat, a token seat, an unknown id, or a profile that is `~`, `~/.claude` or another seat's, before anything runs.
+This runs `claude auth login` under the seat's own profile. If the profile is not there yet, it creates it, readable by you alone. It prints a link. Open it in any browser, sign in to the account this seat is for, and paste the code the page shows. `claude auth status` then says whether the seat is signed in. The app's Sign in runs this same command. `--email <address>` fills the address in on the sign-in page. The code goes to `claude` and nowhere else, so it is never saved or logged. The command refuses a Codex seat, a token seat, an unknown id, or a profile that is `~`, `~/.claude` or another seat's, before anything runs.
 
 Token seats are optional, and nobody needs one to get started. If a seat should sign in with an OAuth token instead, leave `login` out and give `token` the path of a file that holds the token, such as `"token": "~/tokens/work.token"`. The app hands it only to that seat's `claude`. A token seat shows 5h and 7d only, because no token reports Fable or the exact plan.
 
