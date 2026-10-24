@@ -186,11 +186,14 @@ public struct SessionProbe: Sendable {
             observations[id] = observation
             changes.append(observation)
         }
-        // A session that changed in nothing but its seen time is left out,
-        // with two exceptions that keep what `asOf` is read for: an open one
-        // every `seenEvery`, so a row that goes stale is dated near when it
-        // was last seen, and any seen this pass beside a written one of the
-        // same process, so the ledger keeps their order for `matches` above.
+        // A line is written for a session that changed in more than its seen
+        // time, and for an open one (no `closedAt`) on two more counts that
+        // keep what `asOf` is read for: its ledger time is `seenEvery` old, so
+        // a row that goes stale is dated near when it was last seen, or it
+        // was seen this pass beside a written one of the same process, so the
+        // ledger keeps their order for `matches` above. A closed session's
+        // time is set on every pass and read by nothing, so only a real
+        // change writes it.
         func process(_ observation: SessionObservation) -> [String] {
             [String(observation.pid), Self.start(observation.processStart).map { "\($0.timeIntervalSince1970)" }
                 ?? observation.processStart, observation.row.pane]
@@ -201,7 +204,8 @@ public struct SessionProbe: Sendable {
         }.map(\.row.sessionId))
         let moved = Set(changes.filter { changed.contains($0.row.sessionId) }.map(process))
         let novel = changes.filter {
-            changed.contains($0.row.sessionId) || ($0.row.asOf == now && moved.contains(process($0)))
+            changed.contains($0.row.sessionId)
+                || ($0.row.closedAt == nil && $0.row.asOf == now && moved.contains(process($0)))
         }
         // `recorded` is what a read of the ledger gives after the append,
         // which is what compaction writes.
