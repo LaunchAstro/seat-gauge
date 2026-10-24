@@ -208,8 +208,10 @@ public struct SessionProbe: Sendable {
                 || ($0.row.closedAt == nil && $0.row.asOf == now && moved.contains(process($0)))
         }
         // `recorded` is what a read of the ledger gives after the append,
-        // which is what compaction writes.
+        // which is what compaction writes. The append's first newline ends a
+        // torn last line, so a whole one is read from then on.
         var recorded = stored.rows
+        if !novel.isEmpty, let tail = stored.tail { recorded[tail.row.sessionId] = tail }
         for change in novel { recorded[change.row.sessionId] = change }
         try ledger.append(novel)
         do { try ledger.compactIfLong(recorded, lines: stored.lines + (novel.isEmpty ? 0 : novel.count + 1)) }

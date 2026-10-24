@@ -91,9 +91,10 @@ struct SessionLedger {
     /// Line by line, so a long ledger is never held whole. `lines` counts
     /// every line, blank and skipped ones included, since all of them are
     /// what compaction would save. A last line with no newline is a torn
-    /// append and is left out.
-    func read() throws -> (rows: [String: SessionObservation], lines: Int) {
-        guard FileManager.default.fileExists(atPath: file.path) else { return ([:], 0) }
+    /// append and is left out of `rows`; `tail` is that line when it is a
+    /// whole observation, which the next append's newline makes readable.
+    func read() throws -> (rows: [String: SessionObservation], lines: Int, tail: SessionObservation?) {
+        guard FileManager.default.fileExists(atPath: file.path) else { return ([:], 0, nil) }
         let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }
         var rows: [String: SessionObservation] = [:]
@@ -120,7 +121,7 @@ struct SessionLedger {
             pending = Data(pending[start...])
             return true
         }) {}
-        return (rows, lines)
+        return (rows, lines, pending.isEmpty ? nil : try? decoder.decode(SessionObservation.self, from: pending))
     }
 
     func append(_ observations: [SessionObservation]) throws {
