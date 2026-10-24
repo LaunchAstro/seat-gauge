@@ -231,6 +231,90 @@ import Testing
         #expect(try ledger.rows()["main"]?.row.status == "done")
     }
 
+    func lines(_ file: URL) throws -> Int {
+        try Data(contentsOf: file).filter { $0 == 0x0A }.count
+    }
+
+    @Test func passesThatChangeNothingAppendNothing() async throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("rollout-main.jsonl")
+        try Data(codex("main", input: 100).utf8).write(to: file)
+        let directory = root.appendingPathComponent("private")
+        let ledger = SessionLedger(directory: directory)
+        let working = SessionProbe(runner: LogProbeRunner(status: "working", paths: [file.path]), directory: directory, home: root)
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        _ = try await working.run(now: start)
+        let seen = try Data(contentsOf: ledger.file)
+        for pass in 1...5 {
+            let now = start.addingTimeInterval(Double(pass) * 30)
+            let log = try await working.run(now: now)
+            // The snapshot still says when the session was last seen.
+            #expect(log.sessions.first?.asOf == now)
+        }
+        #expect(try Data(contentsOf: ledger.file) == seen)
+
+        let gone = SessionProbe(runner: LogProbeRunner(status: nil, paths: [file.path]), directory: directory, home: root)
+        let closed = try await gone.run(now: start.addingTimeInterval(300))
+        #expect(closed.sessions.first?.status == "closed")
+        let afterClose = try Data(contentsOf: ledger.file)
+        #expect(afterClose.count > seen.count)
+        for pass in 1...5 {
+            let log = try await gone.run(now: start.addingTimeInterval(300 + Double(pass) * 30))
+            #expect(log.sessions.first?.status == "closed")
+        }
+        #expect(try Data(contentsOf: ledger.file) == afterClose)
+        #expect(try ledger.rows()["main"]?.row.closedAt == start.addingTimeInterval(300))
+    }
+
+    @Test func aLedgerOfChangingSessionsStaysBounded() async throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("rollout-main.jsonl")
+        try Data(codex("main", input: 1).utf8).write(to: file)
+        let directory = root.appendingPathComponent("private")
+        let ledger = SessionLedger(directory: directory)
+        let probe = SessionProbe(runner: LogProbeRunner(status: "working", paths: [file.path]), directory: directory, home: root)
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        var most = 0
+        for pass in 1...300 {
+            let handle = try FileHandle(forWritingTo: file); try handle.seekToEnd()
+            try handle.write(contentsOf: Data(codex("main", input: 1 + pass).utf8)); try handle.close()
+            let log = try await probe.run(now: start.addingTimeInterval(Double(pass) * 30))
+            #expect(log.sessions.first?.tokens?.input == 1 + pass)
+            most = max(most, try lines(ledger.file))
+        }
+        // Every pass changed the session, so each wrote; compaction keeps
+        // the file to a few lines per session however long it runs.
+        #expect(most <= 4 * 64 + 2)
+        #expect(try ledger.rows()["main"]?.row.tokens?.input == 301)
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        #expect(!names.contains { $0.hasPrefix("observations-before-compaction") })
+    }
+
+    @Test func compactingABigOldLedgerKeepsItBesideTheNewOne() throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        var ledger = SessionLedger(directory: root)
+        ledger.keepAbove = 1024
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        for pass in 0..<300 {
+            let row = SessionRow(sessionId: pass % 2 == 0 ? "main" : "side", workspace: "PROJECT-Log-work",
+                                 pane: "w1:p1", tool: "codex", status: pass < 298 ? "working" : "closed",
+                                 asOf: start.addingTimeInterval(Double(pass)))
+            try ledger.append([SessionObservation(row: row, pid: 1, processStart: "start", paths: [])])
+        }
+        let before = try Data(contentsOf: ledger.file)
+        let read = try ledger.read()
+        #expect(read.rows.count == 2)
+        try ledger.compactIfLong(read.rows, lines: read.lines)
+
+        let kept = try FileManager.default.contentsOfDirectory(atPath: root.path)
+            .filter { $0.hasPrefix("observations-before-compaction") }
+        #expect(kept.count == 1)
+        #expect(try kept.first.map { try Data(contentsOf: root.appendingPathComponent($0)) } == before)
+        #expect(try lines(ledger.file) == 2)
+        #expect(try ledger.rows() == read.rows)
+        #expect(try ledger.rows()["main"]?.row.status == "closed")
+    }
+
     @Test func replacementKeepsClaudeTotalsAndContentIsNotDecoded() throws {
         let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
         let path = root.appendingPathComponent("session.jsonl").path
