@@ -26,12 +26,12 @@ public enum SeatLogin {
             var rest = arguments[...]
             var seat: String?, email: String?, file: String?
             while let argument = rest.popFirst() {
-                if argument == "--email", email == nil, let value = rest.popFirst() {
-                    email = value
-                } else if seat == nil {
-                    // Before any flag check, so a seat whose id starts with
-                    // a dash, which seats.json allows, can be signed in.
+                if seat == nil {
+                    // Always the seat, so any id seats.json allows, such as
+                    // one starting with a dash or `--email`, can be signed in.
                     seat = argument
+                } else if argument == "--email", email == nil, let value = rest.popFirst() {
+                    email = value
                 } else if argument.hasPrefix("-") {
                     throw ProcessFailure(usage)
                 } else if file == nil {

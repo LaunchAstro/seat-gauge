@@ -8,9 +8,8 @@ import SeatGaugeCore
 /// again once that login has ended.
 enum SignIn {
     /// How long a sign-in may stay open before the card is read again
-    /// anyway: `claude auth login`'s own 15 minutes, its minute-long status
-    /// check, and Terminal's start, so the app never gives up first.
-    nonisolated static let limit: TimeInterval = 1200
+    /// anyway, as long as `claude auth login` itself waits.
+    nonisolated static let limit: TimeInterval = 900
     /// How long Terminal has to start the script, which removes itself as
     /// it starts, before the seat is freed for another click.
     nonisolated static let opens: TimeInterval = 60

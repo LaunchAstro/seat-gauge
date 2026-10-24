@@ -289,7 +289,9 @@ import SeatGaugeTestSupport
                 == .init(seat: "work", email: email, seatsFile: "s.json"))
         #expect(try SeatLogin.Request(arguments: ["work", "s.json", "--email", email])
                 == .init(seat: "work", email: email, seatsFile: "s.json"))
-        for wrong in [[], ["--email", email], ["work", "--email"], ["work", "--sso"], ["work", "a.json", "b.json"]] {
+        // The first argument is always the seat, whatever it looks like.
+        #expect(try SeatLogin.Request(arguments: ["--email", "s.json"]) == .init(seat: "--email", email: nil, seatsFile: "s.json"))
+        for wrong in [[], ["work", "--email"], ["work", "--sso"], ["work", "a.json", "b.json"]] {
             #expect(Self.refusal { try SeatLogin.Request(arguments: wrong) }
                     == "usage: seatgauge-cli login <seat> [--email <address>] [seats.json]")
         }
