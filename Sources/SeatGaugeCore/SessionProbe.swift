@@ -42,7 +42,8 @@ public struct SessionProbe: Sendable {
 
     func collect(now: Date, rates: RateCard) async throws -> SessionLogFile {
         let ledger = SessionLedger(directory: directory)
-        var observations = try ledger.rows()
+        let stored = try ledger.read()
+        var observations = stored.rows
         let checkpointFile = directory.appendingPathComponent("offsets.json")
         var checkpoint = (try? Data(contentsOf: checkpointFile))
             .flatMap { try? JSONDecoder().decode(SessionCheckpoint.self, from: $0) } ?? SessionCheckpoint()
@@ -180,7 +181,14 @@ public struct SessionProbe: Sendable {
             observations[id] = observation
             changes.append(observation)
         }
-        try ledger.append(changes)
+        var recorded = stored.rows
+        let novel = changes.filter { change in
+            defer { recorded[change.row.sessionId] = change }
+            return recorded[change.row.sessionId].map { !$0.matches(change) } ?? true
+        }
+        try ledger.append(novel)
+        do { try ledger.compactIfLong(recorded, lines: stored.lines + (novel.isEmpty ? 0 : novel.count + 1)) }
+        catch { PollLog.system("log: the pane ledger could not be compacted") }
         try JSONEncoder().encode(checkpoint).write(to: checkpointFile, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: checkpointFile.path)
         return SessionLogFile(updated: now, sessions: observations.values.map(\.row).filter { $0.status != "superseded" })
