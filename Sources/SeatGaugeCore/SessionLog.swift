@@ -82,6 +82,8 @@ struct SessionLedger {
     /// appended every session again. The first compaction keeps it beside the
     /// new one, under a name the probe never reads, for the owner to delete.
     var keepAbove = 64 << 20
+    /// How much is read at a time.
+    var chunk = 1 << 20
     var file: URL { directory.appendingPathComponent("observations.jsonl") }
 
     func rows() throws -> [String: SessionObservation] { try read().rows }
@@ -91,7 +93,8 @@ struct SessionLedger {
     /// what compaction would save. A last line with no newline is a torn
     /// append and is left out.
     func read() throws -> (rows: [String: SessionObservation], lines: Int) {
-        guard let handle = try? FileHandle(forReadingFrom: file) else { return ([:], 0) }
+        guard FileManager.default.fileExists(atPath: file.path) else { return ([:], 0) }
+        let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }
         var rows: [String: SessionObservation] = [:]
         var lines = 0
@@ -100,7 +103,7 @@ struct SessionLedger {
         // Each chunk's bridged buffers go with it, or a long ledger is held
         // whole after all.
         while try autoreleasepool(invoking: {
-            guard let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty else { return false }
+            guard let chunk = try handle.read(upToCount: self.chunk), !chunk.isEmpty else { return false }
             pending.append(chunk)
             var start = pending.startIndex
             while let end = pending[start...].firstIndex(of: 0x0A) {
@@ -137,7 +140,7 @@ struct SessionLedger {
     }
 
     /// Rewrites the ledger as `rows`, one line per session, once it holds
-    /// more than four lines for each (and at least 256), so it stays a few
+    /// more than four lines for each (and more than 256), so it stays a few
     /// times the size of what it records. `rows` must be what a read of the
     /// ledger gives now.
     func compactIfLong(_ rows: [String: SessionObservation], lines: Int) throws {

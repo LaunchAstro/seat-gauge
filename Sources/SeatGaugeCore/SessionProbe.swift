@@ -9,6 +9,11 @@ public struct SessionProbe: Sendable {
     let profiles: [SpendProfile]
     let byteBudget: Int
 
+    /// How often an open session that changed in nothing else is written
+    /// again, so a row that later goes stale says roughly when it was last
+    /// seen. A closed one is not: a pass sets its time on every read.
+    static let seenEvery: TimeInterval = 600
+
     public init(runner: any ProcessRunning = RealProcessRunner(),
                 directory: URL = AppPaths.support.appendingPathComponent("log-private"),
                 home: URL = URL(fileURLWithPath: NSHomeDirectory()), profiles: [SpendProfile] = [], byteBudget: Int = 32 << 20) {
@@ -181,11 +186,27 @@ public struct SessionProbe: Sendable {
             observations[id] = observation
             changes.append(observation)
         }
-        var recorded = stored.rows
-        let novel = changes.filter { change in
-            defer { recorded[change.row.sessionId] = change }
-            return recorded[change.row.sessionId].map { !$0.matches(change) } ?? true
+        // A session that changed in nothing but its seen time is left out,
+        // with two exceptions that keep what `asOf` is read for: an open one
+        // every `seenEvery`, so a row that goes stale is dated near when it
+        // was last seen, and any seen this pass beside a written one of the
+        // same process, so the ledger keeps their order for `matches` above.
+        func process(_ observation: SessionObservation) -> [String] {
+            [String(observation.pid), Self.start(observation.processStart).map { "\($0.timeIntervalSince1970)" }
+                ?? observation.processStart, observation.row.pane]
         }
+        let changed = Set(changes.filter { change in
+            guard let last = stored.rows[change.row.sessionId], last.matches(change) else { return true }
+            return change.row.closedAt == nil && change.row.asOf.timeIntervalSince(last.row.asOf) >= Self.seenEvery
+        }.map(\.row.sessionId))
+        let moved = Set(changes.filter { changed.contains($0.row.sessionId) }.map(process))
+        let novel = changes.filter {
+            changed.contains($0.row.sessionId) || ($0.row.asOf == now && moved.contains(process($0)))
+        }
+        // `recorded` is what a read of the ledger gives after the append,
+        // which is what compaction writes.
+        var recorded = stored.rows
+        for change in novel { recorded[change.row.sessionId] = change }
         try ledger.append(novel)
         do { try ledger.compactIfLong(recorded, lines: stored.lines + (novel.isEmpty ? 0 : novel.count + 1)) }
         catch { PollLog.system("log: the pane ledger could not be compacted") }

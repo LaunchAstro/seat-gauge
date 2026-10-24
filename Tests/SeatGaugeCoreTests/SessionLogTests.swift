@@ -266,6 +266,42 @@ import Testing
         #expect(try ledger.rows()["main"]?.row.closedAt == start.addingTimeInterval(300))
     }
 
+    @Test func anUnchangedOpenSessionIsWrittenAgainEveryTenMinutes() async throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("rollout-main.jsonl")
+        try Data(codex("main", input: 100).utf8).write(to: file)
+        let directory = root.appendingPathComponent("private")
+        let ledger = SessionLedger(directory: directory)
+        let probe = SessionProbe(runner: LogProbeRunner(status: "working", paths: [file.path]), directory: directory, home: root)
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        _ = try await probe.run(now: start)
+        _ = try await probe.run(now: start.addingTimeInterval(570))
+        #expect(try ledger.rows()["main"]?.row.asOf == start)
+        _ = try await probe.run(now: start.addingTimeInterval(600))
+        #expect(try ledger.rows()["main"]?.row.asOf == start.addingTimeInterval(600))
+    }
+
+    @Test func aLedgerReadInTinyChunksReadsTheSameRows() throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        var ledger = SessionLedger(directory: root)
+        for (index, id) in ["main", "side", "main", "third"].enumerated() {
+            let row = SessionRow(sessionId: id, workspace: "PROJECT-Log-work", pane: "w1:p\(index)",
+                                 tool: "codex", status: "working", asOf: Date(timeIntervalSince1970: Double(index)))
+            try ledger.append([SessionObservation(row: row, pid: index, processStart: "start", paths: [])])
+        }
+        let handle = try FileHandle(forWritingTo: ledger.file); try handle.seekToEnd()
+        try handle.write(contentsOf: Data("{\"row\":".utf8)); try handle.close()
+        let whole = try ledger.read()
+        for size in [1, 2, 7, 64] {
+            ledger.chunk = size
+            let read = try ledger.read()
+            #expect(read.rows == whole.rows)
+            #expect(read.lines == whole.lines)
+        }
+        #expect(whole.rows.count == 3)
+        #expect(whole.rows["main"]?.pid == 2)
+    }
+
     @Test func aLedgerOfChangingSessionsStaysBounded() async throws {
         let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("rollout-main.jsonl")
