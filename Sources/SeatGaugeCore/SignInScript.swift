@@ -12,6 +12,24 @@ public enum SignInScript {
         public let script: URL
         /// The helper's exit status, written once the login has ended.
         public let marker: URL
+
+        public enum Ending: Equatable, Sendable { case ended, neverStarted, outOfTime }
+
+        /// Blocks until the login has ended, the folder has gone (the app
+        /// removes it when Terminal will not open), the script is still
+        /// there `start` seconds on (Terminal never ran it), or `limit`
+        /// seconds have passed.
+        public func wait(start: TimeInterval, limit: TimeInterval, every: TimeInterval = 1) -> Ending {
+            let began = Date()
+            while true {
+                let files = FileManager.default
+                if files.fileExists(atPath: marker.path) || !files.fileExists(atPath: folder.path) { return .ended }
+                let waited = Date().timeIntervalSince(began)
+                if waited >= start, files.fileExists(atPath: script.path) { return .neverStarted }
+                if waited >= limit { return .outOfTime }
+                Thread.sleep(forTimeInterval: every)
+            }
+        }
     }
 
     /// A fresh folder for this sign-in alone, readable by the user only,
@@ -40,9 +58,10 @@ public enum SignInScript {
         # One sign-in, opened by Seat Gauge. It removes itself as it starts.
         rm -f "$0"
         ended() { printf '%s\\n' "$1" > \(quoted(marker.path)); trap - HUP INT TERM; }
-        # A window closed mid-login still tells Seat Gauge the login ended.
+        # A window closed mid-login still tells Seat Gauge the login ended;
+        # Ctrl-C ends the login but keeps the window, as the end does.
         trap 'ended 129; exit 129' HUP
-        trap 'ended 130; exit 130' INT
+        trap 'ended 130' INT
         trap 'ended 143; exit 143' TERM
         \(quoted(helper.path)) login \(quoted(seat)) \(quoted(seatsFile.path))
         ended $?

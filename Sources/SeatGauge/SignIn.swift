@@ -8,11 +8,21 @@ import SeatGaugeCore
 /// again once that login has ended.
 enum SignIn {
     /// How long a sign-in may stay open before the card is read again
-    /// anyway, as long as `claude auth login` itself waits.
-    static let wait: TimeInterval = 900
+    /// anyway: `claude auth login`'s own 15 minutes, its minute-long status
+    /// check, and Terminal's start, so the app never gives up first.
+    nonisolated static let limit: TimeInterval = 1200
+    /// How long Terminal has to start the script, which removes itself as
+    /// it starts, before the seat is freed for another click.
+    nonisolated static let opens: TimeInterval = 60
 
+    /// Each waiting seat's attempt, so an attempt that has ended frees its
+    /// seat only while no later one holds it.
+    static var attempts: [SeatID: UUID] = [:]
+
+    /// `seats` is unused: the helper reads the seats file itself.
     static func start(_ id: SeatID, seats: [Seat], done: @escaping @Sendable () -> Void) {
         guard !GaugeMirror.shared.signingIn.contains(id) else { return }
+        let attempt = UUID()
         let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/seatgauge-cli")
         let written: SignInScript.Written
         do {
@@ -24,13 +34,14 @@ enum SignIn {
             }
             written = try SignInScript.write(helper: helper, seat: id.rawValue, seatsFile: ConfigLoader.defaultFile)
             GaugeMirror.shared.signingIn.insert(id)
+            attempts[id] = attempt
             NSWorkspace.shared.open([written.script], withApplicationAt: terminal,
                                     configuration: NSWorkspace.OpenConfiguration()) { _, error in
                 guard let error else { return }
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         try? FileManager.default.removeItem(at: written.folder)
-                        GaugeMirror.shared.signingIn.remove(id)
+                        guard free(id, attempt) else { return }
                         refused(id, error)
                     }
                 }
@@ -40,17 +51,21 @@ enum SignIn {
             return
         }
         Thread.detachNewThread {
-            let end = Date().addingTimeInterval(wait)
-            while Date() < end, FileManager.default.fileExists(atPath: written.folder.path),
-                  !FileManager.default.fileExists(atPath: written.marker.path) {
-                Thread.sleep(forTimeInterval: 1)
-            }
+            _ = written.wait(start: opens, limit: limit)
             try? FileManager.default.removeItem(at: written.folder)
             DispatchQueue.main.async {
-                MainActor.assumeIsolated { GaugeMirror.shared.signingIn.remove(id) }
-                done()
+                MainActor.assumeIsolated { if free(id, attempt) { done() } }
             }
         }
+    }
+
+    /// Frees the seat for another click if `attempt` still holds it, and
+    /// says whether it did.
+    static func free(_ id: SeatID, _ attempt: UUID) -> Bool {
+        guard attempts[id] == attempt else { return false }
+        attempts[id] = nil
+        GaugeMirror.shared.signingIn.remove(id)
+        return true
     }
 
     /// Why Terminal was not opened. Brought to the front, since a panel of

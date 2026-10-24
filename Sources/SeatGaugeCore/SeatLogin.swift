@@ -28,10 +28,12 @@ public enum SeatLogin {
             while let argument = rest.popFirst() {
                 if argument == "--email", email == nil, let value = rest.popFirst() {
                     email = value
+                } else if seat == nil {
+                    // Before any flag check, so a seat whose id starts with
+                    // a dash, which seats.json allows, can be signed in.
+                    seat = argument
                 } else if argument.hasPrefix("-") {
                     throw ProcessFailure(usage)
-                } else if seat == nil {
-                    seat = argument
                 } else if file == nil {
                     file = argument
                 } else {

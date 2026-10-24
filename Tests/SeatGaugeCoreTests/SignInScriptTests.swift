@@ -36,10 +36,12 @@ import SeatGaugeCore
         return scratch
     }
 
-    static func run(_ script: URL) throws -> (Process, Pipe) {
+    /// Run where `in` says, so a `touch` the script let through lands there.
+    static func run(_ script: URL, in folder: URL? = nil) throws -> (Process, Pipe) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [script.path]
+        process.currentDirectoryURL = folder
         let input = Pipe()
         // A Return sent after the script has gone fails, rather than ending the run.
         _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
@@ -69,7 +71,7 @@ import SeatGaugeCore
         let seat = "it's $(touch pwned) a `b`"
         let written = try SignInScript.write(helper: scratch.helper, seat: seat, seatsFile: scratch.seats,
                                              in: scratch.parent)
-        let (process, input) = try Self.run(written.script)
+        let (process, input) = try Self.run(written.script, in: scratch.root)
         // The login's end is told before the window waits for Return.
         #expect(Self.appears(written.marker))
         #expect(process.isRunning)
@@ -77,7 +79,6 @@ import SeatGaugeCore
         try input.fileHandleForWriting.write(contentsOf: Data("\n".utf8))
         process.waitUntilExit()
         #expect(Self.text(scratch.args).components(separatedBy: "\n") == ["login", seat, scratch.seats.path])
-        #expect(!FileManager.default.fileExists(atPath: written.folder.appendingPathComponent("pwned").path))
         #expect(!FileManager.default.fileExists(atPath: scratch.root.appendingPathComponent("pwned").path))
     }
 
@@ -114,5 +115,35 @@ import SeatGaugeCore
         #expect(Self.appears(written.marker))
         #expect(Self.text(written.marker) == "129")
         process.waitUntilExit()
+    }
+
+    @Test func theWaitEndsWithTheLoginOrWhenTheScriptNeverRan() throws {
+        let scratch = try Self.scratch(then: "exit 0")
+        defer { scratch.remove() }
+        let unopened = try SignInScript.write(helper: scratch.helper, seat: "houston", seatsFile: scratch.seats,
+                                              in: scratch.parent)
+        #expect(unopened.wait(start: 0.2, limit: 10, every: 0.02) == .neverStarted)
+        let opened = try SignInScript.write(helper: scratch.helper, seat: "houston", seatsFile: scratch.seats,
+                                            in: scratch.parent)
+        let (process, input) = try Self.run(opened.script)
+        #expect(opened.wait(start: 10, limit: 10, every: 0.02) == .ended)
+        try input.fileHandleForWriting.write(contentsOf: Data("\n".utf8))
+        process.waitUntilExit()
+        let refused = try SignInScript.write(helper: scratch.helper, seat: "houston", seatsFile: scratch.seats,
+                                             in: scratch.parent)
+        try FileManager.default.removeItem(at: refused.folder)
+        #expect(refused.wait(start: 10, limit: 10, every: 0.02) == .ended)
+    }
+
+    @Test func theWaitGivesUpOnALoginThatOutlivesItsLimit() throws {
+        let scratch = try Self.scratch(then: "exec sleep 30")
+        defer { scratch.remove() }
+        let written = try SignInScript.write(helper: scratch.helper, seat: "houston", seatsFile: scratch.seats,
+                                             in: scratch.parent)
+        let (process, _) = try Self.run(written.script)
+        defer { process.terminate() }
+        #expect(Self.appears(scratch.pid))
+        #expect(written.wait(start: 10, limit: 0.3, every: 0.02) == .outOfTime)
+        if let helper = Int32(Self.text(scratch.pid)) { kill(helper, SIGTERM) }
     }
 }
