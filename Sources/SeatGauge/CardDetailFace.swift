@@ -18,7 +18,10 @@ struct DetailFace: View {
         VStack(alignment: .leading, spacing: 0) {
             CardHeader(card: card, face: .detail)
             gap(Base.headerToStatus)
-            Self.row(detail.status)
+            HStack(spacing: CardMetrics.headerSpacing) {
+                Self.row(detail.status)
+                if detail.signsIn { SignInButton(card: card) }
+            }
             gap(Base.statusToPlot)
             PlotView(plot: detail.plot)
                 .frame(minHeight: CardDetailMetrics.plotFloor, idealHeight: CardDetailMetrics.plotFloor,

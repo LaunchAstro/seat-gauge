@@ -16,7 +16,7 @@ The words Seat Gauge uses, and what each one means. Terms only, no implementatio
 - **Plan**: what a seat pays for, such as `Max 20x` or `Pro`. Taken from the login file's tier, or its organisation type when the tier names no plan (as a Pro login's does), then the plan written in `seats.json`, then the usage reply's own word. Never guessed as free.
 - **Dormant**: a seat that cannot be read right now, because it is switched off or not logged in. Hidden until it reads again.
 - **Stale**: a seat whose last read failed. Its last reading stays on the card, dimmed and dated.
-- **Open command**: a seat's own command in `seats.json`, which a click on its card's mark or name runs to start a fresh session on that seat. Optional; a seat without one has no click.
+- **Open command**: a seat's own command in `seats.json`, which a click on its card's mark or name runs to start a fresh session on that seat. Optional; a seat without one has no click. A signed-out seat's click signs it in instead.
 - **Headroom file**: `headroom.json`, the seats and their windows as the cards show them, written after every poll or sync for an agent to read. Data per seat, with no single seat picked.
 - **Panel**: the always-on-top window that shows the cards.
 - **Card**: one seat on the panel. Its glance face shows the windows; hovering turns it to the detail face with account, plan, pace and a usage chart.

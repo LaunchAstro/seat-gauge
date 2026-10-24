@@ -172,7 +172,7 @@ import SeatGaugeCore
         #expect(broken.details[History.work]?.plot == .bars([], selected: nil))
 
         let detail = CardDetail.make(card: Self.claude(), history: nil, selected: nil)
-        #expect(Mirror(reflecting: detail).children.compactMap(\.label) == ["status", "plot", "history"])
+        #expect(Mirror(reflecting: detail).children.compactMap(\.label) == ["status", "plot", "history", "signsIn"])
         #expect(Type.weight == .light)
     }
 

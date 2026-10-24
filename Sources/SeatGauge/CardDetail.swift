@@ -38,6 +38,9 @@ struct CardDetail: Equatable {
     let status: DetailLine?
     let plot: DetailPlot
     let history: SeatHistory?
+    /// The face draws Sign in beside the status, so a signed-out seat is
+    /// still one click from it while hovered.
+    var signsIn = false
 
     static func make(card: CardModel, history: SeatHistory?, selected: Int?) -> CardDetail {
         let buckets = history?.outcome.buckets ?? []
@@ -50,12 +53,12 @@ struct CardDetail: Equatable {
         let status = picked.map { DetailLine(text: buckets[$0].readOut, tone: .ink) }
             ?? reason
             ?? card.pace.map { DetailLine(text: $0.text, tone: $0.tone) }
-            ?? card.stale.map { DetailLine(text: $0, tone: .dim) }
-        return CardDetail(status: status, plot: plot(history, picked), history: history)
+            ?? card.stale.map { DetailLine(text: $0, tone: card.signsIn ? .danger : .dim) }
+        return CardDetail(status: status, plot: plot(history, picked), history: history, signsIn: card.signsIn)
     }
 
     var quiet: CardDetail {
-        CardDetail(status: nil, plot: plot, history: history)
+        CardDetail(status: nil, plot: plot, history: history, signsIn: signsIn)
     }
 
     private static func plot(_ history: SeatHistory?, _ selected: Int?) -> DetailPlot {

@@ -81,6 +81,7 @@ struct CardView: View {
             return true
         }
         .modifier(CardBox())
+        .modifier(SignsInCard(card: card))
         .opacity(card.isDimmed ? 0.6 : 1)
         .onHover { inside in
             let mirror = GaugeMirror.shared
@@ -211,7 +212,7 @@ struct CardHeader: View {
                 }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(card.opens ? card.openLabel : card.heading)
+            .accessibilityLabel(card.click == nil ? card.heading : card.clickLabel)
             .modifier(OpensSeat(card: card))
             // Laid out first, so a narrow card cuts the plan before the seat.
             .layoutPriority(1)
@@ -259,6 +260,26 @@ struct CloseButton: View {
     }
 }
 
+/// A signed-out card takes a click anywhere on its box as Sign in, with the
+/// pointing hand over it. VoiceOver already has the header and the Sign in
+/// button for it, so the box adds no element of its own.
+struct SignsInCard: ViewModifier {
+    let card: CardModel
+
+    func body(content: Content) -> some View {
+        if card.signsIn {
+            content
+                .contentShape(Rectangle())
+                .onTapGesture { GaugeMirror.shared.click(card) }
+                .onContinuousHover { phase in
+                    if case .active = phase { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+                }
+        } else {
+            content
+        }
+    }
+}
+
 /// Sign in, on the stale line of a card whose seat says it is not logged
 /// in, waiting while one runs.
 struct SignInButton: View {
@@ -276,24 +297,24 @@ struct SignInButton: View {
     }
 }
 
-/// The header's mark and name as the way to open the seat, when it has an
-/// `open` command: a pointing hand over them, a click that runs it, and a
-/// button VoiceOver can press. A tap rather than a `Button`, so a drag that
+/// The header's mark and name as the way to the card's click
+/// (`CardModel.click`): a pointing hand over them, a click that runs it, and
+/// a button VoiceOver can press. A tap rather than a `Button`, so a drag that
 /// starts on the name still moves the card. The cursor is set on every move
 /// rather than pushed, so a face that fades out mid hover leaves no stack.
 struct OpensSeat: ViewModifier {
     let card: CardModel
 
     func body(content: Content) -> some View {
-        if card.opens {
+        if card.click != nil {
             content
                 .contentShape(Rectangle())
-                .onTapGesture { GaugeMirror.shared.open(card.id) }
+                .onTapGesture { GaugeMirror.shared.click(card) }
                 .onContinuousHover { phase in
                     if case .active = phase { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
                 }
                 .accessibilityAddTraits(.isButton)
-                .accessibilityAction { GaugeMirror.shared.open(card.id) }
+                .accessibilityAction { GaugeMirror.shared.click(card) }
         } else {
             content
         }
