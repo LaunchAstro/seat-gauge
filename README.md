@@ -60,7 +60,7 @@ Every Claude seat needs its own `profile` directory, so no card reads whatever `
 
 ### Signing a Claude seat in
 
-A seat with `"login": "own"` has its own login, and reads the 5-hour, weekly and Fable windows plus its exact plan. In the app, a seat that is not logged in has Sign in on its card (put the card on the panel from `+`): it opens the sign-in page in your default browser, asks for the code the page shows, and says whether the seat is signed in. From a terminal, sign it in by its id:
+A seat with `"login": "own"` has its own login, and reads the 5-hour, weekly and Fable windows plus its exact plan. In the app, a seat that is not logged in says "signed out" on its card, and a click on that card (anywhere but its × and the chart's range and measure words), on its name or on Sign in (on the card and on its hover view) starts the sign-in: it opens the sign-in page in your default browser, asks for the code the page shows, and says whether the seat is signed in. From a terminal, sign it in by its id:
 
 ```sh
 swift run seatgauge-cli login work

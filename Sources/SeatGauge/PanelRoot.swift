@@ -108,6 +108,22 @@ import SwiftUI
             opening.remove(id)
         }
     }
+    /// A click on a card's name, or anywhere on a signed-out card: Sign in
+    /// for a signed-out seat, else its open command. Returns the open's
+    /// start check, as `open` does.
+    @discardableResult
+    func click(_ card: CardModel) -> Task<Void, Never>? {
+        switch card.click {
+        case .signIn:
+            signIn(card.id)
+            return nil
+        case .open:
+            return open(card.id)
+        case nil:
+            return nil
+        }
+    }
+
     /// Whether the title bar has room for its title and its status line, and
     /// the narrowest the row can be, all set by the window as it lays the bar
     /// out.
