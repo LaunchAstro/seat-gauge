@@ -489,6 +489,11 @@ extension MachineProber {
             return .failure(ProcessFailure("the Log probe did not answer within \(Int(spec.timeout.seconds)) s;"
                 + " macOS may be waiting for you to let Seat Gauge open Desktop, Documents or Downloads."
                 + " Answer the prompt, or allow it in System Settings > Privacy & Security > Files and Folders"))
+        } catch where machine.ssh == nil && !FileManager.default.isExecutableFile(
+            atPath: home.appendingPathComponent(".local/bin/herdr").path) {
+            // The helper ships inside the app, so on this Mac a silent probe
+            // with no herdr is herdr's absence, which most strangers have.
+            return .failure(ProcessFailure("the Log tab reads agent sessions from herdr, and herdr was not found at ~/.local/bin/herdr"))
         } catch { return .failure(ProcessFailure("the Log probe did not answer; install this version's CLI helper on the machine")) }
     }
 }

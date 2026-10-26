@@ -4,7 +4,7 @@ The Log tab publishes `log.json` in the app's Application Support folder, beside
 
 ## Requirements
 
-The Log tab sees only agents that run inside herdr, a terminal workspace manager that runs agent sessions in named workspaces and panes and answers questions about them on the command line. Each machine the tab reads needs herdr at `~/.local/bin/herdr`; the probe looks nowhere else. On a Mac without it, the tab lists no sessions and shows that machine's line as "the Log probe did not answer; install this version's CLI helper on the machine", although the helper is not what is missing. The other tabs do not need herdr.
+The Log tab sees only agents that run inside herdr, a terminal workspace manager that runs agent sessions in named workspaces and panes and answers questions about them on the command line. Each machine the tab reads needs herdr at `~/.local/bin/herdr`; the probe looks nowhere else. On this Mac without it, the tab lists no sessions and shows that machine's line as "the Log tab reads agent sessions from herdr, and herdr was not found at ~/.local/bin/herdr". A remote machine without it shows the helper line below, "the Log probe did not answer; install this version's CLI helper on the machine", because the tab cannot tell the two apart over SSH. The other tabs do not need herdr.
 
 The repo, section and seat columns come from the workspace's name, which must read `<repo>-<section>-<seat>`, such as `seat-gauge-Log-work`. Any other name still logs the session, with those three fields empty; the tab shows them as "unlabelled repo", "no section" and "no seat".
 
