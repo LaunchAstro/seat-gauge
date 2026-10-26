@@ -7,6 +7,8 @@ import Foundation
 /// total it ends on, which is all a resume needs to be put in order exactly
 /// as Spend orders it. A Codex file whose usage fields change inside it
 /// keeps no more: a resume after another file reads its usage lines again.
+/// Only such a file from a checkpoint written before then keeps the events
+/// it had, untouched, until its session leaves.
 struct SessionTokens: Sendable {
     var offset: UInt64 = 0
     var identity: UInt64 = 0
@@ -41,6 +43,10 @@ struct SessionTokens: Sendable {
     /// not, or no `total_tokens`. Then what the file adds after an earlier
     /// file depends on more than its head.
     var uneven = false
+    /// An uneven file's events, as an old checkpoint kept them, so its
+    /// totals never depend on its transcript still being there. Nil for
+    /// every other file.
+    var events: [CodexRollout.Event]?
 
     /// A checkpoint written before issue #120 kept every response, and which
     /// file counted each lives in `SessionCheckpoint`, so it migrates there.
@@ -98,6 +104,7 @@ struct SessionTokens: Sendable {
 
     /// One timestamped usage event, measured from the one before it.
     mutating func add(_ event: CodexRollout.Event) {
+        events?.append(event)
         let step = CodexRollout.contribution(total: event.total, last: event.last, after: baseline)
         let adds = step.added.values.contains { $0 > 0 }
         if adds { models[event.model, default: TokenCounts()] += CodexRollout.counts(step.added) }
@@ -122,10 +129,10 @@ struct SessionTokens: Sendable {
             // Measured again from `entry`, event by event, as Spend reads it.
             // Never seen on a real Mac, where Codex writes the same fields
             // throughout a file.
-            guard let rollout = CodexRollout.parse(url) else { return nil }
+            guard let events = events ?? CodexRollout.parse(url)?.events else { return nil }
             var replay = SessionTokens()
             replay.baseline = entry
-            for event in rollout.events where event.at != nil { replay.add(event) }
+            for event in events where event.at != nil { replay.add(event) }
             return (replay.models, replay.baseline)
         }
         let step = CodexRollout.contribution(total: head.total, last: head.last, after: entry)
@@ -145,7 +152,7 @@ extension SessionTokens: Codable {
     enum CodingKeys: String, CodingKey {
         case offset, identity, complete, skipping, models, counted, deferredTo, rescan
         case session, cwd, firstToken, model, baseline, head, after, resetAfter, uneven
-        case responses, seen, events
+        case events, responses, seen
     }
 
     init(from decoder: any Decoder) throws {
@@ -167,14 +174,20 @@ extension SessionTokens: Codable {
         after = try values.decodeIfPresent([String: TokenCounts].self, forKey: .after) ?? [:]
         resetAfter = try values.decodeIfPresent(Bool.self, forKey: .resetAfter) ?? false
         uneven = try values.decodeIfPresent(Bool.self, forKey: .uneven) ?? false
+        let events = try values.decodeIfPresent([CodexRollout.Event].self, forKey: .events)
         if let responses = try values.decodeIfPresent([SpendResponse].self, forKey: .responses), !responses.isEmpty {
             legacy = responses
         }
         // The old shape kept every Codex event and no head, so the new one is
         // built by reading them again in order, as a read of the file would.
-        if values.contains(.seen), let events = try values.decodeIfPresent([CodexRollout.Event].self, forKey: .events) {
+        // An uneven file keeps its events as they were, so its totals never
+        // need its transcript (director, 26 October 2026).
+        if values.contains(.seen), let events {
             models = [:]; baseline = nil; head = nil; after = [:]; resetAfter = false; uneven = false
             for event in events where event.at != nil { add(event) }
+            if uneven { self.events = events.filter { $0.at != nil } }
+        } else {
+            self.events = events
         }
     }
 
@@ -197,6 +210,7 @@ extension SessionTokens: Codable {
         if !after.isEmpty { try values.encode(after, forKey: .after) }
         if resetAfter { try values.encode(resetAfter, forKey: .resetAfter) }
         if uneven { try values.encode(uneven, forKey: .uneven) }
+        try values.encodeIfPresent(events, forKey: .events)
     }
 }
 

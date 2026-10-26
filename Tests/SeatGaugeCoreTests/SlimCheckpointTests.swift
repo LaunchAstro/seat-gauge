@@ -298,6 +298,46 @@ import Testing
         }
     }
 
+    @Test("Sol proof, round 3, criterion 2: an old uneven Codex file keeps its records, so a deleted transcript keeps its totals")
+    func unevenOldCheckpointWithoutItsTranscript() throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let first = root.appendingPathComponent("rollout-a.jsonl")
+        let second = root.appendingPathComponent("rollout-b.jsonl")
+        try Data(Self.rollout("main", [(1, 100, nil)]).utf8).write(to: first)
+        try Data(Self.rollout("main", [(2, 150, nil)]).utf8).write(to: second)
+        func file(_ url: URL, _ at: Double, _ events: [[String: Any]]) throws -> [String: Any] {
+            ["offset": try FileManager.default.attributesOfItem(atPath: url.path)[.size] as! Int, "identity": try inode(url),
+             "session": "main", "cwd": "/work/project", "firstToken": at, "model": "gpt-6.1-sol",
+             "seen": [] as [Any], "models": [:] as [String: Any], "responses": [] as [Any], "events": events, "complete": true]
+        }
+        let legacy: [String: Any] = [
+            "files": [
+                first.path: try file(first, 3_600, [["at": 3_600.0, "model": "gpt-6.1-sol",
+                                                      "total": ["input_tokens": 100, "output_tokens": 10, "total_tokens": 110]]]),
+                second.path: try file(second, 7_200, [
+                    ["at": 7_200.0, "model": "gpt-6.1-sol", "total": ["input_tokens": 150, "output_tokens": 10, "total_tokens": 160]],
+                    ["at": 10_800.0, "model": "gpt-6.1-sol",
+                     "total": ["input_tokens": 170, "cached_input_tokens": 5, "output_tokens": 10, "total_tokens": 180]],
+                ]),
+            ],
+            "owners": [first.path: "main", second.path: "main"], "messageOwners": [:] as [String: Any],
+        ]
+        var checkpoint = try JSONDecoder().decode(SessionCheckpoint.self, from: JSONSerialization.data(withJSONObject: legacy))
+        #expect(checkpoint.files[second.path]?.events?.count == 2)
+        #expect(checkpoint.files[first.path]?.events == nil)
+        try FileManager.default.removeItem(at: second)
+        let probe = SessionProbe(directory: root, home: root)
+        for _ in 0 ..< 2 {
+            let shown = probe.refreshed(row("codex"), paths: [first.path, second.path], checkpoint: &checkpoint, rates: .bundled)
+            #expect(shown.tokens?.input == 170)
+            #expect(shown.tokens?.responses == 3)
+            #expect(shown.models["gpt-6.1-sol"]?.input == 170)
+            #expect(shown.stale)
+            #expect(shown.usd == nil)
+            checkpoint = try JSONDecoder().decode(SessionCheckpoint.self, from: JSONEncoder().encode(checkpoint))
+        }
+    }
+
     @Test("the roll-up keeps a session's cost only while log.json shows the session")
     func sessionCostsFollowTheLog() async throws {
         let scratch = try SpendRollupTests.Scratch()
