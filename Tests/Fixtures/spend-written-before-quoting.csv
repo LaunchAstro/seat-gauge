@@ -1,0 +1,7 @@
+seat,day,hour,model,responses,input,output,thinking,cache_read,cache_write_5m,cache_write_1h,usd,sealed
+default,2026-10-20,02,claude-opus-5,1,100,10,0,0,0,0,0.00075,true
+default,2026-10-25,23,odd"model,1,7,3,0,0,0,0,,false
+default,2026-10-26,00,claude-opus-5,1,50,5,0,0,0,0,0.000375,false
+team-1_b,2026-10-21,04,claude-sonnet-5,1,1000,20,0,0,0,0,0.0022,true
+team-1_b,2026-10-25,22,vendor,model,1,9,1,0,0,0,0,,false
+work,team,2026-10-22,05,claude-fable-5,1,40,4,0,0,0,0,0.0006,true
