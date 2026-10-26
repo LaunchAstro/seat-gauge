@@ -158,6 +158,22 @@ import SeatGaugeTestSupport
         #expect(FixtureRecording.redact(#"{"id":0,"result":"\#(prose)"}"#) == #"{"id":0,"result":"\#(prose)"}"#)
     }
 
+    @Test("Sol proof, criterion 1: mixed-case prefixed key labels redact whole, in every case mix of key and pin")
+    func mixedCasePrefixedKeyLabelsRedactWhole() {
+        func mixes(_ word: String) -> [String] {
+            word.reduce([""]) { done, letter in done.flatMap { [$0 + letter.lowercased(), $0 + letter.uppercased()] } }
+        }
+        for word in mixes("key") + mixes("keys") + mixes("pin") + mixes("pins") {
+            for prefix in ["", "signing", "user", "SIM", "my ", "API  "] {
+                for suffix in [":", " ", "_id:", "Id:", "1:", "Number:"] {
+                    let text = "\(prefix)\(word)\(suffix) 531862"
+                    #expect(FixtureRecording.redact(#"{"id":0,"result":"\#(text)"}"#) == #"{"id":0,"result":"[redacted]"}"#,
+                            "\(text)")
+                }
+            }
+        }
+    }
+
     @Test("Sol proof, criterion 4: a recordings folder that is a link writes nothing and changes nothing outside")
     func aLinkedFolderWritesNothing() throws {
         let clone = try Self.scratch()
