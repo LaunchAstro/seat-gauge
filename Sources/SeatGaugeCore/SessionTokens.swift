@@ -15,58 +15,51 @@ struct SessionTokens: Codable, Sendable {
     var events: [CodexRollout.Event] = []
     var responses: [SpendResponse] = []
     var complete = false
+    /// True when `offset` is inside a line too long to read, so the next pass
+    /// discards up to its newline. Optional so a checkpoint written before it
+    /// still reads.
+    var skipping: Bool?
 
     mutating func read(_ url: URL, tool: String, budget: Int = 32 << 20) throws {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
         let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
         if inode != identity || size < offset { self = SessionTokens(); identity = inode }
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        try handle.seek(toOffset: offset)
-        var bytes = 0
-        var rest = Data()
-        while bytes < budget || !rest.isEmpty {
-            guard var chunk = try handle.read(upToCount: 256 << 10), !chunk.isEmpty else { break }
-            let finishing = bytes >= budget
-            let boundary = finishing ? chunk.firstIndex(of: 0x0A) : nil
-            if let boundary { chunk = Data(chunk[...boundary]) }
-            bytes += chunk.count
-            rest.append(chunk)
-            if let end = rest.lastIndex(of: 0x0A) {
-                let data = Data(rest[...end])
-                if tool == "codex" {
-                    for line in CodexRollout.candidates(data) {
-                        switch CodexRollout.decode(line) {
-                        case let .session(id, folder): if session == nil { session = id; cwd = folder }
-                        case let .model(named): model = named
-                        case let .tokens(at, total, last):
-                            if firstToken == nil { firstToken = at }
-                            if let total {
-                                events.append(CodexRollout.Event(at: at, model: model, total: total, last: last))
-                                if at != nil {
-                                    let step = CodexRollout.contribution(total: total, last: last, after: baseline)
-                                    baseline = step.baseline
-                                    if step.added.values.contains(where: { $0 > 0 }) {
-                                        models[model, default: TokenCounts()] += CodexRollout.counts(step.added)
-                                    }
+        let stop = try TranscriptLines.read(url, from: offset, skipping: skipping ?? false, budget: budget) { data, through in
+            if tool == "codex" {
+                for line in CodexRollout.candidates(data) {
+                    switch CodexRollout.decode(line) {
+                    case let .session(id, folder): if session == nil { session = id; cwd = folder }
+                    case let .model(named): model = named
+                    case let .tokens(at, total, last):
+                        if firstToken == nil { firstToken = at }
+                        if let total {
+                            events.append(CodexRollout.Event(at: at, model: model, total: total, last: last))
+                            if at != nil {
+                                let step = CodexRollout.contribution(total: total, last: last, after: baseline)
+                                baseline = step.baseline
+                                if step.added.values.contains(where: { $0 > 0 }) {
+                                    models[model, default: TokenCounts()] += CodexRollout.counts(step.added)
                                 }
                             }
-                        default: break
                         }
-                    }
-                } else {
-                    let reading = ClaudeCollector.read(data: data, primer: AppPaths.primer, seen: &seen)
-                    responses += reading.responses
-                    for response in reading.responses {
-                        models[response.filedModel, default: TokenCounts()] += response.counts
+                    default: break
                     }
                 }
-                offset += UInt64(data.count)
-                rest = Data(rest[rest.index(after: end)...])
+            } else {
+                let reading = ClaudeCollector.read(data: data, primer: AppPaths.primer, seen: &seen)
+                responses += reading.responses
+                for response in reading.responses {
+                    models[response.filedModel, default: TokenCounts()] += response.counts
+                }
             }
-            if finishing, boundary != nil { break }
+            // Moved with each run, so a read that fails later in the pass
+            // leaves the offset on what was counted, and nothing is counted twice.
+            offset = through
+            skipping = nil
         }
+        offset = stop.offset
+        skipping = stop.skipping ? true : nil
         complete = offset == size
     }
 

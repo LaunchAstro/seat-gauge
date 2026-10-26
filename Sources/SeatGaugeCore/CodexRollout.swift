@@ -126,7 +126,9 @@ public enum CodexRollout {
         var events: [Event] = []
         var skipped = 0
         for line in candidates(data) {
-            guard let record = decode(line) else { skipped += 1; continue }
+            // The file is mapped rather than read, but decoding a line holds
+            // all of it, so one past the ceiling is unreadable unread.
+            guard line.count <= TranscriptLines.longestLine, let record = decode(line) else { skipped += 1; continue }
             switch record {
             case let .session(id, folder):
                 if session == nil { session = id; cwd = folder }
