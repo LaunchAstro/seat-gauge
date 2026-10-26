@@ -142,10 +142,11 @@ struct SessionLedger {
 
     /// Rewrites the ledger as `rows`, one line per session, once it holds
     /// more than four lines for each (and more than 256), so it stays a few
-    /// times the size of what it records. `rows` must be what a read of the
-    /// ledger gives now.
-    func compactIfLong(_ rows: [String: SessionObservation], lines: Int) throws {
-        guard lines > 4 * max(rows.count, 64) else { return }
+    /// times the size of what it records, or at once when `dropping`, for a
+    /// session that has left. `rows` must be what a read of the ledger gives
+    /// now, less any session that has left.
+    func compactIfLong(_ rows: [String: SessionObservation], lines: Int, dropping: Bool = false) throws {
+        guard dropping || lines > 4 * max(rows.count, 64) else { return }
         let fresh = directory.appendingPathComponent("observations.jsonl.new")
         try? FileManager.default.removeItem(at: fresh)
         guard FileManager.default.createFile(atPath: fresh.path, contents: nil,
@@ -237,19 +238,20 @@ public actor SessionLogMonitor {
                 // such as a folder macOS held; it shows under the machine.
                 let said = log.problems.keys.sorted().compactMap { log.problems[$0] }
                 if !said.isEmpty { problems[machine.id] = said.joined(separator: "; ") }
-                rows[machine.id] = log.sessions.map { row in
+                rows[machine.id] = SessionRetention.kept(log.sessions, row: { $0 }, now: now).map { row in
                     var row = row; row.machine = machine.id
                     row.stale = row.stale || now.timeIntervalSince(row.asOf) > 90
                     return row
                 }
             case let .failure(error):
                 problems[machine.id] = error.reason
-                rows[machine.id] = (rows[machine.id] ?? []).map { var row = $0; row.stale = true; return row }
+                rows[machine.id] = SessionRetention.kept(rows[machine.id] ?? [], row: { $0 }, now: now)
+                    .map { var row = $0; row.stale = true; return row }
             case .none: break
             }
         }
-        let log = SessionLogFile(updated: now, sessions: machines.flatMap { rows[$0.id] ?? [] }
-            .sorted { ($0.startedAt ?? .distantPast, $0.id) > ($1.startedAt ?? .distantPast, $1.id) }, problems: problems)
+        let log = SessionRetention.bounded(SessionLogFile(updated: now, sessions: machines.flatMap { rows[$0.id] ?? [] }
+            .sorted { ($0.startedAt ?? .distantPast, $0.id) > ($1.startedAt ?? .distantPast, $1.id) }, problems: problems))
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try SessionLogFile.encoder().encode(log).write(to: file, options: .atomic)
@@ -259,11 +261,49 @@ public actor SessionLogMonitor {
     }
 }
 
+/// How long a closed session stays, read from its `closed_at`, so a reader of
+/// `log.json` can tell when a row will go. The probe drops a session from its
+/// ledger, checkpoint and pass on the same rule that drops it from `log.json`,
+/// so nothing is kept or re-read that nobody is shown (issue #70).
 public enum SessionRetention {
+    /// A working week. At the rate seen on the owner's Mac, about 64 sessions
+    /// a day, that is some 450 closed rows per machine.
     public static let closedFor: TimeInterval = 7 * 86_400
+    /// A burst of short sessions cannot outgrow the file within the week.
     public static let closedPerMachine = 1_000
+    /// The whole file, under the 5,000 rows and 4,000,000 bytes a reader of
+    /// `log.json` may cap it at (issue #38), with room to spare.
     public static let fileRows = 4_000
     public static let fileBytes = 3_000_000
 
-    static func kept<T>(_ items: [T], row: (T) -> SessionRow, now: Date) -> [T] { items }
+    /// Every open session, and the newest `closedPerMachine` that closed
+    /// within `closedFor` of `now`. `items` are one machine's.
+    static func kept<T>(_ items: [T], row: (T) -> SessionRow, now: Date) -> [T] {
+        let recent = items.filter { item in row(item).closedAt.map { now.timeIntervalSince($0) < closedFor } ?? true }
+        let closed = recent.compactMap { item in row(item).closedAt.map { ($0, row(item).sessionId) } }
+        guard closed.count > closedPerMachine else { return recent }
+        let dropped = Set(closed.sorted { $0 > $1 }.dropFirst(closedPerMachine).map(\.1))
+        return recent.filter { !dropped.contains(row($0).sessionId) }
+    }
+
+    /// `log` with its oldest closed rows dropped until it is within
+    /// `fileRows` and `fileBytes`. Open rows are never dropped.
+    static func bounded(_ log: SessionLogFile) -> SessionLogFile {
+        let encoder = SessionLogFile.encoder()
+        var empty = log; empty.sessions = []
+        let base = (try? encoder.encode(empty).count) ?? 0
+        let sizes = log.sessions.map { (try? encoder.encode($0).count) ?? 0 }
+        // Each row after the first adds a comma inside the array.
+        var bytes = base + sizes.reduce(0, +) + max(0, sizes.count - 1)
+        var count = log.sessions.count
+        let oldestFirst = log.sessions.indices.filter { log.sessions[$0].closedAt != nil }
+            .sorted { (log.sessions[$0].closedAt!, log.sessions[$0].id) < (log.sessions[$1].closedAt!, log.sessions[$1].id) }
+        var dropped = Set<Int>()
+        for index in oldestFirst where count > fileRows || bytes > fileBytes {
+            dropped.insert(index); count -= 1; bytes -= sizes[index] + 1
+        }
+        var bounded = log
+        bounded.sessions = log.sessions.indices.filter { !dropped.contains($0) }.map { log.sessions[$0] }
+        return bounded
+    }
 }

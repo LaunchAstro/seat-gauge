@@ -61,10 +61,17 @@ public struct SessionProbe: Sendable {
     func collect(now: Date, rates: RateCard) async throws -> SessionLogFile {
         let ledger = SessionLedger(directory: directory)
         let stored = try ledger.read()
-        var observations = stored.rows
+        // A session `log.json` no longer shows leaves the pass, and its token
+        // state goes with it unless a session still here holds the same file.
+        var observations = SessionRetention.kept(Array(stored.rows), row: { $0.value.row }, now: now)
+            .reduce(into: [String: SessionObservation]()) { $0[$1.key] = $1.value }
         let checkpointFile = directory.appendingPathComponent("offsets.json")
         var checkpoint = (try? Data(contentsOf: checkpointFile))
             .flatMap { try? JSONDecoder().decode(SessionCheckpoint.self, from: $0) } ?? SessionCheckpoint()
+        let held = Set(observations.values.flatMap(\.paths))
+        let left = Set(stored.rows.filter { observations[$0.key] == nil }.values.flatMap(\.paths)).subtracting(held)
+        for path in left { checkpoint.files[path] = nil; checkpoint.owners[path] = nil }
+        checkpoint.messageOwners = checkpoint.messageOwners.filter { !left.contains($0.value) }
         for observation in observations.values where observation.row.status != "superseded" {
             for path in observation.paths where checkpoint.owners[path] == nil {
                 checkpoint.owners[path] = observation.row.sessionId
@@ -236,7 +243,12 @@ public struct SessionProbe: Sendable {
         if !novel.isEmpty, let tail = stored.tail { recorded[tail.row.sessionId] = tail }
         for change in novel { recorded[change.row.sessionId] = change }
         try ledger.append(novel)
-        do { try ledger.compactIfLong(recorded, lines: stored.lines + (novel.isEmpty ? 0 : novel.count + 1)) }
+        let staying = SessionRetention.kept(Array(recorded), row: { $0.value.row }, now: now)
+            .reduce(into: [String: SessionObservation]()) { $0[$1.key] = $1.value }
+        do {
+            try ledger.compactIfLong(staying, lines: stored.lines + (novel.isEmpty ? 0 : novel.count + 1),
+                                     dropping: staying.count < recorded.count)
+        }
         catch { PollLog.system("log: the pane ledger could not be compacted") }
         try JSONEncoder().encode(checkpoint).write(to: checkpointFile, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: checkpointFile.path)
