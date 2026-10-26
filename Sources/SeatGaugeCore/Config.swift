@@ -256,48 +256,8 @@ public struct ConfigLoader: Sendable {
             let billing = try Self.billing(renews: seat.renews, ends: seat.ends, id: seat.id)
             switch seat.kind {
             case "claude":
-                // A claude seat with no profile would read whatever ~/.claude
-                // is signed into, and draw that account under its own name.
-                guard let profile = seat.profile else {
-                    throw ConfigProblem("seats.json: the claude seat \"\(seat.id)\" has no profile, so it would read whichever account ~/.claude is signed into; give it a profile and \"login\": \"own\".")
-                }
-                let directory = URL(fileURLWithPath: NSString(string: profile).expandingTildeInPath, isDirectory: true)
-                guard let places = ProfilePlace.of(directory) else {
-                    throw ConfigProblem("seats.json: the claude seat \"\(seat.id)\" has a profile whose path cannot be followed to a folder, since its links go round in a loop or it climbs out of a file; give it a directory of its own.")
-                }
-                guard !ProfilePlace.isDefaultLogin(directory, home: home) else {
-                    throw ConfigProblem("seats.json: the claude seat \"\(seat.id)\" has the default login's directory, or a folder inside it, as its profile, so it would read whichever account ~/.claude is signed into; give it a directory of its own.")
-                }
-                for place in places {
-                    if let other = profiles.updateValue(seat.id, forKey: place) {
-                        throw ConfigProblem("seats.json: \"\(seat.id)\" has the same profile as \"\(other)\", so both cards would read one login; give each seat a directory of its own.")
-                    }
-                }
-                // Spend history files a seat under its id, and keeps these two
-                // names for the default login and for Codex.
-                guard !SpendAttribution.keptNames.contains(seat.id) else {
-                    throw ConfigProblem("seats.json: a claude seat cannot have the id \"\(seat.id)\", which spend history keeps for \(seat.id == CodexRollout.seat ? "Codex" : "the default login").")
-                }
-                let id = SeatID(rawValue: seat.id)
-                // A seat that owns its login pins no token, even when a file
-                // is lying in the token directory under its name. Any
-                // other spelling is refused rather than read as a token seat.
-                let own = seat.login == "own"
-                guard seat.login == nil || own else {
-                    throw ConfigProblem("seats.json: \"\(seat.id)\" has login \"\(seat.login ?? "")\", and the only login a seat can say is \"own\".")
-                }
-                guard !own || seat.token == nil else {
-                    throw ConfigProblem("seats.json: \"\(seat.id)\" says \"login\": \"own\" and names a \"token\" too. A seat signs in one way.")
-                }
-                // A named source is taken as given, so a path that is not there
-                // is an unreadable seat with a reason rather than a silent
-                // fall back to somebody else's token.
-                let token = own ? nil : seat.token.map {
-                    URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath)
-                } ?? SeatToken.defaultSource(for: id, in: tokenDirectory)
-                seats.append(Seat(id: id, label: seat.label,
-                                  kind: .claude(profileDir: directory), tokenFile: token,
-                                  account: seat.account, plan: seat.plan, open: open, billing: billing))
+                seats.append(try claudeSeat(seat, open: open, billing: billing, profiles: &profiles,
+                                            tokenDirectory: tokenDirectory, home: home))
             case "codex":
                 // Codex signs in from its own config, so it ignores both
                 // "profile" and "token" the same way.
@@ -311,6 +271,54 @@ public struct ConfigLoader: Sendable {
                       machines: try Self.machines(stored.machines),
                       machineSeconds: max(2, stored.machineSeconds ?? 5),
                       spendFrom: try Self.day(stored.spendFrom))
+    }
+
+    /// One claude seat, refused unless its profile is a directory of its own
+    /// that no other seat in `profiles` has, and its login says one way in.
+    private static func claudeSeat(_ seat: Stored.StoredSeat, open: [String]?, billing: Billing?,
+                                   profiles: inout [ProfilePlace: String],
+                                   tokenDirectory: URL, home: URL) throws -> Seat {
+        // A claude seat with no profile would read whatever ~/.claude
+        // is signed into, and draw that account under its own name.
+        guard let profile = seat.profile else {
+            throw ConfigProblem("seats.json: the claude seat \"\(seat.id)\" has no profile, so it would read whichever account ~/.claude is signed into; give it a profile and \"login\": \"own\".")
+        }
+        let directory = URL(fileURLWithPath: NSString(string: profile).expandingTildeInPath, isDirectory: true)
+        guard let places = ProfilePlace.of(directory) else {
+            throw ConfigProblem("seats.json: the claude seat \"\(seat.id)\" has a profile whose path cannot be followed to a folder, since its links go round in a loop or it climbs out of a file; give it a directory of its own.")
+        }
+        guard !ProfilePlace.isDefaultLogin(directory, home: home) else {
+            throw ConfigProblem("seats.json: the claude seat \"\(seat.id)\" has the default login's directory, or a folder inside it, as its profile, so it would read whichever account ~/.claude is signed into; give it a directory of its own.")
+        }
+        for place in places {
+            if let other = profiles.updateValue(seat.id, forKey: place) {
+                throw ConfigProblem("seats.json: \"\(seat.id)\" has the same profile as \"\(other)\", so both cards would read one login; give each seat a directory of its own.")
+            }
+        }
+        // Spend history files a seat under its id, and keeps these two
+        // names for the default login and for Codex.
+        guard !SpendAttribution.keptNames.contains(seat.id) else {
+            throw ConfigProblem("seats.json: a claude seat cannot have the id \"\(seat.id)\", which spend history keeps for \(seat.id == CodexRollout.seat ? "Codex" : "the default login").")
+        }
+        let id = SeatID(rawValue: seat.id)
+        // A seat that owns its login pins no token, even when a file
+        // is lying in the token directory under its name. Any
+        // other spelling is refused rather than read as a token seat.
+        let own = seat.login == "own"
+        guard seat.login == nil || own else {
+            throw ConfigProblem("seats.json: \"\(seat.id)\" has login \"\(seat.login ?? "")\", and the only login a seat can say is \"own\".")
+        }
+        guard !own || seat.token == nil else {
+            throw ConfigProblem("seats.json: \"\(seat.id)\" says \"login\": \"own\" and names a \"token\" too. A seat signs in one way.")
+        }
+        // A named source is taken as given, so a path that is not there
+        // is an unreadable seat with a reason rather than a silent
+        // fall back to somebody else's token.
+        let token = own ? nil : seat.token.map {
+            URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath)
+        } ?? SeatToken.defaultSource(for: id, in: tokenDirectory)
+        return Seat(id: id, label: seat.label, kind: .claude(profileDir: directory), tokenFile: token,
+                    account: seat.account, plan: seat.plan, open: open, billing: billing)
     }
 
     /// `spendFrom` as a real calendar day, `2026-08-10`, or nothing.
