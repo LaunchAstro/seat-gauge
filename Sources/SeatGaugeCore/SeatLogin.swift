@@ -97,8 +97,8 @@ public enum SeatLogin {
                                                 setting: ClaudeFetcher.variables(profile: profile))
         // The same PATH a poll gets, so the CLI is found wherever a poll finds it.
         environment["PATH"] = searchPath.joined(after: environment["PATH"])
-        try login(name, email: email, environment: environment, timeout: timeout, code: code, link: link)
-        return try status(name, environment: environment)
+        try login(name, email: email, environment: environment, in: profile, timeout: timeout, code: code, link: link)
+        return try status(name, environment: environment, in: profile)
     }
 
     /// The seat's profile, or the reason it may not be signed in.
@@ -150,10 +150,10 @@ public enum SeatLogin {
         var given: String?? { lock.withLock { answer } }
     }
 
-    static func login(_ name: String, email: String?, environment: [String: String], timeout: Duration,
-                      code: @escaping @Sendable () -> String?, link: (String) -> Void) throws {
+    static func login(_ name: String, email: String?, environment: [String: String], in folder: URL,
+                      timeout: Duration, code: @escaping @Sendable () -> String?, link: (String) -> Void) throws {
         let child = try TerminalChild(["claude", "auth", "login", "--claudeai"] + (email.map { ["--email", $0] } ?? []),
-                                      environment: environment)
+                                      environment: environment, in: folder)
         defer { child.stop() }
         let deadline = ContinuousClock.now + timeout
         let pasted = Pasted()
@@ -197,8 +197,8 @@ public enum SeatLogin {
     }
 
     /// The proof: the CLI's own word, under the same profile, that it is signed in.
-    static func status(_ name: String, environment: [String: String]) throws -> SignedIn {
-        let child = try TerminalChild(["claude", "auth", "status", "--json"], environment: environment)
+    static func status(_ name: String, environment: [String: String], in folder: URL) throws -> SignedIn {
+        let child = try TerminalChild(["claude", "auth", "status", "--json"], environment: environment, in: folder)
         defer { child.stop() }
         let deadline = ContinuousClock.now + .seconds(60)
         var said = Data()
@@ -228,12 +228,14 @@ public enum SeatLogin {
 }
 
 /// A child on a pseudo-terminal, since `claude auth login` takes its code
-/// only from one. Its output is read here and nowhere else.
+/// only from one. Its output is read here and nowhere else. It runs in
+/// `folder`, the seat's own profile, never the folder the command was typed
+/// in, which may be a downloaded project with settings of its own.
 final class TerminalChild {
     private let process = Process()
     private let master: Int32
 
-    init(_ arguments: [String], environment: [String: String]) throws {
+    init(_ arguments: [String], environment: [String: String], in folder: URL) throws {
         var master: Int32 = -1, slave: Int32 = -1
         // Wide, so a long link is never wrapped across lines.
         var size = winsize(ws_row: 24, ws_col: 2000, ws_xpixel: 0, ws_ypixel: 0)
@@ -244,6 +246,7 @@ final class TerminalChild {
         process.executableURL = Fetch.env
         process.arguments = arguments
         process.environment = environment
+        process.currentDirectoryURL = folder
         let terminal = FileHandle(fileDescriptor: slave, closeOnDealloc: false)
         process.standardInput = terminal
         process.standardOutput = terminal
