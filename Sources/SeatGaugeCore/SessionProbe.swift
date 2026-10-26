@@ -120,22 +120,54 @@ public struct SessionProbe: Sendable {
         return pass
     }
 
-    /// herdr's panes, and each workspace's label by id.
-    func listing() async throws -> (panes: [[String: Any]], labels: [String: String]) {
+    /// The name a pane's sessions go by. It is unsettled when the pane's
+    /// tab could not be read, or the tab list left it out, so a row seen
+    /// before keeps its own name rather than flip to the workspace's for
+    /// one pass.
+    struct PaneLabel { var text: String; var settled: Bool }
+
+    /// herdr's panes, and each pane's label by id: its tab's label when
+    /// someone named the tab, as lanes sharing one job workspace do, and
+    /// otherwise its workspace's label. herdr labels a tab nobody named
+    /// with its position, so an all-digit label counts as unnamed.
+    func listing() async throws -> (panes: [[String: Any]], labels: [String: PaneLabel]) {
         let listing = try await reply(["pane", "list"])
         let workspaces = try await reply(["workspace", "list"])
         guard let panes = listing["panes"] as? [[String: Any]],
               let spaces = workspaces["workspaces"] as? [[String: Any]] else { throw ProcessFailure("herdr listing was incomplete") }
-        let labels = Dictionary(spaces.compactMap { item -> (String, String)? in
-            guard let id = item["workspace_id"] as? String, let label = item["label"] as? String else { return nil }
-            return (id, label)
-        }, uniquingKeysWith: { first, _ in first })
+        func byID(_ items: [[String: Any]], _ key: String) -> [String: String] {
+            Dictionary(items.compactMap { item -> (String, String)? in
+                guard let id = item[key] as? String, let label = item["label"] as? String else { return nil }
+                return (id, label)
+            }, uniquingKeysWith: { first, _ in first })
+        }
+        let spaceLabels = byID(spaces, "workspace_id")
+        // A herdr that fails this one call still names sessions by workspace.
+        let tabLabels = ((try? await reply(["tab", "list"]))?["tabs"] as? [[String: Any]]).map { byID($0, "tab_id") }
+        var labels: [String: PaneLabel] = [:]
+        for pane in panes {
+            guard let paneID = pane["pane_id"] as? String else { continue }
+            let tabID = pane["tab_id"] as? String
+            let tab = tabID.flatMap { tabLabels?[$0] }
+            if let tab = tab.flatMap(Self.named) {
+                labels[paneID] = PaneLabel(text: tab, settled: true)
+            } else if let space = spaceLabels[pane["workspace_id"] as? String ?? ""] {
+                labels[paneID] = PaneLabel(text: space, settled: tabID == nil || tab != nil)
+            }
+        }
         return (panes, labels)
+    }
+
+    /// A tab's label without the blank or control characters around it, or
+    /// nil when nothing else is left or it is all digits, as herdr's own is.
+    static func named(_ tab: String) -> String? {
+        let text = tab.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.controlCharacters))
+        return text.isEmpty || text.unicodeScalars.allSatisfy { ("0"..."9").contains($0) } ? nil : text
     }
 
     /// Every agent process in one pane. A pane herdr cannot describe is
     /// uncertain, so its sessions go stale rather than closed.
-    func observe(_ pane: [String: Any], labels: [String: String], in pass: inout ProbePass, rates: RateCard) async {
+    func observe(_ pane: [String: Any], labels: [String: PaneLabel], in pass: inout ProbePass, rates: RateCard) async {
         guard let paneID = pane["pane_id"] as? String else { return }
         guard let info = try? await reply(["pane", "process-info", "--pane", paneID]),
               let value = info["process_info"] as? [String: Any],
@@ -145,7 +177,7 @@ public struct SessionProbe: Sendable {
         }
     }
 
-    func observe(process item: [String: Any], in pane: [String: Any], id paneID: String, labels: [String: String],
+    func observe(process item: [String: Any], in pane: [String: Any], id paneID: String, labels: [String: PaneLabel],
                  pass: inout ProbePass, rates: RateCard) async {
         guard let argv = item["argv"] as? [String], let first = argv.first,
               let pid = JSON.int(item["pid"]) else { return }
@@ -164,11 +196,11 @@ public struct SessionProbe: Sendable {
                 : URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         }
         let (id, inherited) = adopt(primary, pid: pid, birth: birth, pane: paneID, in: &pass)
-        let label = labels[pane["workspace_id"] as? String ?? ""]
+        let label = labels[paneID]
         var row = pass.observations[id]?.row ?? inherited?.row ?? SessionRow(sessionId: id,
-            workspace: label ?? "", pane: paneID, tool: tool, status: "unknown", asOf: pass.now)
+            workspace: label?.text ?? "", pane: paneID, tool: tool, status: "unknown", asOf: pass.now)
         row.sessionId = id
-        row.observe(workspace: label ?? row.workspace)
+        row.observe(workspace: label.flatMap { $0.settled ? $0.text : nil } ?? row.workspace)
         row.pane = paneID
         row.status = pane["agent_status"] as? String ?? "unknown"
         if row.status == "working", row.startedAt == nil { row.startedAt = pass.now }
