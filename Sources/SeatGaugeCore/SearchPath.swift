@@ -34,8 +34,11 @@ public struct LoginShell: Sendable, CustomStringConvertible {
         guard let path = [parent["SHELL"], account].compactMap({ $0 })
             .first(where: { $0.hasPrefix("/") && FileManager.default.isExecutableFile(atPath: $0) })
         else { return nil }
-        return LoginShell(executable: URL(fileURLWithPath: path),
-                          environment: ChildEnvironment.make(from: parent, setting: ["TERM": "dumb"]))
+        var environment = ChildEnvironment.make(from: parent, setting: ["TERM": "dumb"])
+        // The profile runs in the caller's folder, so a relative entry would
+        // let that folder's programs stand in for the profile's own.
+        environment["PATH"] = SearchPath.absolute(parent["PATH"])
+        return LoginShell(executable: URL(fileURLWithPath: path), environment: environment)
     }
 
     /// Fences the answer, since a profile may print anything before or after
@@ -121,7 +124,7 @@ public struct LoginShell: Sendable, CustomStringConvertible {
         else { return nil }
         let line = text[open.upperBound ..< shut.lowerBound]
         guard !line.contains("\n") else { return nil }
-        return SearchPath.unique(line.split(separator: ":").map(String.init).filter { $0.hasPrefix("/") })
+        return SearchPath.unique(line.split(separator: ":").map(String.init))
     }
 }
 
@@ -158,7 +161,8 @@ public final class SearchPath: @unchecked Sendable {
         }
     }
 
-    /// `path` first, so a caller that sets one keeps its order.
+    /// `path` first, so a caller that sets one keeps its order. Its relative
+    /// entries go, as every source's do (`unique`).
     public func joined(after path: String?) -> String {
         let own = path.map { $0.split(separator: ":").map(String.init) } ?? []
         return Self.unique(own + directories()).joined(separator: ":")
@@ -181,8 +185,19 @@ public final class SearchPath: @unchecked Sendable {
             + versions.map { node + "/" + $0 + "/bin" }
     }
 
+    /// Each absolute directory once, in order. A relative or empty entry
+    /// resolves inside the child's working directory, which may be a
+    /// downloaded project with its own `claude` in it, so it is dropped
+    /// whichever source it came from.
     static func unique(_ entries: [String]) -> [String] {
         var seen = Set<String>()
-        return entries.filter { !$0.isEmpty && seen.insert($0).inserted }
+        return entries.filter { $0.hasPrefix("/") && seen.insert($0).inserted }
+    }
+
+    /// An inherited `PATH` with only its absolute directories, or nil when it
+    /// has none.
+    static func absolute(_ path: String?) -> String? {
+        let kept = unique(path.map { $0.split(separator: ":").map(String.init) } ?? [])
+        return kept.isEmpty ? nil : kept.joined(separator: ":")
     }
 }
