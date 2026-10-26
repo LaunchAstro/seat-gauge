@@ -81,7 +81,8 @@ import SeatGaugeCore
         defer { try? FileManager.default.removeItem(at: directory) }
         // The directory name is in the argv of the shell and of the child it
         // starts, so pgrep finds both. The child leaves a file once it runs. The
-        // timeout leaves room for macOS to scan the new script before it starts.
+        // timeout leaves room for macOS to scan the new script before it starts,
+        // on a machine busy enough to take seconds over it.
         let child = directory.appendingPathComponent("child")
         let file = try Self.shell(in: directory, profile: """
             /bin/sh -c 'echo up > "\(child.path)"; sleep 30; : \(directory.lastPathComponent)' &
@@ -89,9 +90,9 @@ import SeatGaugeCore
             """)
 
         let started = ContinuousClock.now
-        let path = Self.shell(file, home: directory, timeout: .seconds(3)).path()
+        let path = Self.shell(file, home: directory, timeout: .seconds(8)).path()
         #expect(path == nil)
-        #expect(ContinuousClock.now - started < .seconds(6))
+        #expect(ContinuousClock.now - started < .seconds(12))
         #expect(FileManager.default.fileExists(atPath: child.path))
 
         var left = 1

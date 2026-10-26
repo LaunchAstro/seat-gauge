@@ -26,7 +26,7 @@ step() {
   else
     # Every failed case's own line, which the last lines of a long run
     # often leave out, then the run's end.
-    printf 'check: %s FAIL\n%s\n%s\n' "$name" "$(printf '%s\n' "$out" | grep -E 'Test .* (failed after|recorded an issue at)' | cut -c1-300 | head -n 60)" \
+    printf 'check: %s FAIL\n%s\n%s\n' "$name" "$(printf '%s\n' "$out" | grep -E 'Test .* (failed after|recorded an issue at)' | cut -c1-300)" \
       "$(printf '%s\n' "$out" | tail -n 20)"
     failed=1
   fi
@@ -55,12 +55,15 @@ privacy() {
   return 1
 }
 
-# Suites that time real child processes, timers or memory against tight
-# bounds, or find processes by name. Beside other cases they read a busy
-# machine as a failure, so the full run gives them the machine to
-# themselves. A new suite like them goes here.
-ALONE=(InstallTests MemoryCeilingTests SearchPathTests SeatOpenTests SeatOpenPanelTests SeatsRowTests
-  SolSeatOpenProofTests SolSeatOpenRaceProofTests SolPR73DeadlineProofTests)
+# Suites that hold real child processes, timers, file locks or memory to
+# bounds of a few seconds, signal a child at a set moment, or find processes
+# by name. Beside other cases they read a busy machine as a failure, so the
+# full run gives them the machine to themselves. A new suite like them goes
+# here.
+ALONE=(AttributionSeedTests ClearableFoldersTests InstallTests MemoryCeilingTests SearchPathTests
+  SeatOpenTests SeatOpenPanelTests SeatsRowTests SignInScriptTests SolPR73DeadlineProofTests
+  SolPR73ProofTests SolProofPR3Tests SolProofTests SolSeatOpenProofTests SolSeatOpenRaceProofTests
+  StateWriterTests StrictMCPConfigTests)
 alone="\.($(IFS='|'; printf '%s' "${ALONE[*]}"))/"
 
 step "swift build" swift build "${SWIFT_FLAGS[@]}"
