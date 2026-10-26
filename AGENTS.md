@@ -60,7 +60,7 @@ Test only what the change builds. This is the owner's rule and it is not optiona
 - Then prove it the way the owner does: install the app (`make install`) and use the new feature itself. If the change is CPU load, look at the CPU figures; if it is a click, click it.
 - Do not run, add or rework tests for parts of the panel the change does not touch. A change to the LOAD tab never re-checks the seat cards, their 5-hour or weekly bars, the Spend tab or anything else it did not change. An existing test outside the change that now fails because of it gets the smallest fix that makes it true again, and nothing more.
 - Look at the section you changed, in the real app, and check it properly: it displays right, its figures are true, and it holds up when you resize the window or change the text size. Visual checks (screenshots, mockups, sizing sweeps) stop at that section; nothing else is photographed, compared or re-checked.
-- The full suite (`scripts/check.sh` with no filter) takes 10 to 15 minutes. Run it only when the owner asks for it.
+- The full suite (`scripts/check.sh` with no filter) takes about 4 minutes on a busy M5: most suites side by side, then those in the script's `ALONE` list one case at a time. Run it only when the owner asks for it. A new suite that times real child processes, timers or memory goes in `ALONE`.
 
 `swift build` and `make test` are the parts. The two tests that launch the real `claude` and `codex` run only under `SEATGAUGE_INTEGRATION=1` (see `CONTRIBUTING.md`).
 
