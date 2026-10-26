@@ -195,6 +195,7 @@ func login(_ arguments: ArraySlice<String>) throws {
     print(signed.sentence(request.seat))
 }
 
+let usage = "usage: seatgauge-cli --version | log | log-probe | read [seats.json] | machines [seats.json] | machines add <ssh destination> [label] | record <seat> [seats.json] | watch | spend [file] | state [range <r>] [measure <m>] | attribute --seed <file> | import-codex | login <seat> [--email <address>] [seats.json]"
 let arguments = Array(CommandLine.arguments.dropFirst())
 do {
     switch arguments.first {
@@ -223,7 +224,12 @@ do {
     case "machines":
         if arguments.dropFirst().first == "add" { try await addMachine(arguments.dropFirst(2)) }
         else { try await machines(arguments.dropFirst().first) }
-    default: print("usage: seatgauge-cli --version | log | log-probe | read [seats.json] | machines [seats.json] | machines add <ssh destination> [label] | record <seat> [seats.json] | watch | spend [file] | state [range <r>] [measure <m>] | attribute --seed <file> | import-codex | login <seat> [--email <address>] [seats.json]")
+    // No command, or a plain ask for help, is not a mistake: usage on stdout, exit 0.
+    case nil, "--help", "-h": print(usage)
+    // Anything else is one, so a script sees it: usage on stderr, exit 2.
+    default:
+        FileHandle.standardError.write(Data("seatgauge-cli: unknown command \(arguments[0])\n\(usage)\n".utf8))
+        exit(2)
     }
 } catch {
     FileHandle.standardError.write(Data("seatgauge-cli: \(error)\n".utf8))

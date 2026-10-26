@@ -183,7 +183,8 @@ public struct CodexFetcher: SeatFetching {
     /// hooks or plugins, so a poll starts nothing the gauge did not ask for.
     static let arguments = ["codex", "app-server", "-c", "check_for_update_on_startup=false",
                             "--disable", "hooks", "--disable", "plugins"]
-    static let initialize = #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"seat-gauge","title":"Seat Gauge","version":"0.1.0"}}}"#
+    // The version is this build's own, so a bump in `VERSION` reaches the server too.
+    static let initialize = #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"seat-gauge","title":"Seat Gauge","version":"\#(SeatGaugeVersion.current)"}}}"#
     static let initialized = #"{"jsonrpc":"2.0","method":"initialized"}"#
     static let limits = #"{"jsonrpc":"2.0","id":2,"method":"account/rateLimits/read","params":{"excludeResetCreditDetails":true}}"#
 

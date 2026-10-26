@@ -116,6 +116,20 @@ import SeatGaugeTestSupport
         #expect(codexRunner.closedInputAfter == 3)
     }
 
+    @Test("codex app-server is told this build's version, not a copy of it")
+    func codexClientInfoCarriesTheVersionConstant() async throws {
+        let runner = ScriptedRunner(replies: Self.batches(
+            try Fixture.lines("codex"), waitingFor: ["\"id\":1", nil, "\"id\":2"]))
+        _ = await CodexFetcher(runner: runner, authFile: Self.authFile)
+            .fetch(Self.codex, now: .now, last: nil)
+        let request = try #require(runner.sent.first)
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(request.utf8)) as? [String: Any])
+        let params = try #require(object["params"] as? [String: Any])
+        let info = try #require(params["clientInfo"] as? [String: String])
+        #expect(info["version"] == SeatGaugeVersion.current)
+        #expect(info["name"] == "seat-gauge")
+    }
+
     // MARK: - Recording a fixture
 
     @Test("record writes redacted stdout lines to Tests/Fixtures/<seat>-<date>.jsonl")
