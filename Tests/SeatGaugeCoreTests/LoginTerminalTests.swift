@@ -187,6 +187,20 @@ import SeatGaugeCore
         unarmed.end()
     }
 
+    @Test("Sol proof, criterion 1: when the signal sources never register, sign-in refuses before the code is asked for")
+    func noCodeWithoutSafeEcho() throws {
+        let terminal = try Terminal()
+        let held = DispatchQueue(label: "seat-gauge-held-refuse")
+        held.suspend()
+        defer { held.resume() }
+        #expect(throws: ProcessFailure.self) {
+            _ = try HiddenEntry.forCode(terminal: terminal.slave, on: held, within: .milliseconds(200))
+        }
+        #expect(terminal.echoes)
+        // Not a terminal, such as a code piped in: nothing to hide, nothing refused.
+        #expect(try HiddenEntry.forCode(terminal: -1) == nil)
+    }
+
     @Test("claude auth login and status run in the seat's own profile, not the caller's folder")
     func signInChildrenRunInTheProfile() throws {
         let scratch = try SeatLoginTests.scratch(.accepts("c"))

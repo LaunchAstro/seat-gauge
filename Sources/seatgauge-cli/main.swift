@@ -178,8 +178,7 @@ func spend() async throws {
 func login(_ arguments: ArraySlice<String>) throws {
     let request = try SeatLogin.Request(arguments: Array(arguments))
     // The code is not echoed, and the terminal is put back however this ends.
-    let entry = HiddenEntry()
-    entry?.endOnSignals()
+    let entry = try HiddenEntry.forCode()
     defer { entry?.end() }
     let signed = try SeatLogin.signIn(request.seat, email: request.email, seats: try readSeats(request.seatsFile),
                                       searchPath: .loginShell,
