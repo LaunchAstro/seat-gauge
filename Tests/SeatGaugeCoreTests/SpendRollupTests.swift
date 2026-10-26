@@ -271,6 +271,10 @@ import SeatGaugeCore
 
         let scratch = try Scratch()
         defer { scratch.remove() }
+        let shown = SessionLogFile(updated: Date(), sessions: ["session-a", "session-b"].map {
+            SessionRow(sessionId: $0, workspace: "", pane: "w1:p1", tool: "claude", status: "closed", asOf: Date())
+        })
+        try SessionLogFile.encoder().encode(shown).write(to: scratch.directory.appendingPathComponent("log.json"))
         let run = try await scratch.run()
         // The fixture's own cells are all older than 48 h at the run's `now`.
         #expect(run.rows.allSatisfy { $0.sealed })

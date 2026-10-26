@@ -166,6 +166,17 @@ public actor SpendCoordinator {
         }
     }
 
+    /// The sessions `log.json` beside the record shows, none when there is
+    /// no log, and nil when it will not read, which prunes nothing. A
+    /// session's cost is kept only while the log shows the session (issue
+    /// #120): nothing reads it after that.
+    static func shownSessions(_ log: URL) -> Set<String>? {
+        guard let data = FileManager.default.contents(atPath: log.path) else {
+            return FileManager.default.fileExists(atPath: log.path) ? nil : []
+        }
+        return (try? SessionLogFile.decoder().decode(SessionLogFile.self, from: data)).map { Set($0.sessions.map(\.sessionId)) }
+    }
+
     static func priced(_ cells: [SpendCell: TokenCounts], rates: RateCard) -> [SpendRow] {
         cells.map { cell, counts in
             SpendRow(cell: cell, counts: counts, usd: rates.usd(model: cell.model, counts: counts), sealed: false)
@@ -199,11 +210,13 @@ public actor SpendCoordinator {
         let fresh = Self.priced(collected.cells, rates: rates)
         let rows = SpendCSV.merge(existing.rows, with: fresh, now: now, calendar: calendar)
         try SpendCSV.write(rows, to: csv)
+        let shown = Self.shownSessions(csv.deletingLastPathComponent().appendingPathComponent("log.json"))
         try store.update {
             $0.timeZone = calendar.timeZone.identifier
             $0.rolledUpAt = now
             $0.spendRebuiltAt = rebuild ? now : nil
             $0.sessionCosts.merge(collected.sessionCosts) { _, fresh in fresh }
+            if let shown { $0.sessionCosts = $0.sessionCosts.filter { shown.contains($0.key) } }
         }
         // A backup that fails costs a day's copy, never the roll-up.
         do {
