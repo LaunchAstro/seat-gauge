@@ -32,6 +32,20 @@ public final class HiddenEntry: @unchecked Sendable {
         found = settings
     }
 
+    /// The entry `seatgauge-cli login` reads the code through: nil when
+    /// stdin is not a terminal, and a refusal, before anything asks for the
+    /// code, when Ctrl-C could not put echo back, so the code is never
+    /// read with echo on.
+    public static func forCode(terminal: Int32 = STDIN_FILENO, on queue: DispatchQueue = .global(),
+                               within wait: DispatchTimeInterval = .seconds(2)) throws -> HiddenEntry? {
+        guard let entry = HiddenEntry(terminal: terminal) else { return nil }
+        guard entry.endOnSignals(on: queue, within: wait) else {
+            entry.end()
+            throw ProcessFailure("the terminal could not be set to hide the code, so nothing was asked for and the seat was not signed in. Try again.")
+        }
+        return entry
+    }
+
     /// Ctrl-C and a kill put the terminal back before they end the command.
     /// The empty handler only keeps the signal from ending it first; unlike
     /// an ignored signal, a caught one is reset for every child the command
