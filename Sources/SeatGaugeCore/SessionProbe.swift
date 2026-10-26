@@ -50,34 +50,51 @@ public struct SessionProbe: Sendable {
         return result
     }
 
+    /// What `log-probe` is told: `--directory <folder>` for its private
+    /// store, and `--closed-through <seconds since 1970>`, the newest second
+    /// whose closed rows `log.json` no longer shows. A flag it does not know
+    /// is passed over with its value, so a newer app can drive this helper.
     public struct Arguments {
         public var directory: URL?
         public var closedThrough: Date?
-        public init(_ arguments: [String]) {}
+
+        public init(_ arguments: [String]) {
+            var index = 0
+            while index + 1 < arguments.count {
+                let value = arguments[index + 1]
+                switch arguments[index] {
+                case "--directory": directory = URL(fileURLWithPath: value)
+                case "--closed-through": closedThrough = Int(value).map { Date(timeIntervalSince1970: Double($0)) }
+                default: break
+                }
+                index += 2
+            }
+        }
     }
 
+    /// `closedThrough` is the monitor's cut-off for rows it no longer shows
+    /// (see `SessionRetention.bounded`).
     public func run(now: Date = Date(), rates: RateCard = .bundled, closedThrough: Date? = nil) async throws -> SessionLogFile {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         return try await FileLock.holdingAsync(directory.appendingPathComponent("probe.lock"), timeout: .seconds(1)) {
-            try await collect(now: now, rates: rates)
+            try await collect(now: now, rates: rates, closedThrough: closedThrough)
         }
     }
 
-    func collect(now: Date, rates: RateCard) async throws -> SessionLogFile {
+    func collect(now: Date, rates: RateCard, closedThrough: Date? = nil) async throws -> SessionLogFile {
         let ledger = SessionLedger(directory: directory)
         let stored = try ledger.read()
-        // A session `log.json` no longer shows leaves the pass, and its token
-        // state goes with it unless a session still here holds the same file.
-        var observations = SessionRetention.kept(Array(stored.rows), row: { $0.value.row }, now: now)
-            .reduce(into: [String: SessionObservation]()) { $0[$1.key] = $1.value }
+        func staying(_ rows: [String: SessionObservation]) -> [String: SessionObservation] {
+            SessionRetention.kept(Array(rows), row: { $0.value.row }, now: now, through: closedThrough)
+                .reduce(into: [String: SessionObservation]()) { $0[$1.key] = $1.value }
+        }
+        // A session `log.json` no longer shows leaves the pass.
+        var observations = staying(stored.rows)
         let checkpointFile = directory.appendingPathComponent("offsets.json")
         var checkpoint = (try? Data(contentsOf: checkpointFile))
             .flatMap { try? JSONDecoder().decode(SessionCheckpoint.self, from: $0) } ?? SessionCheckpoint()
-        let held = Set(observations.values.flatMap(\.paths))
-        let left = Set(stored.rows.filter { observations[$0.key] == nil }.values.flatMap(\.paths)).subtracting(held)
-        for path in left { checkpoint.files[path] = nil; checkpoint.owners[path] = nil }
-        checkpoint.messageOwners = checkpoint.messageOwners.filter { !left.contains($0.value) }
+        checkpoint.release(stored.rows.values.filter { observations[$0.row.sessionId] == nil }, keeping: observations.values)
         for observation in observations.values where observation.row.status != "superseded" {
             for path in observation.paths where checkpoint.owners[path] == nil {
                 checkpoint.owners[path] = observation.row.sessionId
@@ -249,16 +266,21 @@ public struct SessionProbe: Sendable {
         if !novel.isEmpty, let tail = stored.tail { recorded[tail.row.sessionId] = tail }
         for change in novel { recorded[change.row.sessionId] = change }
         try ledger.append(novel)
-        let staying = SessionRetention.kept(Array(recorded), row: { $0.value.row }, now: now)
-            .reduce(into: [String: SessionObservation]()) { $0[$1.key] = $1.value }
+        // A session this pass closed can put the machine over its cap, so the
+        // rule runs again on what the ledger now holds, and what leaves goes
+        // from the ledger, the checkpoint and this pass's rows alike.
+        let kept = staying(recorded)
+        let leaving = recorded.filter { kept[$0.key] == nil }
+        checkpoint.release(leaving.values, keeping: kept.values)
         do {
-            try ledger.compactIfLong(staying, lines: stored.lines + (novel.isEmpty ? 0 : novel.count + 1),
-                                     dropping: staying.count < recorded.count)
+            try ledger.compactIfLong(kept, lines: stored.lines + (novel.isEmpty ? 0 : novel.count + 1),
+                                     dropping: !leaving.isEmpty)
         }
         catch { PollLog.system("log: the pane ledger could not be compacted") }
         try JSONEncoder().encode(checkpoint).write(to: checkpointFile, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: checkpointFile.path)
-        return SessionLogFile(updated: now, sessions: observations.values.map(\.row).filter { $0.status != "superseded" },
+        return SessionLogFile(updated: now, sessions: observations.values.map(\.row)
+            .filter { $0.status != "superseded" && leaving[$0.sessionId] == nil },
                               problems: gitHeld ? ["git": Self.folderAccessProblem] : [:])
     }
 
@@ -388,7 +410,7 @@ public struct SessionProbe: Sendable {
 extension MachineProber {
     static func quote(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
 
-    public func readLog(_ machine: Machine) async -> Result<SessionLogFile, ProcessFailure> {
+    public func readLog(_ machine: Machine, closedThrough: Date? = nil) async -> Result<SessionLogFile, ProcessFailure> {
         var spec = Self.spec(machine, environment: environment)
         spec = ProcessSpec(executable: spec.executable, arguments: spec.arguments, environment: spec.environment,
                            timeout: .seconds(90))
@@ -400,7 +422,8 @@ extension MachineProber {
                     ? "\"$HOME/.local/bin/seatgauge-cli\"" : "\"$HOME/.local/libexec/seatgauge-log-probe\""
             let state = machine.ssh == nil
                 ? " --directory " + Self.quote(AppPaths.support.appendingPathComponent("log-private").path) : ""
-            try child.send("\(helper) log-probe\(state)")
+            let through = closedThrough.map { " --closed-through \(Int(SessionRetention.second($0)))" } ?? ""
+            try child.send("\(helper) log-probe\(state)\(through)")
             child.closeInput()
             var lines: [String] = []
             for try await line in child.stdoutLines { lines.append(line) }

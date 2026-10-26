@@ -199,11 +199,12 @@ let arguments = Array(CommandLine.arguments.dropFirst())
 do {
     switch arguments.first {
     case "log-probe":
-        let directory = arguments.count == 3 && arguments[1] == "--directory"
-            ? URL(fileURLWithPath: arguments[2]) : AppPaths.support.appendingPathComponent("log-private")
+        let options = SessionProbe.Arguments(Array(arguments.dropFirst()))
+        let directory = options.directory ?? AppPaths.support.appendingPathComponent("log-private")
         let config = ConfigLoader(file: directory.deletingLastPathComponent().appendingPathComponent("seats.json"))
         let seats = (try? config.load().seats) ?? []
-        let log = try await SessionProbe(directory: directory, profiles: SpendProfile.from(seats: seats)).run(rates: RateCard.load())
+        let log = try await SessionProbe(directory: directory, profiles: SpendProfile.from(seats: seats))
+            .run(rates: RateCard.load(), closedThrough: options.closedThrough)
         print(String(decoding: try SessionLogFile.encoder().encode(log), as: UTF8.self))
     case "log":
         let watcher = ConfigWatcher()

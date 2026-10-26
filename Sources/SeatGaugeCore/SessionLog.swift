@@ -199,6 +199,15 @@ struct SessionCheckpoint: Codable {
     var files: [String: SessionTokens] = [:]
     var owners: [String: String] = [:]
     var messageOwners: [String: String] = [:]
+
+    /// Forgets the files of sessions that have left, unless a session still
+    /// here holds the same file.
+    mutating func release(_ leaving: some Sequence<SessionObservation>, keeping: some Sequence<SessionObservation>) {
+        let left = Set(leaving.flatMap(\.paths)).subtracting(keeping.flatMap(\.paths))
+        guard !left.isEmpty else { return }
+        for path in left { files[path] = nil; owners[path] = nil }
+        messageOwners = messageOwners.filter { !left.contains($0.value) }
+    }
 }
 
 public actor SessionLogMonitor {
@@ -207,6 +216,9 @@ public actor SessionLogMonitor {
     let config: @Sendable () async -> Config
     let notify: @Sendable (SessionLogFile) -> Void
     private var rows: [String: [SessionRow]] = [:]
+    /// The newest second whose closed rows the file cap has dropped, handed
+    /// to every probe so each drops them from its own store too.
+    private var closedThrough: Date?
 
     public init(prober: MachineProber, file: URL = SessionLogFile.file,
                 config: @escaping @Sendable () async -> Config,
@@ -228,7 +240,8 @@ public actor SessionLogMonitor {
     @discardableResult public func read() async -> SessionLogFile {
         let machines = await config().machines
         let prober = self.prober
-        let results = await Machine.each(machines) { await prober.readLog($0) }
+        let through = closedThrough
+        let results = await Machine.each(machines) { await prober.readLog($0, closedThrough: through) }
         var problems: [String: String] = [:]
         let now = Date()
         for machine in machines {
@@ -238,20 +251,22 @@ public actor SessionLogMonitor {
                 // such as a folder macOS held; it shows under the machine.
                 let said = log.problems.keys.sorted().compactMap { log.problems[$0] }
                 if !said.isEmpty { problems[machine.id] = said.joined(separator: "; ") }
-                rows[machine.id] = SessionRetention.kept(log.sessions, row: { $0 }, now: now).map { row in
+                // An older probe ignores the cut-off, so it is applied here too.
+                rows[machine.id] = SessionRetention.kept(log.sessions, row: { $0 }, now: now, through: through).map { row in
                     var row = row; row.machine = machine.id
                     row.stale = row.stale || now.timeIntervalSince(row.asOf) > 90
                     return row
                 }
             case let .failure(error):
                 problems[machine.id] = error.reason
-                rows[machine.id] = SessionRetention.kept(rows[machine.id] ?? [], row: { $0 }, now: now)
+                rows[machine.id] = SessionRetention.kept(rows[machine.id] ?? [], row: { $0 }, now: now, through: through)
                     .map { var row = $0; row.stale = true; return row }
             case .none: break
             }
         }
-        let log = SessionRetention.bounded(SessionLogFile(updated: now, sessions: machines.flatMap { rows[$0.id] ?? [] }
+        let (log, dropped) = SessionRetention.bounded(SessionLogFile(updated: now, sessions: machines.flatMap { rows[$0.id] ?? [] }
             .sorted { ($0.startedAt ?? .distantPast, $0.id) > ($1.startedAt ?? .distantPast, $1.id) }, problems: problems))
+        if let dropped { closedThrough = max(closedThrough ?? dropped, dropped) }
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try SessionLogFile.encoder().encode(log).write(to: file, options: .atomic)
@@ -276,10 +291,19 @@ public enum SessionRetention {
     public static let fileRows = 4_000
     public static let fileBytes = 3_000_000
 
+    /// `log.json` writes whole seconds, so a cut-off is compared by the
+    /// second a row shows.
+    static func second(_ date: Date) -> Double { date.timeIntervalSince1970.rounded(.down) }
+
     /// Every open session, and the newest `closedPerMachine` that closed
-    /// within `closedFor` of `now`. `items` are one machine's.
-    static func kept<T>(_ items: [T], row: (T) -> SessionRow, now: Date) -> [T] {
-        let recent = items.filter { item in row(item).closedAt.map { now.timeIntervalSince($0) < closedFor } ?? true }
+    /// within `closedFor` of `now` and after the second `through`. `items`
+    /// are one machine's.
+    static func kept<T>(_ items: [T], row: (T) -> SessionRow, now: Date, through: Date? = nil) -> [T] {
+        let recent = items.filter { item in
+            row(item).closedAt.map { closed in
+                now.timeIntervalSince(closed) < closedFor && through.map { second(closed) > second($0) } ?? true
+            } ?? true
+        }
         let closed = recent.compactMap { item in row(item).closedAt.map { ($0, row(item).sessionId) } }
         guard closed.count > closedPerMachine else { return recent }
         let dropped = Set(closed.sorted { $0 > $1 }.dropFirst(closedPerMachine).map(\.1))
@@ -287,8 +311,11 @@ public enum SessionRetention {
     }
 
     /// `log` with its oldest closed rows dropped until it is within
-    /// `fileRows` and `fileBytes`. Open rows are never dropped.
-    static func bounded(_ log: SessionLogFile) -> SessionLogFile {
+    /// `fileRows` and `fileBytes`, a whole second at a time, and the newest
+    /// second dropped, or nil. Every closed row at or before that second has
+    /// gone, so the monitor hands it to each probe, which drops the same rows
+    /// from its own store (`SessionProbe.run`). Open rows are never dropped.
+    static func bounded(_ log: SessionLogFile) -> (log: SessionLogFile, through: Date?) {
         let encoder = SessionLogFile.encoder()
         var empty = log; empty.sessions = []
         let base = (try? encoder.encode(empty).count) ?? 0
@@ -296,14 +323,17 @@ public enum SessionRetention {
         // Each row after the first adds a comma inside the array.
         var bytes = base + sizes.reduce(0, +) + max(0, sizes.count - 1)
         var count = log.sessions.count
-        let oldestFirst = log.sessions.indices.filter { log.sessions[$0].closedAt != nil }
-            .sorted { (log.sessions[$0].closedAt!, log.sessions[$0].id) < (log.sessions[$1].closedAt!, log.sessions[$1].id) }
+        let bySecond = Dictionary(grouping: log.sessions.indices.filter { log.sessions[$0].closedAt != nil }) {
+            second(log.sessions[$0].closedAt!)
+        }
         var dropped = Set<Int>()
-        for index in oldestFirst where count > fileRows || bytes > fileBytes {
-            dropped.insert(index); count -= 1; bytes -= sizes[index] + 1
+        var through: Double?
+        for moment in bySecond.keys.sorted() where count > fileRows || bytes > fileBytes {
+            for index in bySecond[moment]! { dropped.insert(index); count -= 1; bytes -= sizes[index] + 1 }
+            through = moment
         }
         var bounded = log
         bounded.sessions = log.sessions.indices.filter { !dropped.contains($0) }.map { log.sessions[$0] }
-        return bounded
+        return (bounded, through.map { Date(timeIntervalSince1970: $0) })
     }
 }
