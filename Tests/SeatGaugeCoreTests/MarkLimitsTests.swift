@@ -28,6 +28,121 @@ import Testing
         #expect(await MarkCache.collect(Self.bytes(1000), limit: MarkCache.largestIcon)?.count == 1000)
     }
 
+    /// Bytes made only when asked for, counting how many were: a million in
+    /// all, so a reader that buffers everything still ends.
+    struct Endless: AsyncSequence {
+        typealias Element = UInt8
+        final class Count: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value = 0
+            func next() { lock.withLock { value += 1 } }
+            var taken: Int { lock.withLock { value } }
+        }
+        let count = Count()
+        struct AsyncIterator: AsyncIteratorProtocol {
+            let count: Count
+            mutating func next() async -> UInt8? {
+                guard count.taken < 1_000_000 else { return nil }
+                count.next()
+                return 0x41
+            }
+        }
+        func makeAsyncIterator() -> AsyncIterator { AsyncIterator(count: count) }
+    }
+
+    @Test("Sol proof, criterion 8: an endless body is read only to one byte past the limit")
+    func readingStopsAtTheLimit() async {
+        let endless = Endless()
+        #expect(await MarkCache.collect(endless, limit: 4096) == nil)
+        #expect(endless.count.taken == 4097)
+    }
+
+    // MARK: - The real download, served by a stand-in protocol
+
+    /// Serves fixed answers instead of the network: a redirect, an icon, or a
+    /// body that keeps coming a chunk at a time until the task stops it.
+    final class Stub: URLProtocol, @unchecked Sendable {
+        final class Log: @unchecked Sendable {
+            private let lock = NSLock()
+            private var urls: [String] = []
+            private var sentBytes = 0
+            private var stops = 0
+            func ask(_ url: String) { lock.withLock { urls.append(url) } }
+            func sent(_ count: Int) { lock.withLock { sentBytes += count } }
+            func stop() { lock.withLock { stops += 1 } }
+            var asked: [String] { lock.withLock { urls } }
+            var bytes: Int { lock.withLock { sentBytes } }
+            var stopped: Int { lock.withLock { stops } }
+        }
+        nonisolated(unsafe) static var log = Log()
+        private let halt = NSLock()
+        private var halted = false
+
+        override class func canInit(with request: URLRequest) -> Bool { true }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+        override func startLoading() {
+            guard let url = request.url, let client else { return }
+            Self.log.ask(url.absoluteString)
+            switch url.path {
+            case "/away", "/home":
+                let target = URL(string: url.path == "/away" ? "https://tracker.example/i.ico"
+                                                            : "https://assets-proxy.anthropic.com/i.ico")!
+                let reply = HTTPURLResponse(url: url, statusCode: 302, httpVersion: "HTTP/1.1",
+                                            headerFields: ["Location": target.absoluteString])!
+                client.urlProtocol(self, wasRedirectedTo: URLRequest(url: target), redirectResponse: reply)
+                client.urlProtocolDidFinishLoading(self)
+            case "/i.ico":
+                let reply = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+                client.urlProtocol(self, didReceive: reply, cacheStoragePolicy: .notAllowed)
+                client.urlProtocol(self, didLoad: MarkLimitsTests.ico)
+                client.urlProtocolDidFinishLoading(self)
+            default:
+                let reply = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+                client.urlProtocol(self, didReceive: reply, cacheStoragePolicy: .notAllowed)
+                stream(client, left: 256)
+            }
+        }
+
+        /// 16 KB every few milliseconds, 4 MB in all unless stopped first.
+        private func stream(_ client: URLProtocolClient, left: Int) {
+            guard left > 0, !halt.withLock({ halted }) else { return }
+            client.urlProtocol(self, didLoad: Data(repeating: 0x41, count: 16 << 10))
+            Self.log.sent(16 << 10)
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.002) { self.stream(client, left: left - 1) }
+        }
+
+        override func stopLoading() {
+            halt.withLock { halted = true }
+            Self.log.stop()
+        }
+    }
+
+    static func stubbed() -> MarkCache.Download {
+        Stub.log = Stub.Log()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [Stub.self]
+        return MarkCache.download(through: URLSession(configuration: configuration))
+    }
+
+    @Test("Sol proof, criterion 1: the real download stops receiving and cancels its task past the limit")
+    func downloadStopsReceiving() async throws {
+        let download = Self.stubbed()
+        #expect(await download(URL(string: "https://claude.ai/endless")!, 64 << 10) == nil)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(Stub.log.stopped >= 1)
+        #expect(Stub.log.bytes < 1 << 20, "\(Stub.log.bytes) bytes were sent for a 64 KB limit")
+    }
+
+    @Test("Sol proof, criterion 2: a redirect off the provider's domains is refused, and one on them followed")
+    func redirectsAreHeld() async {
+        let download = Self.stubbed()
+        #expect(await download(URL(string: "https://claude.ai/away")!, MarkCache.largestIcon) == nil)
+        #expect(!Stub.log.asked.contains("https://tracker.example/i.ico"))
+        #expect(await download(URL(string: "https://claude.ai/home")!, MarkCache.largestIcon) == Self.ico)
+        #expect(Stub.log.asked.contains("https://assets-proxy.anthropic.com/i.ico"))
+    }
+
     @Test("only https on the provider's own domains is followed",
           arguments: [("https://claude.ai/favicon.ico", true), ("https://assets-proxy.anthropic.com/i.png", true),
                       ("https://cdn.oaistatic.com/i.png", false), ("http://claude.ai/favicon.ico", false),

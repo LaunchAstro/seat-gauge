@@ -30,11 +30,13 @@ enum SeatMark {
     /// fetch and the file reads run off the main actor, in the core, and so
     /// does the decode. An icon that makes no mark is evicted, so the next
     /// launch fetches it again rather than decoding it at every start.
-    static func load(_ cache: MarkCache = MarkCache()) async -> [Provider: NSImage] {
+    /// `decode` is a parameter so a case can see where it runs.
+    static func load(_ cache: MarkCache = MarkCache(),
+                     decode: @escaping @Sendable (Data) -> CGImage? = { mask(from: $0) }) async -> [Provider: NSImage] {
         var marks: [Provider: NSImage] = [:]
         for provider in Provider.allCases {
             guard let data = await cache.mark(for: provider) else { continue }
-            let masked = await Task.detached(priority: .utility) { mask(from: data) }.value
+            let masked = await Task.detached(priority: .utility) { decode(data) }.value
             if let masked { marks[provider] = template(masked) } else { cache.evict(provider) }
         }
         return marks

@@ -54,6 +54,29 @@ import UniformTypeIdentifiers
         #expect(mark.size.width <= CGFloat(SeatMark.thumbnailSide))
     }
 
+    @Test("Sol proof, criterion 4: the icon is decoded off the main actor")
+    func decodedOffMain() async throws {
+        let folder = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("seat-gauge-seatmark-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Self.encode([Self.image(side: 32)], as: .png).write(to: folder.appendingPathComponent("claude.icon"))
+        let seen = Seen()
+        let marks = await SeatMark.load(MarkCache(folder: folder, download: { _, _ in nil })) { data in
+            seen.record(Thread.isMainThread)
+            return SeatMark.mask(from: data)
+        }
+        #expect(marks[.claude] != nil)
+        #expect(seen.onMain == [false])
+    }
+
+    final class Seen: @unchecked Sendable {
+        private let lock = NSLock()
+        private var list: [Bool] = []
+        func record(_ main: Bool) { lock.withLock { list.append(main) } }
+        var onMain: [Bool] { lock.withLock { list } }
+    }
+
     @Test("a cached icon that fails is evicted, so the next launch fetches it again")
     func evicted() async throws {
         let folder = URL(fileURLWithPath: NSTemporaryDirectory())

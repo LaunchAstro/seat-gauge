@@ -157,16 +157,23 @@ public struct MarkCache: Sendable {
     /// A plain GET over https, kept on the first URL's provider domains
     /// through any redirect, read to at most `limit` bytes. Anything but a
     /// `200` is no icon.
-    public static let download: Download = { url, limit in
-        guard let provider = Provider.allCases.first(where: { allows(url, for: $0) }) else { return nil }
-        let domains = domains(provider)
-        guard let (bytes, response) = try? await session.bytes(from: url, delegate: Redirects(domains: domains))
-        else { return nil }
-        defer { bytes.task.cancel() }
-        guard let reply = response as? HTTPURLResponse, reply.statusCode == 200,
-              let final = reply.url, allows(final, within: domains),
-              reply.expectedContentLength <= Int64(limit) else { return nil }
-        return await collect(bytes, limit: limit)
+    public static let download: Download = download(through: session)
+
+    /// The download over a given session, so a case can serve it from a
+    /// stand-in protocol rather than the network. The task is cancelled
+    /// whenever the read stops, so a refused body is not received on.
+    static func download(through session: URLSession) -> Download {
+        { url, limit in
+            guard let provider = Provider.allCases.first(where: { allows(url, for: $0) }) else { return nil }
+            let domains = domains(provider)
+            guard let (bytes, response) = try? await session.bytes(from: url, delegate: Redirects(domains: domains))
+            else { return nil }
+            defer { bytes.task.cancel() }
+            guard let reply = response as? HTTPURLResponse, reply.statusCode == 200,
+                  let final = reply.url, allows(final, within: domains),
+                  reply.expectedContentLength <= Int64(limit) else { return nil }
+            return await collect(bytes, limit: limit)
+        }
     }
 
     /// Refuses a redirect off https or off the provider's domains, so the
