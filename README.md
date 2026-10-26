@@ -23,6 +23,8 @@ make install    # release build, signed ad hoc, copied to /Applications, CLI lin
 
 `make install` works from a checkout in any folder, iCloud Drive included, and needs no sudo. It also links `seatgauge-cli` into `~/.local/bin`, pointing at the copy inside the installed app, and says so if that folder is not on your `PATH`. It never replaces a `seatgauge-cli` it did not put there: it stops and asks you to move that file first. When it finishes it opens the app, and the next step is the first launch.
 
+The app is signed ad hoc (ADR 0002), so macOS treats every `make install` as a new app. The first time the new copy's Log tab reads a session working in your Desktop, Documents or Downloads folder, macOS asks whether Seat Gauge may open files there, and it asks again after each reinstall. Until you answer, the Log tab shows this Mac's line as a folder-access problem: the probe "did not answer" in time, or git "could not read a session's folder", because macOS holds each read in that folder while its prompt is open. Answer the prompt, or allow Seat Gauge in System Settings > Privacy & Security > Files and Folders, and the line clears on the next pass, within 30 seconds. If you choose Don't Allow, sessions there show no branch and everything else still works.
+
 ### What running it does
 
 - **It checks your seats for free.** The app reads a Claude seat with its own login by starting `claude -p` and asking it for usage, with no model turn, so the check costs nothing. A Codex poll asks `codex app-server` for its rate limits and runs no model turn either. The default poll is every 5 minutes.

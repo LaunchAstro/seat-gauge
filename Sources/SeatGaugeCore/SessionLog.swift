@@ -233,6 +233,10 @@ public actor SessionLogMonitor {
         for machine in machines {
             switch results[machine.id] {
             case let .success(log):
+                // A pass that answered can still say what it could not read,
+                // such as a folder macOS held; it shows under the machine.
+                let said = log.problems.keys.sorted().compactMap { log.problems[$0] }
+                if !said.isEmpty { problems[machine.id] = said.joined(separator: "; ") }
                 rows[machine.id] = log.sessions.map { row in
                     var row = row; row.machine = machine.id
                     row.stale = row.stale || now.timeIntervalSince(row.asOf) > 90
