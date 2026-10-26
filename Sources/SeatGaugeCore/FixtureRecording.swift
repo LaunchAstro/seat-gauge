@@ -48,11 +48,18 @@ public enum FixtureRecording {
     /// sentence such as "Not logged in · Please run /login"), with no quote
     /// of either kind, line break, `=`, `@`, backslash or brace in it, no word that names a credential,
     /// and no long run mixing letters and digits, which is a key or an id
-    /// rather than anyone's prose.
+    /// rather than anyone's prose. A `key` or `pin`, in any case, counts
+    /// wherever it ends, however it is spaced or joined: `API  key`, a bare
+    /// `key:`, `key_id`, `keyId`, `signingkEy`, `userPIN`, `MyPin`,
+    /// `pinNumber`. Only a lower-case letter straight after it, as in
+    /// `keyboard`, `pinned` or `spinning`, makes it part of a longer word,
+    /// and a `KEY` or `PIN` in capitals counts even then (`PINnumber`). A
+    /// missed spelling leaks, while a redacted word (`monkey`, `spin up`)
+    /// only costs a recording its wording.
     private static let plainText = try? NSRegularExpression(
         pattern: #"\A[\p{L}\p{N} .,:;_+\-/()\[\]!?·…%]{0,200}\z"#)
     private static let credential = try? NSRegularExpression(
-        pattern: #"(?i)pass(word|phrase|wd)?|secret|token|bearer|basic|auth|credential|cookie|session.?key|api.?key|private.?key|access.?key|sk-|eyJ"#)
+        pattern: #"(?i)pass(word|phrase|wd)?|secret|token|bearer|basic|auth|credential|cookie|session.?key|api.?key|private.?key|access.?key|keys?(?-i:(?!\p{Ll}))|pin(?:code)?s?(?-i:(?!\p{Ll}))|(?-i:KEY|PIN)|sk-|eyJ"#)
     private static let run = try? NSRegularExpression(pattern: #"[\p{L}\p{N}_\-+/.]{24,}"#)
 
     /// One recorded stdout line with only what the parsers read left in it.

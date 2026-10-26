@@ -141,6 +141,40 @@ import SeatGaugeTestSupport
                 == #"{"result":"Not logged in · Please run /login","type":"result"}"#)
     }
 
+    @Test("Sol proof, #116: a key label spaced twice, a bare key or keys label and a PIN go whole")
+    func spacedAndBareKeyLabelsGoWhole() {
+        let value = "k4N8q2R6v9T3m7W5"
+        for text in ["API  key: \(value)", "private  key: \(value)", "key: \(value)", "PIN: 531862",
+                     "keys: \(value)", "signing key \(value)", "pin code 531862",
+                     "key_id \(value)", "KEY1 \(value)", "pin_code 531862", "PINs 531862",
+                     // Opus read: a key or pin joined to the word beside it, camelCase or capitals.
+                     "keyId: \(value)", "signingKeyId: \(value)", "keyMaterial: \(value)", "KeyHash: \(value)",
+                     "userPIN: 531862", "MyPin: 531862", "SIMPIN 531862", "pinNumber: 531862", "PINnumber 531862"] {
+            #expect(FixtureRecording.redact(#"{"id":0,"result":"\#(text)"}"#) == #"{"id":0,"result":"[redacted]"}"#,
+                    "\(text.prefix(5))")
+        }
+        // Words that only contain the letters are prose, and stay.
+        let prose = "Keychain locked, keyboard pinned, spinning up, Pinterest opinion"
+        #expect(FixtureRecording.redact(#"{"id":0,"result":"\#(prose)"}"#) == #"{"id":0,"result":"\#(prose)"}"#)
+    }
+
+    @Test("Sol proof, criterion 1: mixed-case prefixed key labels and plural pincode labels redact whole, in every case mix")
+    func mixedCasePrefixedKeyLabelsRedactWhole() {
+        func mixes(_ word: String) -> [String] {
+            word.reduce([""]) { done, letter in done.flatMap { [$0 + letter.lowercased(), $0 + letter.uppercased()] } }
+        }
+        // Every word the rule names, plural `pincodes` included (Sol round 3).
+        for word in ["key", "keys", "pin", "pins", "pincode", "pincodes"].flatMap(mixes) {
+            for prefix in ["", "signing", "user", "SIM", "my ", "API  "] {
+                for suffix in [":", " ", "_id:", "Id:", "1:", "Number:"] {
+                    let text = "\(prefix)\(word)\(suffix) 531862"
+                    #expect(FixtureRecording.redact(#"{"id":0,"result":"\#(text)"}"#) == #"{"id":0,"result":"[redacted]"}"#,
+                            "\(text)")
+                }
+            }
+        }
+    }
+
     @Test("Sol proof, criterion 4: a recordings folder that is a link writes nothing and changes nothing outside")
     func aLinkedFolderWritesNothing() throws {
         let clone = try Self.scratch()
