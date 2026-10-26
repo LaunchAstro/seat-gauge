@@ -10,6 +10,12 @@ public struct Config: Equatable, Sendable {
     /// The first day the Spend tab draws, `yyyy-MM-dd`, or nil for every day.
     public var spendFrom: String?
 
+    /// A day, for either interval. Longer reads as a gauge that has stopped,
+    /// and the loops turn each into a sleep, where an interval near `Int.max`
+    /// overflows (`60 * pollMinutes`) and ends the app.
+    public static let longestPollMinutes = 1440
+    public static let longestMachineSeconds = 86_400
+
     public init(seats: [Seat], pollMinutes: Int, machines: [Machine] = [.here], machineSeconds: Int = 5,
                 spendFrom: String? = nil) {
         self.seats = seats
