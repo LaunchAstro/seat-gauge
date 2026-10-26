@@ -195,6 +195,8 @@ func login(_ arguments: ArraySlice<String>) throws {
                                           return code
                                       },
                                       link: { link in
+                                          // Off before anything invites the paste.
+                                          entry?.hide()
                                           print("Open this link, sign in to the account for \(request.seat), and paste the code it shows:")
                                           print(link)
                                           fflush(stdout)

@@ -31,20 +31,26 @@ public final class HiddenEntry: @unchecked Sendable {
     /// Ctrl-C and a kill put the terminal back before they end the command.
     /// The empty handler only keeps the signal from ending it first; unlike
     /// an ignored signal, a caught one is reset for every child the command
-    /// starts.
+    /// starts. It goes in only once the sources are registered, so a signal
+    /// before then still ends the command as it always did, with the
+    /// terminal not yet changed, and none is ever swallowed.
     public func endOnSignals() {
         lock.withLock {
             guard !ended else { return }
+            let registered = DispatchGroup()
             for ending in Self.endings {
-                signal(ending) { _ in }
                 let source = DispatchSource.makeSignalSource(signal: ending, queue: .global())
                 source.setEventHandler { [self] in
                     end()
                     kill(getpid(), ending)
                 }
+                registered.enter()
+                source.setRegistrationHandler { registered.leave() }
                 source.resume()
                 sources.append(source)
             }
+            guard registered.wait(timeout: .now() + .seconds(2)) == .success else { return }
+            for ending in Self.endings { signal(ending) { _ in } }
         }
     }
 
