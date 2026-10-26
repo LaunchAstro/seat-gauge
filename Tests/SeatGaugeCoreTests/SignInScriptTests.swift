@@ -85,7 +85,7 @@ import SeatGaugeCore
     @Test func theScriptIsPrivateAndRemovesItselfAsItStarts() throws {
         let scratch = try Self.scratch(then: "exit 0")
         defer { scratch.remove() }
-        let written = try SignInScript.write(helper: scratch.helper, seat: "houston", seatsFile: scratch.seats,
+        let written = try SignInScript.write(helper: scratch.helper, seat: "personal", seatsFile: scratch.seats,
                                              in: scratch.parent)
         let mode = { (url: URL) in
             (try? FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int) ?? -1
@@ -104,7 +104,7 @@ import SeatGaugeCore
     @Test func aWindowClosedMidLoginStillTellsTheLoginEnded() throws {
         let scratch = try Self.scratch(then: "exec sleep 30")
         defer { scratch.remove() }
-        let written = try SignInScript.write(helper: scratch.helper, seat: "houston", seatsFile: scratch.seats,
+        let written = try SignInScript.write(helper: scratch.helper, seat: "personal", seatsFile: scratch.seats,
                                              in: scratch.parent)
         let (process, _) = try Self.run(written.script)
         #expect(Self.appears(scratch.pid))
@@ -120,16 +120,16 @@ import SeatGaugeCore
     @Test func theWaitEndsWithTheLoginOrWhenTheScriptNeverRan() throws {
         let scratch = try Self.scratch(then: "exit 0")
         defer { scratch.remove() }
-        let unopened = try SignInScript.write(helper: scratch.helper, seat: "houston", seatsFile: scratch.seats,
+        let unopened = try SignInScript.write(helper: scratch.helper, seat: "personal", seatsFile: scratch.seats,
                                               in: scratch.parent)
         #expect(unopened.wait(start: 0.2, limit: 10, every: 0.02) == .neverStarted)
-        let opened = try SignInScript.write(helper: scratch.helper, seat: "houston", seatsFile: scratch.seats,
+        let opened = try SignInScript.write(helper: scratch.helper, seat: "personal", seatsFile: scratch.seats,
                                             in: scratch.parent)
         let (process, input) = try Self.run(opened.script)
         #expect(opened.wait(start: 10, limit: 10, every: 0.02) == .ended)
         try input.fileHandleForWriting.write(contentsOf: Data("\n".utf8))
         process.waitUntilExit()
-        let refused = try SignInScript.write(helper: scratch.helper, seat: "houston", seatsFile: scratch.seats,
+        let refused = try SignInScript.write(helper: scratch.helper, seat: "personal", seatsFile: scratch.seats,
                                              in: scratch.parent)
         try FileManager.default.removeItem(at: refused.folder)
         #expect(refused.wait(start: 10, limit: 10, every: 0.02) == .ended)
@@ -138,7 +138,7 @@ import SeatGaugeCore
     @Test func theWaitGivesUpOnALoginThatOutlivesItsLimit() throws {
         let scratch = try Self.scratch(then: "exec sleep 30")
         defer { scratch.remove() }
-        let written = try SignInScript.write(helper: scratch.helper, seat: "houston", seatsFile: scratch.seats,
+        let written = try SignInScript.write(helper: scratch.helper, seat: "personal", seatsFile: scratch.seats,
                                              in: scratch.parent)
         let (process, _) = try Self.run(written.script)
         defer { process.terminate() }
