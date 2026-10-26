@@ -196,7 +196,7 @@ public enum MachineProbe {
               let load = fields["load"].map(loads), load.count == 3,
               load.allSatisfy({ (0 ... highestLoad).contains($0) }),
               let disk = fields["disk"].flatMap(disk),
-              let idle = fields["cpu"].flatMap(cpuIdle), idle.isFinite
+              let idle = fields["cpu"].flatMap(cpuIdle), (0 ... 100).contains(idle)
         else { return nil }
         return MachineReading(takenAt: now, cpuUsed: clamp(100 - idle), load: load, cores: cores,
                               ramUsed: clamp(100 - Double(memoryFree)), ramBytes: ramBytes,
@@ -218,7 +218,7 @@ public enum MachineProbe {
     static func disk(_ row: String) -> (used: Int, free: Int64)? {
         let columns = row.split(separator: " ")
         guard columns.count >= 4, let blocks = Double(columns[1]), let available = Int64(columns[3]),
-              blocks > 0, blocks.isFinite, available >= 0 else { return nil }
+              blocks >= 1, blocks.isFinite, available >= 0 else { return nil }
         let (bytes, overflow) = available.multipliedReportingOverflow(by: 1024)
         guard !overflow else { return nil }
         return (clamp(100 - Double(available) / blocks * 100), bytes)
@@ -229,6 +229,8 @@ public enum MachineProbe {
         guard let idle = line.range(of: "% idle") else { return nil }
         let before = line[..<idle.lowerBound]
         let number = before.reversed().prefix { $0.isNumber || $0 == "." }
+        // `-20.0% idle` is no idle figure, rather than 20.
+        guard before.dropLast(number.count).last != "-" else { return nil }
         return Double(String(number.reversed()))
     }
 
@@ -242,7 +244,11 @@ public enum MachineProbe {
         return AgentCount(working: working, blocked: blocked, idle: states.count - working - blocked)
     }
 
-    static func clamp(_ percent: Double) -> Int { min(100, max(0, Int(percent.rounded()))) }
+    /// Held to 0 to 100 before it becomes an Int, which traps on anything
+    /// past `Int`'s range; a non-finite percent is none.
+    static func clamp(_ percent: Double) -> Int {
+        percent.isFinite ? Int(min(100, max(0, percent)).rounded()) : 0
+    }
 }
 
 /// One point on a machine's load chart.
