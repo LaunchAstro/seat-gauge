@@ -184,7 +184,7 @@ import SeatGaugeTestSupport
                      "pin\u{02D0} 531862",
                      "OTP: 531862", "code: 531862", "code 531862", "seed: \(value)", "signature: \(value)", "client id: \(value)"] {
             let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["id": 0, "result": text]), as: UTF8.self)
-            #expect(FixtureRecording.redact(line) == #"{"id":0,"result":"[redacted]"}"#, "\(text.unicodeScalars.map { String($0.value, radix: 16) })")
+            #expect(FixtureRecording.redact(line) == #"{"id":0,"result":"[redacted]"}"#, "\(text.unicodeScalars.prefix(4).map { String($0.value, radix: 16) })")
         }
         // A word that only contains the letters is prose, a Codex model keeps
         // its name, and a folder called code is not a label.
