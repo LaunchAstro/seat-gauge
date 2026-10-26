@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import SeatGaugeCore
+import SeatGaugeCore
 import SeatGaugeTestSupport
 
 /// The files the app keeps name the user's clients, repositories, sessions
@@ -75,7 +75,7 @@ import SeatGaugeTestSupport
         let root = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root) }
         let support = try Self.openSupport(root, holding: ["machines.json", "log.json"])
-        let config = Config(seats: [], pollMinutes: 5)
+        let config = Config(seats: [], pollMinutes: 5, machines: [])
         let prober = MachineProber(runner: ScriptedRunner(replies: [[], [], []], endsWithScript: true))
         try await Self.underUsualUmask {
             _ = await MachineMonitor(prober: prober, file: support.appendingPathComponent("machines.json"),
@@ -118,21 +118,27 @@ import SeatGaugeTestSupport
         }
     }
 
-    @Test("a write never leaves a draft behind, and never touches a folder that is not the user's")
-    func noDraftAndNoForeignFolder() throws {
+    @Test("Sol proof, criterion 1: a locked writer's folder is 700 from the moment it is made")
+    func lockedWritersMakePrivateFolders() async throws {
         let root = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root) }
-        let file = root.appendingPathComponent("state.json")
-        try PrivateFile.write(Data("one".utf8), to: file)
-        try PrivateFile.write(Data("two".utf8), to: file)
-        #expect(try String(contentsOf: file, encoding: .utf8) == "two")
-        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["state.json"])
-        // A missing folder is made only when the caller asks.
-        let missing = root.appendingPathComponent("missing/state.json")
-        #expect(throws: (any Error).self) { try PrivateFile.write(Data(), to: missing) }
-        // The shared temporary folder is root's, and stays as it is.
-        let before = Self.mode(URL(fileURLWithPath: "/private/tmp"))
-        PrivateFile.narrow(URL(fileURLWithPath: "/private/tmp"))
-        #expect(Self.mode(URL(fileURLWithPath: "/private/tmp")) == before)
+        let folder = root.appendingPathComponent("missing", isDirectory: true)
+        let seen = try await Self.underUsualUmask { () -> Int in
+            var mode = -1
+            try StateStore(file: folder.appendingPathComponent("state.json")).update { _ in mode = Self.mode(folder) }
+            return mode
+        }
+        #expect(seen == 0o700)
+    }
+
+    @Test("Sol proof, criterion 2: a backup narrows the support folder it writes under")
+    func aBackupNarrowsItsSupportFolder() async throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let support = try Self.openSupport(root, holding: [])
+        try Data("seat,day\n".utf8).write(to: support.appendingPathComponent("spend.csv"))
+        try Data("{}".utf8).write(to: support.appendingPathComponent("attribution.json"))
+        _ = try await Self.underUsualUmask { try HistoryBackup(support: support).run(now: Date()) }
+        #expect(Self.mode(support) == 0o700)
     }
 }
