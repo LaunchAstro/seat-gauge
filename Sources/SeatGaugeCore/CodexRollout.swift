@@ -79,12 +79,13 @@ public enum CodexRollout {
         return CodexReading(cells: cells, skipped: skipped, unkeyed: unkeyed)
     }
 
-    /// What one event adds, and the total the next one is measured against.
-    /// A field absent from either side adds nothing, and keeps the value it
-    /// last had, so an absence is never read as a fall to zero.
-    static func contribution(total: [String: Int], last: [String: Int]?,
-                             after baseline: [String: Int]?) -> (added: [String: Int], baseline: [String: Int]) {
-        guard let baseline else { return (last ?? total, total) }
+    /// What one event adds, the total the next one is measured against, and
+    /// whether the total fell, which starts the count again. A field absent
+    /// from either side adds nothing, and keeps the value it last had, so an
+    /// absence is never read as a fall to zero.
+    static func contribution(total: [String: Int], last: [String: Int]?, after baseline: [String: Int]?)
+        -> (added: [String: Int], baseline: [String: Int], reset: Bool) {
+        guard let baseline else { return (last ?? total, total, false) }
         let reset: Bool
         if let now = total["total_tokens"], let before = baseline["total_tokens"] {
             reset = now < before
@@ -92,12 +93,12 @@ public enum CodexRollout {
             let shared = total.keys.filter { baseline[$0] != nil }
             reset = shared.reduce(0) { $0 + total[$1]! } < shared.reduce(0) { $0 + baseline[$1]! }
         }
-        if reset { return (last ?? total, total) }
+        if reset { return (last ?? total, total, true) }
         var added: [String: Int] = [:]
         for (field, value) in total {
             if let before = baseline[field] { added[field] = max(0, value - before) }
         }
-        return (added, baseline.merging(total) { _, fresh in fresh })
+        return (added, baseline.merging(total) { _, fresh in fresh }, false)
     }
 
     /// Cached input and cache writes sit inside Codex's input, so fresh input

@@ -317,10 +317,12 @@ public struct SessionProbe: Sendable {
         for path in paths.sorted() {
             if let owner = checkpoint.owners[path], owner != original.sessionId { continue }
             checkpoint.owners[path] = original.sessionId
-            var tokens = checkpoint.files[path] ?? SessionTokens()
-            do { try tokens.read(URL(fileURLWithPath: path), tool: original.tool, budget: byteBudget) }
-            catch { failed = true; tokens.complete = false }
-            checkpoint.files[path] = tokens
+            if !checkpoint.read(path, tool: original.tool, budget: byteBudget) { failed = true }
+        }
+        // A file read before another of the session dropped a message it
+        // passed by reads again now, so the session takes it over this pass.
+        for path in paths.sorted() where checkpoint.rescanned.contains(path) && checkpoint.owners[path] == original.sessionId {
+            if !checkpoint.read(path, tool: original.tool, budget: byteBudget) { failed = true }
         }
         var row = summarized(original, paths: paths, checkpoint: &checkpoint, rates: rates)
         row.stale = row.stale || failed
@@ -331,28 +333,30 @@ public struct SessionProbe: Sendable {
         var row = original
         var models: [String: TokenCounts] = [:]
         var complete = !paths.isEmpty
-        var rollouts: [CodexRollout.Rollout] = []
+        var rollouts: [String: [(path: String, tokens: SessionTokens)]] = [:]
         for path in paths.sorted() {
             guard checkpoint.owners[path] == row.sessionId, let tokens = checkpoint.files[path] else { complete = false; continue }
             complete = complete && tokens.complete
             if row.tool == "codex" {
-                rollouts.append(tokens.rollout(URL(fileURLWithPath: path)))
+                // As Spend reads them: a file no session names adds nothing.
+                if let session = tokens.session { rollouts[session, default: []].append((path, tokens)) }
             } else {
-                for response in tokens.responses {
-                    let owner = checkpoint.messageOwners[response.messageID]
-                    let present = owner.flatMap { checkpoint.files[$0] }?.seen.contains(response.messageID) ?? false
-                    if !present {
-                        checkpoint.messageOwners[response.messageID] = path
-                    }
-                    guard checkpoint.messageOwners[response.messageID] == path else { continue }
-                    models[response.filedModel, default: TokenCounts()] += response.counts
-                }
+                for (model, counts) in tokens.models { models[model, default: TokenCounts()] += counts }
             }
         }
-        if row.tool == "codex" {
-            let reading = CodexRollout.read(rollouts: rollouts, calendar: .current,
-                                           excluding: AppPaths.primers(beside: AppPaths.codexPrimer))
-            for (cell, counts) in reading.cells { models[cell.model, default: TokenCounts()] += counts }
+        let primers = AppPaths.primers(beside: AppPaths.codexPrimer)
+        for files in rollouts.values where !files.contains(where: { $0.tokens.cwd.map { AppPaths.isPrimer($0, in: primers) } ?? false }) {
+            // A resume continues the file before it, so each is measured from
+            // the total the one before it ended on, in the order Spend reads them.
+            var entry: [String: Int]?
+            for file in files.sorted(by: {
+                ($0.tokens.firstToken ?? .distantFuture, URL(fileURLWithPath: $0.path).lastPathComponent, $0.path)
+                    < ($1.tokens.firstToken ?? .distantFuture, URL(fileURLWithPath: $1.path).lastPathComponent, $1.path)
+            }) {
+                guard let step = file.tokens.added(after: entry, url: URL(fileURLWithPath: file.path)) else { complete = false; break }
+                for (model, counts) in step.models { models[model, default: TokenCounts()] += counts }
+                entry = step.baseline
+            }
         }
         row.models = models
         row.tokens = paths.isEmpty ? nil : models.values.reduce(TokenCounts(), +)

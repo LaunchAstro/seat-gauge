@@ -197,10 +197,20 @@ struct SessionObservation: Codable, Equatable {
     }
 }
 
-struct SessionCheckpoint: Codable {
+/// Each transcript's read so far, and which session owns it. A Claude message
+/// two files share counts in one of them, the one that read it first, and
+/// passes to another that holds it once that one no longer does: a file that
+/// passed a message by names the file counting it, and is read again from its
+/// start when that file stops counting anything.
+struct SessionCheckpoint {
     var files: [String: SessionTokens] = [:]
     var owners: [String: String] = [:]
-    var messageOwners: [String: String] = [:]
+    /// Which file counts each message, built from `files` when first asked.
+    private var counter: [UInt64: String]?
+    /// Files set to read again from their start since they were last read.
+    private(set) var rescanned: Set<String> = []
+
+    init() {}
 
     /// Forgets the files of sessions that have left, unless a session still
     /// here holds the same file.
@@ -208,7 +218,96 @@ struct SessionCheckpoint: Codable {
         let left = Set(leaving.flatMap(\.paths)).subtracting(keeping.flatMap(\.paths))
         guard !left.isEmpty else { return }
         for path in left { files[path] = nil; owners[path] = nil }
-        messageOwners = messageOwners.filter { !left.contains($0.value) }
+        counter = nil
+        rescan(deferringTo: left)
+    }
+
+    /// Reads `path` on from where it stopped. False when the read failed,
+    /// with what it read before the failure kept.
+    mutating func read(_ path: String, tool: String, budget: Int) -> Bool {
+        var counter = counter ?? Self.counter(files)
+        var tokens = files[path] ?? SessionTokens()
+        let before = tokens.counted
+        rescanned.remove(path)
+        var read = true
+        do {
+            try tokens.read(URL(fileURLWithPath: path), tool: tool, budget: budget) { digest in
+                counter[digest].flatMap { $0 == path ? nil : $0 }
+            }
+        } catch { read = false; tokens.complete = false }
+        let lost = before.values.subtracting(tokens.counted.values)
+        for digest in lost where counter[digest] == path { counter[digest] = nil }
+        for digest in tokens.counted.values.subtracting(before.values) { counter[digest] = path }
+        files[path] = tokens
+        self.counter = counter
+        if !lost.isEmpty { rescan(deferringTo: [path]) }
+        return read
+    }
+
+    /// Each file that passed a message by for one of `paths` reads again from
+    /// its start, keeping what it counts, so it takes over what they dropped.
+    private mutating func rescan(deferringTo paths: Set<String>) {
+        for (path, tokens) in files where !tokens.deferredTo.isDisjoint(with: paths) {
+            var tokens = tokens
+            tokens.rescan = true; tokens.deferredTo = []; tokens.complete = false
+            files[path] = tokens
+            rescanned.insert(path)
+        }
+    }
+
+    static func counter(_ files: [String: SessionTokens]) -> [UInt64: String] {
+        var counter: [UInt64: String] = [:]
+        for path in files.keys.sorted() {
+            for digest in files[path]!.counted.values where counter[digest] == nil { counter[digest] = path }
+        }
+        return counter
+    }
+}
+
+extension SessionCheckpoint: Codable {
+    enum CodingKeys: String, CodingKey { case files, owners, messageOwners }
+
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        files = try values.decodeIfPresent([String: SessionTokens].self, forKey: .files) ?? [:]
+        owners = try values.decodeIfPresent([String: String].self, forKey: .owners) ?? [:]
+        let messageOwners = try values.decodeIfPresent([String: String].self, forKey: .messageOwners) ?? [:]
+        if files.values.contains(where: { $0.legacy != nil }) { migrate(messageOwners) }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(files, forKey: .files)
+        try values.encode(owners, forKey: .owners)
+    }
+
+    /// A checkpoint from before issue #120 kept each file's responses and,
+    /// apart, which file counted each message. Each file keeps the digests
+    /// of the messages it counted and names the files it passed the rest by,
+    /// with the totals the old checkpoint gave and nothing read again. A
+    /// message no file still holding it counted goes to the first such file
+    /// by path, as the old summing would have given it.
+    mutating func migrate(_ messageOwners: [String: String]) {
+        let held = files.mapValues { Set(($0.legacy ?? []).map(\.messageID)) }
+        var claimed: [String: String] = [:]
+        for path in files.keys.sorted() {
+            guard var tokens = files[path], let responses = tokens.legacy else { continue }
+            tokens.legacy = nil
+            tokens.models = [:]
+            for response in responses {
+                let owner = messageOwners[response.messageID].flatMap { held[$0]?.contains(response.messageID) == true ? $0 : nil }
+                    ?? claimed[response.messageID] ?? path
+                let digest = MessageDigests.digest(response.messageID)
+                if owner == path {
+                    claimed[response.messageID] = path
+                    guard tokens.counted.insert(digest) else { continue }
+                    tokens.models[response.filedModel, default: TokenCounts()] += response.counts
+                } else {
+                    tokens.deferredTo.insert(owner)
+                }
+            }
+            files[path] = tokens
+        }
     }
 }
 

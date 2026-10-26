@@ -16,7 +16,8 @@ public struct AppState: Equatable, Sendable, Codable {
     /// whether it is there at all, which is how a first run reads all 28 days.
     public var rolledUpAt: Date?
     /// Each session's last `cost-state.totalCostUSD`, kept beside the derived
-    /// figure so the gap between the two stays measurable.
+    /// figure so the gap between the two stays measurable, for as long as
+    /// `log.json` shows the session.
     public var sessionCosts: [String: Double]
     /// What the gauge has already said, so a stage fires once a week.
     public var alerts: AlertLedger
