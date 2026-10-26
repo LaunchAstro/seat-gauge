@@ -4,10 +4,22 @@ A small always-visible Mac window that shows, for each paid AI subscription logi
 
 It reads Claude seats through the `claude` CLI and ChatGPT seats through the `codex` CLI, the same way you would. It never reads the Keychain and never refreshes a token.
 
+Version 0.1.0 is source only: you build it on your own Mac with `make install`. There is no prebuilt download yet. A signed and notarised download may come in a later release.
+
+## Quick start
+
+```sh
+git clone https://github.com/LaunchAstro/seat-gauge.git
+cd seat-gauge
+make install
+```
+
+`make install` builds the app, copies it to `/Applications`, links `seatgauge-cli` into `~/.local/bin` and opens the app. If it says `~/.local/bin` is not on your `PATH`, add it in your shell's profile so `seatgauge-cli` runs by name. On first launch the window shows one Claude seat, `claude`, signed out, and a Codex seat if the `codex` CLI is already signed in. Click the `claude` card to sign it in: Terminal opens, you sign in to your Claude account in the browser and paste the code it shows. To add more seats, right-click the window, choose "Reveal config" and edit `seats.json` (see [Add a seat](#add-a-seat)).
+
 ## Requirements
 
-- macOS 14 or later.
-- Xcode Command Line Tools with Swift 6.2 (`xcode-select --install`). Xcode itself is not needed.
+- To run: macOS 14 or later.
+- To build: macOS 15.6 or later, with the Xcode Command Line Tools that bring Swift 6.2 or later (`xcode-select --install`). Xcode itself is not needed. Swift 6.2 first came with Xcode 26 and its tools, and Apple's Xcode system requirements list macOS 15.6 as the minimum for Xcode 26 (and macOS 26.2 from Xcode 26.4). Since 0.1.0 is built from source, macOS 15.6 is the floor in practice.
 - The `claude` CLI for Claude seats, the `codex` CLI for a Codex seat. The app finds each wherever your login shell does. It asks the shell for its `PATH` once per launch, then also looks in the usual install folders (Homebrew on Apple silicon or Intel, `/usr/local/bin`, `~/.local/bin`, `~/.claude/local`, `~/.npm-global/bin`, volta, bun and nvm). Those folders are all it has when the shell takes longer than 3 seconds or gives no answer.
 
 ## Build and install
@@ -15,7 +27,10 @@ It reads Claude seats through the `claude` CLI and ChatGPT seats through the `co
 ```sh
 make build      # debug build of the app and seatgauge-cli
 make test       # the test suite, under a scratch home
-make run        # build dist/Seat Gauge.app with the .dev bundle id and open it
+make app        # build dist/Seat Gauge.app with the .dev bundle id, without opening it
+make run        # make app, then open it
+make check      # the gate: build, tests and privacy scan
+make clean      # remove .build and dist
 make install    # release build, signed ad hoc, copied to /Applications, CLI linked into ~/.local/bin
 ```
 
@@ -27,6 +42,7 @@ The app is signed ad hoc (ADR 0002), so macOS treats every `make install` as a n
 
 ### What running it does
 
+- **It starts at login.** Run from `/Applications`, the app adds itself to System Settings > General > Login Items on every launch. To stop that, untick "Launch at login" in the window's right-click menu or in Settings; the app remembers and leaves it off. A copy run from anywhere else, such as a `make run` build, never adds itself.
 - **It checks your seats for free.** The app reads a Claude seat with its own login by starting `claude -p` and asking it for usage, with no model turn, so the check costs nothing. A Codex poll asks `codex app-server` for its rate limits and runs no model turn either. The default poll is every 5 minutes.
 - **A token seat is read only when you sync it.** A seat that signs in with a token reports its windows only during a model turn, so reading it runs one short Haiku turn on that seat's subscription, which counts against its 5-hour and weekly windows like any other. The scheduled poll skips token seats; the app reads them only when you sync that seat or sync all.
 - **It reads your login files.** For each seat it reads the plan tier, or the organisation type beside it, from its login (`.claude.json` for Claude, the plan claim in `auth.json` for Codex), and one account id from each Claude login, to tell which seat the main login is (ADR 0005). It keeps these in memory and writes none of them. A token seat's OAuth token is read from its file and handed only to that seat's `claude`.
@@ -35,6 +51,15 @@ The app is signed ad hoc (ADR 0002), so macOS treats every `make install` as a n
 - **It fetches two icons.** The app fetches each provider's favicon once, to show beside the provider's name, and caches it. If a fetch fails, the app tries again at the next launch. The request carries no cookies and no other data.
 
 `seatgauge-cli watch` and `seatgauge-cli spend` act on the same live data as the app. `watch` polls your real seats (token seats are skipped, as in the app's scheduled poll), and `spend` rolls up your real transcripts. Both write to the installed app's folder, `~/Library/Application Support/com.launchastro.seatgauge/`, not the `.dev` one.
+
+## Uninstall
+
+1. Right-click the window, untick "Launch at login", then choose Quit.
+2. Move `/Applications/Seat Gauge.app` to the Trash. If you built with `make run`, also delete `dist/` in your clone.
+3. Remove the command line link: `rm ~/.local/bin/seatgauge-cli`.
+4. Remove its settings, readings and spend history: `~/Library/Application Support/com.launchastro.seatgauge/`, and `~/Library/Application Support/com.launchastro.seatgauge.dev/` if you ran `make run`. Then `defaults delete com.launchastro.seatgauge` (and `com.launchastro.seatgauge.dev`), which holds the window's place.
+5. Seat logins the app made live in `~/.seat-gauge/profiles/`, one folder per seat, each signed in to a Claude account. Keep any folder you still use outside Seat Gauge. Sign the rest out first, so its login goes too: `env -u CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR="$HOME/.seat-gauge/profiles/<seat>" claude auth logout`. Then delete `~/.seat-gauge`.
+6. If you added a machine to the LOAD tab: `rm ~/.ssh/seatgauge-*` here, which are its ssh connection sockets, and `rm ~/.local/libexec/seatgauge-log-probe` on that machine if you installed the Log helper there.
 
 ## Add a seat
 
@@ -65,7 +90,7 @@ Every Claude seat needs its own `profile` directory, so no card reads whatever `
 A seat with `"login": "own"` has its own login, and reads the 5-hour, weekly and Fable windows plus its exact plan. In the app, a seat that is not logged in says "signed out" on its card, and a click on that card (anywhere but its × and the chart's range and measure words), on its name or on Sign in (on the card and on its hover view) starts the sign-in: it opens Terminal running the command below for that seat, where you paste the code the sign-in page shows, and the card reads the seat again once that login ends. From a terminal, sign it in by its id:
 
 ```sh
-swift run seatgauge-cli login work
+seatgauge-cli login claude
 ```
 
 This runs `claude auth login` under the seat's own profile. If the profile is not there yet, it creates it, readable by you alone. It prints a link. Open it in any browser, sign in to the account this seat is for, and paste the code the page shows. `claude auth status` then says whether the seat is signed in. The app's Sign in runs this same command. `--email <address>` fills the address in on the sign-in page. The code goes to `claude` and nowhere else, so it is never saved or logged. The command refuses a Codex seat, a token seat, an unknown id, or a profile that is `~`, `~/.claude` or another seat's, before anything runs.
@@ -77,11 +102,11 @@ Token seats are optional, and nobody needs one to get started. If a seat should 
 Give a seat an `open` command and a click on its card's mark or name runs it, so a fresh session starts on that seat already signed in. It is a list of words, run with no shell, and a `~` at the start of the first word is your home:
 
 ```json5
-{ "id": "work", "label": "Work", "kind": "claude", "profile": "~/.claude-seat-work", "login": "own",
+{ "id": "work", "label": "Work", "kind": "claude", "profile": "~/.seat-gauge/profiles/work", "login": "own",
   "open": ["~/bin/open-seat", "work"] },
 ```
 
-The app opens no terminal of its own. The command decides what opens, such as a new terminal window on the seat's profile. It runs with `HOME`, `USER`, `LANG` and a standard `PATH` (Homebrew, `~/.local/bin` and the system folders), and none of the keys the app was launched with. A command that will not start, or exits with a failure within a few seconds, says so in the title bar. A seat without `open` has no click.
+The app opens no terminal of its own. The command decides what opens, such as a new terminal window on the seat's profile. It runs with `HOME`, `USER`, `LANG` and a standard `PATH` (Homebrew, `~/.local/bin` and the system folders), and none of the keys the app was launched with. A command that will not start, or exits with a failure within a few seconds, says so in the title bar. A seat without `open` has no click. `~/bin/open-seat` here stands for a script of your own; Seat Gauge ships none.
 
 ### The plan on a card
 
@@ -98,12 +123,15 @@ With none of the three the card shows no plan. It never guesses "free". `seatgau
 `seatgauge-cli` runs the same core without the window:
 
 ```sh
-swift run seatgauge-cli read          # read every seat once and print it
-swift run seatgauge-cli watch         # run the poll loop headless
-swift run seatgauge-cli spend         # roll up spend once and say what it found
-swift run seatgauge-cli record work   # poll one seat, write its reply to Tests/Fixtures/
-swift run seatgauge-cli login work    # sign one seat in under its own profile
+seatgauge-cli --version       # print the version
+seatgauge-cli read            # read every seat once and print it
+seatgauge-cli watch           # run the poll loop headless
+seatgauge-cli spend           # roll up spend once and say what it found
+seatgauge-cli record claude   # poll one seat, write its reply to Tests/Fixtures/ under the current folder
+seatgauge-cli login claude    # sign one seat in under its own profile
 ```
+
+`make install` links `seatgauge-cli` into `~/.local/bin`, and these commands act on the installed app's `seats.json`. The CLI has no bundle of its own, so it always reads the installed app's folder, even when you run it from a clone. To use one against a `make run` build, run it from the clone with `swift run seatgauge-cli` and pass that build's file as the last argument, such as `swift run seatgauge-cli login claude ~/Library/Application\ Support/com.launchastro.seatgauge.dev/seats.json`. `read`, `record`, `login` and `machines` take that argument; `watch`, `spend` and `machines add` work only on the installed app's file.
 
 `record` writes a local file of what the seat printed, with account ids, tokens and home paths taken out. It is still your real usage, so never commit it as is. The fixtures in the repository are hand-written; use a recording to see the shape, then write a synthetic transcript.
 
@@ -118,7 +146,7 @@ After every poll or sync the app writes `headroom.json` beside `readings.json` i
 
 Dates are ISO 8601 with the local offset. The file names no single seat to use, so the reader spreads its work across the seats with room rather than sending it all to one.
 
-The Log tab publishes one row per observed agent session to `log.json`, with metadata, times and token totals, from each configured machine. See [Session log](docs/session-log.md) for the schema, the freshness rules and how to install the remote helper.
+The Log tab needs herdr, a terminal workspace manager for coding agents, on each machine it reads; without it the tab stays empty. It publishes one row per observed agent session to `log.json`, with metadata, times and token totals, from each configured machine. See [Session log](docs/session-log.md) for the schema, the freshness rules and how to install the remote helper.
 
 Beside it, `machines.json` holds each machine's load, read every 5 seconds: this Mac, and any other added as below. The panel shows the same figures on its LOAD tab, and hovering a machine card draws its CPU and memory over the last ten minutes.
 
@@ -127,7 +155,7 @@ Beside it, `machines.json` holds each machine's load, read every 5 seconds: this
 - `cpu`: `used`, the average over the last 30 seconds, and `now`, the last one-second sample; `trend`, `rising`, `steady` or `falling` against the 30 seconds before (`null` until there is a minute of reads); `load` averages over 1, 5 and 15 minutes, `cores` and `load_per_core`. Load counts the tasks running or waiting for a core, so a load above the core count means work is queueing.
 - `ram`: `used` (30-second average, by macOS memory pressure), `now`, `trend` and `total_gb`.
 - `disk`: `used` percent, `free_gb`, and `change_10m_gb`, the space gained or lost over the last ten minutes (negative is filling).
-- `agents`: the agents herdr runs on that machine, as `working`, `blocked` (waiting on a person), `idle` and `total`, or `null` when the machine has no herdr. Agents outside herdr are not counted.
+- `agents`: the agents herdr runs on that machine, as `working`, `blocked` (waiting on a person), `idle` and `total`, or `null` when the machine has no herdr (the terminal workspace manager above). Agents outside herdr are not counted.
 
 ### Add a machine
 
@@ -145,7 +173,15 @@ Nothing is installed on the other Mac. The gauge keeps one ssh connection to it 
 
 ### Beside session tracing
 
-Seat Gauge answers how much room each seat has, what each account has spent over time, and how loaded each machine is. A session tracer such as Langfuse answers what one session or lane did. Both read the same local transcripts, so never add their token counts together; see `docs/adr/0006-seat-gauge-and-langfuse-answer-different-questions.md`.
+If you also trace agent sessions with a tool such as Langfuse, an open source tracer for LLM apps, don't add its token counts to Seat Gauge's: both read the same local transcripts. See `docs/adr/0006-seat-gauge-and-langfuse-answer-different-questions.md`.
+
+## Known limits
+
+- macOS only, and built from source: there is no signed download yet.
+- Spend is list-price dollars worked out from local transcripts. It is a floor and not your bill: a flat plan is not charged per token, and some billed calls are never written to a transcript.
+- A token seat shows the 5-hour and weekly windows only, and reading it uses one short Haiku turn.
+- The Log tab and the agent counts on the LOAD tab need herdr.
+- Seats are read through the `claude` and `codex` CLIs, so a CLI update that changes what they print can break a reading until Seat Gauge catches up.
 
 ## Working on it
 
