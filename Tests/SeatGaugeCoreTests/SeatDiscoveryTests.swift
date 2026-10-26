@@ -176,13 +176,18 @@ import SeatGaugeCore
         for team in ["claude-seat", "claude-seats", ".token", "herdr", "/opt/homebrew"] {
             #expect(!written.contains(team), "\(team) in the template")
         }
-        // Every seat id the template names, in a line or an example, is one of the
-        // neutral few (seats, and the machines the LOAD example names). Listing the allowed ids rather than the banned ones means
-        // a real person's seat name cannot sit in the template without failing
-        // here, and no such name has to be written into the tree to catch it.
-        let named = try NSRegularExpression(pattern: #"("id": "|profiles/)([A-Za-z0-9_-]+)"#)
-            .matches(in: written, range: NSRange(written.startIndex..., in: written))
-            .compactMap { Range($0.range(at: 2), in: written).map { String(written[$0]) } }
+        // Every seat id the template names is one of the neutral few (seats, and
+        // the machines the LOAD example names). Listing the allowed ids rather
+        // than the banned ones means a real person's seat name cannot sit in the
+        // template without failing here, and no such name has to be written into
+        // the tree to catch it. Three places hold one: an "id" value, a profile
+        // folder, and the seat argument of the "open" example. Spacing around
+        // the colon and comma varies.
+        let named = try [#""id"\s*:\s*""#, #"profiles/"#, #"open-seat"\s*,\s*""#].flatMap { lead in
+            try NSRegularExpression(pattern: "(" + lead + ")([A-Za-z0-9_-]+)")
+                .matches(in: written, range: NSRange(written.startIndex..., in: written))
+                .compactMap { Range($0.range(at: 2), in: written).map { String(written[$0]) } }
+        }
         #expect(!named.isEmpty)
         for id in named {
             #expect(["claude", "work", "personal", "codex", "here", "studio"].contains(id), "\(id) in the template")
