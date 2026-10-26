@@ -128,6 +128,22 @@ import SeatGaugeCore
         #expect(gauge.synced == "all seats synced 1m ago")
     }
 
+    @Test("proof: a seat whose CLI's reason is the word hidden stays in the synced line; only a seat the user hid leaves it")
+    func aReasonThatSaysHiddenIsNotHidden() {
+        let seats = [Self.seat("work"), Self.seat("odd"), Self.seat("away")]
+        let snapshot = Snapshot(states: [
+            seats[0].id: .live(Self.reading("work", used: [.weekly: 20], at: Self.now.addingTimeInterval(-60))),
+            seats[1].id: .unreadable(reason: "hidden", last: nil),
+            seats[2].id: .live(Self.reading("away", used: [.weekly: 20], at: Self.now.addingTimeInterval(-86_400))),
+        ], order: seats.map(\.id))
+        let gauge = GaugeView(snapshot: snapshot, seats: seats, now: Self.now,
+                              arrangement: CardArrangement(hidden: [seats[2].id]))
+        #expect(gauge.seats.map(\.offstage) == [nil, "hidden", "hidden"])
+        // The seat that failed counts and is not synced; the hidden one's day-old
+        // reading is not counted at all.
+        #expect(gauge.synced == "1 of 2 synced")
+    }
+
     @Test("a stale card keeps its last figures and has no pace; a live one has the weekly verdict")
     func staleHasNoPace() {
         let seat = Self.seat("work")
