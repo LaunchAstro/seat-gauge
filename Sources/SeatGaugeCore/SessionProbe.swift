@@ -239,20 +239,25 @@ public struct SessionProbe: Sendable {
     /// the pass skips git, so a folder prompt nobody has answered costs one
     /// short wait per pass, not one per pane. A held read keeps what was last
     /// seen. A folder outside any repository, or on a detached head, has no
-    /// branch (issue #122). A row this probe writes always carries
-    /// `repository`, null when it was never read, so only an older probe's
-    /// row lacks the key.
+    /// branch (issue #122), and one git may not read has neither. A row this
+    /// probe writes always carries `repository`, null when it was never read,
+    /// so only an older probe's row lacks the key. The remote is read as
+    /// `origin` stores it, before any `insteadOf` rewrites it.
     func readFolder(_ folder: String, into row: inout SessionRow, in pass: inout ProbePass) async {
         row.repositoryRead = true
-        guard let folder = Self.readable(folder) else { return }
         if let known = pass.folders[folder] {
             row.branch = known.branch; row.repository = known.repository
             return
         }
         guard !pass.gitHeld else { return }
+        guard let real = Self.readable(folder) else {
+            pass.folders[folder] = (nil, nil)
+            row.branch = nil; row.repository = nil
+            return
+        }
         do {
-            let branch = try await git(["-C", folder, "symbolic-ref", "--short", "HEAD"])
-            let remote = try await git(["-C", folder, "remote", "get-url", "origin"])
+            let branch = try await git(["-C", real, "symbolic-ref", "--short", "HEAD"])
+            let remote = try await git(["-C", real, "config", "--local", "--includes", "--get-all", "remote.origin.url"])
             let read = (branch: branch, repository: remote.flatMap(Self.githubRepository))
             pass.folders[folder] = read
             row.branch = read.branch; row.repository = read.repository
@@ -268,8 +273,7 @@ public struct SessionProbe: Sendable {
     /// nothing under `/Volumes` is looked at to find out: each name is
     /// checked before its link is read. Links that go round give nil too.
     static func readable(_ folder: String) -> String? {
-        guard folder.hasPrefix("/"), let named = walk(folder, follow: false), !onVolume(named),
-              let real = walk(folder, follow: true) else { return nil }
+        guard folder.hasPrefix("/"), walk(folder, follow: false) != nil, let real = walk(folder, follow: true) else { return nil }
         return "/" + real.joined(separator: "/")
     }
 
@@ -283,8 +287,8 @@ public struct SessionProbe: Sendable {
             let name = left.removeFirst()
             if name == "." { continue }
             if name == ".." { _ = names.popLast(); continue }
+            if isVolumes(names, onDisk: follow) { return nil }
             let next = names + [name]
-            if onVolume(next) { return nil }
             if follow, let target = try? FileManager.default.destinationOfSymbolicLink(atPath: "/" + next.joined(separator: "/")) {
                 links += 1
                 guard links <= 32 else { return nil }
@@ -297,11 +301,16 @@ public struct SessionProbe: Sendable {
         return names
     }
 
-    /// Inside `/Volumes`, or the data volume's own path to it.
-    static func onVolume(_ names: [String]) -> Bool {
-        let folded = names.map { $0.lowercased() }
-        return folded.count > 1 && folded[0] == "volumes"
-            || folded.count > 4 && folded[..<4] == ["system", "volumes", "data", "volumes"]
+    /// Whether `names` is `/Volumes` itself: by its name or the data
+    /// volume's path to it, folded for case as the disk folds it, or, once
+    /// links are followed, by being the same folder on disk.
+    static func isVolumes(_ names: [String], onDisk: Bool) -> Bool {
+        func spelled(_ path: [String]) -> Bool {
+            names.count == path.count && zip(names, path).allSatisfy { $0.compare($1, options: .caseInsensitive) == .orderedSame }
+        }
+        if spelled(["Volumes"]) || spelled(["System", "Volumes", "Data", "Volumes"]) { return true }
+        guard onDisk, !names.isEmpty, let volumes = Place(URL(fileURLWithPath: "/Volumes")) else { return false }
+        return Place(URL(fileURLWithPath: "/" + names.joined(separator: "/"))) == volumes
     }
 
     /// git's first line, or nil when it says nothing, as it does outside a
@@ -323,7 +332,7 @@ public struct SessionProbe: Sendable {
             path = remote[range.upperBound...]
         } else if let url = URLComponents(string: remote), let port = ["https": 443, "http": 80, "ssh": 22, "git": 9418][url.scheme?.lowercased() ?? ""],
                   url.host?.lowercased() == "github.com", url.query == nil, url.fragment == nil, url.port == nil || url.port == port {
-            path = Substring(url.path.drop { $0 == "/" })
+            path = url.percentEncodedPath.dropFirst()
         } else { return nil }
         if path.hasSuffix("/") { path = path.dropLast() }
         if path.hasSuffix(".git") { path = path.dropLast(4) }
@@ -363,7 +372,9 @@ public struct SessionProbe: Sendable {
         guard URL(fileURLWithPath: argv.first ?? "").lastPathComponent == "codex",
               let named = codexFolder(argv), !named.isEmpty else { return cwd }
         if named.hasPrefix("/") { return named }
-        return cwd.isEmpty ? "" : URL(fileURLWithPath: cwd).appendingPathComponent(named).standardized.path
+        // Joined, not standardised: `link/..` is where the link's target's
+        // parent is, which only `readable` can tell.
+        return cwd.isEmpty ? "" : cwd + "/" + named
     }
 
     /// Each session this pass did not see: still running beside a session

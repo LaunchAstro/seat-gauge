@@ -42,6 +42,8 @@ import Testing
             "ssh://git\(at)github.com:2222/LaunchAstro/x.git", "https://github.com:22/LaunchAstro/x.git",
             "https://github.com/LaunchAstro/seat-gauge.git?token=SECRET_CANARY",
             "evil.example:github.com:LaunchAstro/x.git", "github.com:443/LaunchAstro/x.git", "a/b\(at)github.com:LaunchAstro/x.git",
+            // Spelled otherwise than the names it would publish.
+            "https://github.com/Launch%41stro/x.git", "https://github.com//LaunchAstro/x.git",
         ]
         for remote in refused { #expect(SessionProbe.githubRepository(remote: remote) == nil, "\(remote)") }
     }
@@ -165,7 +167,8 @@ import Testing
         let real = root.appendingPathComponent("real")
         try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(atPath: links.appendingPathComponent("repo").path, withDestinationPath: real.path)
-        let unread = ["/tmp/../Volumes/NAS/repo", "/volumes/NAS/repo", "/VOLUMES/NAS", "/Volumes/./NAS/repo",
+        let unread = ["/tmp/../Volumes/NAS/repo", "/volumes/NAS/repo", "/VOLUMES/NAS", "/Volumes/./NAS/repo", "/Volume\u{17F}/NAS/repo",
+                      "/\u{17F}y\u{17F}tem/Volumes/Data/Volumes/NAS/repo",
                       "/System/Volumes/Data/Volumes/NAS/repo", links.path + "/drive/repo", links.path + "/up" + String(repeating: "/..", count: 40) + "/Volumes/NAS",
                       "", "relative/repo"]
         for folder in unread { #expect(SessionProbe.readable(folder) == nil, "\(folder)") }
@@ -180,6 +183,74 @@ import Testing
         #expect(log.sessions.count == panes.count)
         #expect(calls.git.filter { $0.contains("NAS") || $0.contains("/drive") || $0.contains("/up") }.isEmpty,
                 "\(calls.git)")
+    }
+
+    @Test("Sol proof, criterion 3: relative -C preserves symlink/.. semantics")
+    func relativeLinkThenParent() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let base = root.appendingPathComponent("base"), other = root.appendingPathComponent("other")
+        try FileManager.default.createDirectory(at: other.appendingPathComponent("child"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: base.appendingPathComponent("link").path,
+                                                   withDestinationPath: other.appendingPathComponent("child").path)
+        let git = [try #require(SessionProbe.readable(base.path)): ("wrong-branch", "https://github.com/Wrong/Repo.git"),
+                   try #require(SessionProbe.readable(other.path)): ("right-branch", "https://github.com/Right/Repo.git")]
+        let log = try await SessionProbe(runner: Scene(panes: [("w1:p1", ["codex", "-C", "link/.."], base.path)], git: git, calls: Calls()),
+                                         directory: root.appendingPathComponent("private"), home: root).run()
+        #expect(log.sessions.first?.branch == "right-branch")
+        #expect(log.sessions.first?.repository == "Right/Repo")
+    }
+
+    @Test("Sol proof, criterion 1: unread folder clears previous repository")
+    func unreadFolderClearsWhatWasSeen() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("private")
+        let git = ["/work/repo": ("feature", "https://github.com/Wrong/Repo.git")]
+        let first = try await SessionProbe(runner: Scene(panes: [("w1:p1", ["claude"], "/work/repo")], git: git, calls: Calls()),
+                                           directory: directory, home: root).run()
+        #expect(first.sessions.first?.repository == "Wrong/Repo")
+        for folder in ["", "/Volumes/NAS/repo"] {
+            let calls = Calls()
+            let log = try await SessionProbe(runner: Scene(panes: [("w1:p1", ["claude"], folder)], git: git, calls: calls),
+                                             directory: directory, home: root).run()
+            #expect(log.sessions.count == 1)
+            #expect(log.sessions.first?.sessionId == first.sessions.first?.sessionId)
+            #expect(log.sessions.first?.repository == nil, "\(folder)")
+            #expect(log.sessions.first?.branch == nil, "\(folder)")
+            #expect(calls.git.isEmpty)
+        }
+    }
+
+    @Test("Sol proof, criterion 1: origin spelling survives insteadOf rewrite")
+    func originAsStored() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repo = root.appendingPathComponent("repo")
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        for args in [["init", "-q", "-b", "feature"], ["remote", "add", "origin", "https://github.com/Wrong/Repo.git"],
+                     ["config", "url.https://github.com/Rewritten/.insteadOf", "https://github.com/Wrong/"]] {
+            let git = Process()
+            git.executableURL = URL(fileURLWithPath: "/usr/bin/git"); git.arguments = ["-C", repo.path] + args
+            try git.run(); git.waitUntilExit()
+            #expect(git.terminationStatus == 0)
+        }
+        let log = try await SessionProbe(runner: Scene(panes: [("w1:p1", ["claude"], repo.path)], git: [:], calls: Calls(), realGit: true),
+                                         directory: root.appendingPathComponent("private"), home: root).run()
+        #expect(log.sessions.first?.repository == "Wrong/Repo")
+        #expect(log.sessions.first?.branch == "feature")
+    }
+
+    @Test("Sol proof, criterion 6: the session log doc states the repository contract")
+    func docsStateTheContract() throws {
+        let doc = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("docs/session-log.md"), encoding: .utf8)
+        for phrase in ["contract 1.1 of `log.json`", "The file's `version` stays 1", "`repository` is the GitHub `owner/name`",
+                       "no query or fragment", "`github.com:<owner>/<name>`, with or without a user name", "inside `/Volumes`, in any case",
+                       "A row written by an older probe has no `repository` key", "outside any repository", "before any `insteadOf`"] {
+            #expect(doc.contains(phrase), "\(phrase)")
+        }
     }
 
     @Test("a held git read keeps the repository and branch last seen")
@@ -212,6 +283,8 @@ private struct Scene: ProcessRunning {
     let git: [String: (branch: String, remote: String)]
     let calls: Calls
     var held = false
+    /// Real git, for what only git itself does.
+    var realGit = false
 
     func launch(_ spec: ProcessSpec) throws -> any ProcessSession {
         func json(_ object: Any) -> String {
@@ -220,6 +293,7 @@ private struct Scene: ProcessRunning {
         let args = spec.arguments
         if spec.executable.lastPathComponent == "git" {
             calls.add(args.joined(separator: " "))
+            if realGit { return try RealProcessRunner().launch(spec) }
             if held { return Answer(lines: [], delay: true) }
             let folder = args[1]
             guard let answer = git[folder] else { return Answer(lines: []) }
