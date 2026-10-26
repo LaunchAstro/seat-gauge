@@ -62,6 +62,11 @@ enum SeatGaugeApp {
         let bar = NSMenu()
         let appItem = NSMenuItem()
         let app = NSMenu()
+        // The standard panel reads the name and version from the bundle's
+        // Info.plist, which `build-app.sh` writes from `VERSION`.
+        app.addItem(withTitle: "About Seat Gauge",
+                    action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.addItem(.separator())
         app.addItem(withTitle: SettingsCommand.title, action: SettingsCommand.action, keyEquivalent: ",")
         app.addItem(.separator())
         app.addItem(withTitle: "Hide Seat Gauge", action: #selector(NSApplication.hide(_:)),
