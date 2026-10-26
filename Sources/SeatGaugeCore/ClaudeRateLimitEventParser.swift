@@ -17,11 +17,7 @@ enum ClaudeRateLimitEventParser {
         guard let info = latest(in: lines),
               let unified = info["unifiedWindows"] as? [String: Any]
         else { return [] }
-        let pairs: [(String, WindowKind, Duration)] = [
-            ("five_hour", .fiveHour, ClaudeUsageParser.fiveHours),
-            ("seven_day", .weekly, ClaudeUsageParser.sevenDays),
-        ]
-        return pairs.compactMap { key, kind, length in
+        return ClaudeUsageParser.windowKeys.compactMap { key, kind, length in
             guard let object = unified[key] as? [String: Any],
                   let used = percent(object),
                   let resetsAt = JSON.date(object["resetsAt"])

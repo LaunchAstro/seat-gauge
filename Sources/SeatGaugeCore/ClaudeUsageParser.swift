@@ -16,6 +16,12 @@ import Foundation
 public enum ClaudeUsageParser {
     static let fiveHours = Duration.seconds(5 * 60 * 60)
     static let sevenDays = Duration.seconds(7 * 24 * 60 * 60)
+    /// The two windows' keys, which the `get_usage` reply's top level and the
+    /// `rate_limit_event` message both use.
+    static let windowKeys: [(String, WindowKind, Duration)] = [
+        ("five_hour", .fiveHour, fiveHours),
+        ("seven_day", .weekly, sevenDays),
+    ]
 
     public static func windows(from stdoutLines: [String], requestID: String) -> FetchOutcome {
         guard let payload = reply(in: stdoutLines, requestID: requestID) else {
@@ -164,11 +170,7 @@ public enum ClaudeUsageParser {
 
     /// The pair that was there before `limits[]` was, read the same way.
     private static func topLevel(_ limits: [String: Any]) -> [Window] {
-        let pairs: [(String, WindowKind, Duration)] = [
-            ("five_hour", .fiveHour, fiveHours),
-            ("seven_day", .weekly, sevenDays),
-        ]
-        return pairs.compactMap { key, kind, length in
+        windowKeys.compactMap { key, kind, length in
             guard let object = limits[key] as? [String: Any],
                   let used = percent(object),
                   let resetsAt = JSON.date(object["resets_at"])
