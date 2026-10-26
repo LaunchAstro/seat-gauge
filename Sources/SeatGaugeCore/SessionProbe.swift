@@ -244,7 +244,7 @@ public struct SessionProbe: Sendable {
     /// row lacks the key.
     func readFolder(_ folder: String, into row: inout SessionRow, in pass: inout ProbePass) async {
         row.repositoryRead = true
-        guard !folder.isEmpty, !folder.hasPrefix("/Volumes/") else { return }
+        guard let folder = Self.readable(folder) else { return }
         if let known = pass.folders[folder] {
             row.branch = known.branch; row.repository = known.repository
             return
@@ -259,6 +259,49 @@ public struct SessionProbe: Sendable {
         } catch {
             pass.gitHeld = true
         }
+    }
+
+    /// The folder git may read, with its `..` and links followed, or nil
+    /// when it is empty, relative, or under `/Volumes` by its name or through
+    /// a link, in any case (issue #135). A mounted volume may be a network
+    /// share or a drive macOS asks about, so the probe never reads one, and
+    /// nothing under `/Volumes` is looked at to find out: each name is
+    /// checked before its link is read. Links that go round give nil too.
+    static func readable(_ folder: String) -> String? {
+        guard folder.hasPrefix("/"), let named = walk(folder, follow: false), !onVolume(named),
+              let real = walk(folder, follow: true) else { return nil }
+        return "/" + real.joined(separator: "/")
+    }
+
+    /// The names of `folder` once `.`, `..` and, when `follow` is set, its
+    /// links are undone; nil as soon as it would enter a volume.
+    static func walk(_ folder: String, follow: Bool) -> [String]? {
+        var left = folder.split(separator: "/").map(String.init)
+        var names: [String] = []
+        var links = 0
+        while !left.isEmpty {
+            let name = left.removeFirst()
+            if name == "." { continue }
+            if name == ".." { _ = names.popLast(); continue }
+            let next = names + [name]
+            if onVolume(next) { return nil }
+            if follow, let target = try? FileManager.default.destinationOfSymbolicLink(atPath: "/" + next.joined(separator: "/")) {
+                links += 1
+                guard links <= 32 else { return nil }
+                left = target.split(separator: "/").map(String.init) + left
+                if target.hasPrefix("/") { names = [] }
+                continue
+            }
+            names = next
+        }
+        return names
+    }
+
+    /// Inside `/Volumes`, or the data volume's own path to it.
+    static func onVolume(_ names: [String]) -> Bool {
+        let folded = names.map { $0.lowercased() }
+        return folded.count > 1 && folded[0] == "volumes"
+            || folded.count > 4 && folded[..<4] == ["system", "volumes", "data", "volumes"]
     }
 
     /// git's first line, or nil when it says nothing, as it does outside a
@@ -276,7 +319,7 @@ public struct SessionProbe: Sendable {
     /// never the URL, a user name or a token in it, or a path.
     static func githubRepository(remote: String) -> String? {
         var path: Substring
-        if let range = remote.range(of: "^git@github\\.com:", options: [.regularExpression, .caseInsensitive]) {
+        if let range = remote.range(of: "^([^@/:]+@)?github\\.com:", options: [.regularExpression, .caseInsensitive]) {
             path = remote[range.upperBound...]
         } else if let url = URLComponents(string: remote), let port = ["https": 443, "http": 80, "ssh": 22, "git": 9418][url.scheme?.lowercased() ?? ""],
                   url.host?.lowercased() == "github.com", url.query == nil, url.fragment == nil, url.port == nil || url.port == port {

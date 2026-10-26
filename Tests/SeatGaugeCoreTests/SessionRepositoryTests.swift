@@ -27,6 +27,9 @@ import Testing
             // git's own protocol and plain http name the repository too.
             ("git://github.com/LaunchAstro/seat-gauge.git", "LaunchAstro/seat-gauge"),
             ("http://github.com/LaunchAstro/seat-gauge.git", "LaunchAstro/seat-gauge"),
+            // The short SSH form with no user name, or another one.
+            ("github.com:LaunchAstro/seat-gauge.git", "LaunchAstro/seat-gauge"),
+            ("someone\(at)github.com:LaunchAstro/seat-gauge", "LaunchAstro/seat-gauge"),
         ]
         for (remote, expected) in named { #expect(SessionProbe.githubRepository(remote: remote) == expected, "\(remote)") }
         let refused = [
@@ -38,6 +41,7 @@ import Testing
             "/home/someone/repos/seat-gauge", "file:///home/user/x.git", "https://github.com:8443/LaunchAstro/x.git",
             "ssh://git\(at)github.com:2222/LaunchAstro/x.git", "https://github.com:22/LaunchAstro/x.git",
             "https://github.com/LaunchAstro/seat-gauge.git?token=SECRET_CANARY",
+            "evil.example:github.com:LaunchAstro/x.git", "github.com:443/LaunchAstro/x.git", "a/b\(at)github.com:LaunchAstro/x.git",
         ]
         for remote in refused { #expect(SessionProbe.githubRepository(remote: remote) == nil, "\(remote)") }
     }
@@ -148,6 +152,34 @@ import Testing
         #expect(log.sessions.count == 2)
         let text = String(decoding: try SessionLogFile.encoder().encode(log), as: UTF8.self)
         #expect(text.components(separatedBy: #""repository":null"#).count - 1 == 2)
+    }
+
+    @Test("Sol proof, #135: a folder that resolves under /Volumes is never handed to git, whatever its spelling")
+    func volumesAreNeverRead() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let links = root.appendingPathComponent("links")
+        try FileManager.default.createDirectory(at: links, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: links.appendingPathComponent("drive").path, withDestinationPath: "/Volumes/NAS")
+        try FileManager.default.createSymbolicLink(atPath: links.appendingPathComponent("up").path, withDestinationPath: "../..")
+        let real = root.appendingPathComponent("real")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: links.appendingPathComponent("repo").path, withDestinationPath: real.path)
+        let unread = ["/tmp/../Volumes/NAS/repo", "/volumes/NAS/repo", "/VOLUMES/NAS", "/Volumes/./NAS/repo",
+                      "/System/Volumes/Data/Volumes/NAS/repo", links.path + "/drive/repo", links.path + "/up" + String(repeating: "/..", count: 40) + "/Volumes/NAS",
+                      "", "relative/repo"]
+        for folder in unread { #expect(SessionProbe.readable(folder) == nil, "\(folder)") }
+        #expect(SessionProbe.readable(links.path + "/repo/sub/..") == SessionProbe.readable(real.path))
+        #expect(SessionProbe.readable(real.path)?.hasSuffix("/real") == true)
+        #expect(SessionProbe.readable("/Volumes/../tmp") != nil)
+        let calls = Calls()
+        let panes = unread.enumerated().map { ("w1:p\($0.offset)", ["codex", "-C", $0.element], "/home/user") }
+            + [("w1:pc", ["claude"], links.path + "/drive")]
+        let log = try await SessionProbe(runner: Scene(panes: panes, git: [:], calls: calls),
+                                         directory: root.appendingPathComponent("private"), home: root).run()
+        #expect(log.sessions.count == panes.count)
+        #expect(calls.git.filter { $0.contains("NAS") || $0.contains("/drive") || $0.contains("/up") }.isEmpty,
+                "\(calls.git)")
     }
 
     @Test("a held git read keeps the repository and branch last seen")
