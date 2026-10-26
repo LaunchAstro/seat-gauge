@@ -228,9 +228,10 @@ public enum MachineProbe {
     static func cpuIdle(_ line: String) -> Double? {
         guard let idle = line.range(of: "% idle") else { return nil }
         let before = line[..<idle.lowerBound]
-        let number = before.reversed().prefix { $0.isNumber || $0 == "." }
-        // `-20.0% idle` is no idle figure, rather than 20.
-        guard before.dropLast(number.count).last != "-" else { return nil }
+        let number = before.reversed().prefix { ("0" ... "9").contains($0) || $0 == "." }
+        // The figure is a word of its own, so `-20.0`, `1e100` or `x5` before
+        // the `%` is no idle figure rather than the digits at its end.
+        guard let start = before.dropLast(number.count).last, start == " " else { return nil }
         return Double(String(number.reversed()))
     }
 
