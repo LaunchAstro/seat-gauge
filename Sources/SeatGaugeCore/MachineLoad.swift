@@ -550,8 +550,7 @@ public actor MachineMonitor {
         let written = MachinesFile(machines: current.machines, states: next, samples: kept,
                                    seconds: current.machineSeconds, now: now)
         if let data = try? written.data() {
-            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: file, options: .atomic)
+            try? PrivateFile.write(data, to: file, makingFolder: true)
         }
         notify(current.machines, next, kept)
         return next

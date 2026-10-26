@@ -66,7 +66,7 @@ extension AttributionWriter {
             guard added > 0 else { outcome = .alreadyThere; return }
             do {
                 try record.validate()
-                try JSONEncoder.attribution.encode(record).write(to: file, options: .atomic)
+                try PrivateFile.write(JSONEncoder.attribution.encode(record), to: file)
                 outcome = .wrote(added)
             } catch {
                 outcome = .refused("\(error)")

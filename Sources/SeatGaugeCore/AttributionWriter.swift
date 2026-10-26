@@ -77,7 +77,7 @@ public actor AttributionWriter {
             apply(&record)
             guard (try? record.validate()) != nil,
                   let data = try? JSONEncoder.attribution.encode(record) else { return false }
-            return (try? data.write(to: file, options: .atomic)) != nil
+            return (try? PrivateFile.write(data, to: file)) != nil
         }) ?? false
     }
 }

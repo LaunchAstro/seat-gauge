@@ -127,7 +127,7 @@ func addMachine(_ arguments: ArraySlice<String>) async throws {
         let hostName = Host.current().localizedName ?? "This Mac"
         let here = Machine(id: MachineList.id(from: hostName), label: hostName)
         let edited = try MachineList.adding(machine, here: here, to: text)
-        try Data(edited.utf8).write(to: file, options: .atomic)
+        try PrivateFile.write(Data(edited.utf8), to: file)
         print("added \(machine.label) (\(machine.id)): CPU \(reading.cpuUsed)%, memory \(reading.ramUsed)%, "
               + "\(Int((Double(reading.diskFreeBytes) / 1e9).rounded())) GB disk left, "
               + (reading.agents.map { "\($0.working) agent(s) working" } ?? "no herdr")

@@ -70,9 +70,7 @@ public actor GaugeStore {
     private func write(_ file: URL, _ encode: () throws -> Data) -> String? {
         do {
             let data = try encode()
-            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
-                                                    withIntermediateDirectories: true)
-            try data.write(to: file, options: .atomic)
+            try PrivateFile.write(data, to: file, makingFolder: true)
             return nil
         } catch {
             return "\(file.lastPathComponent): \(error.localizedDescription)"

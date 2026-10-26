@@ -43,6 +43,7 @@ Three SwiftPM targets, Command Line Tools only (no Xcode project).
 | `MachineLoad.swift` | The LOAD tab's figures: the probe each machine runs (here in `sh`, elsewhere over `ssh`), its parse into CPU, memory, disk and herdr's agent count, the room verdict, `MachineMonitor`'s loop and `machines.json`. |
 | `SessionLog.swift`, `SessionProbe.swift`, `SessionTokens.swift` | The Log snapshot, private pane ledger, machine-local discovery and incremental reads through the Spend parsers. |
 | `State.swift` | `state.json`: roll-up watermark and panel choices, under a file lock. |
+| `PrivateFile.swift` | How every file the app keeps is written: 600 in a 700 folder, replaced in one rename, an older wider one narrowed on the next write. |
 
 In the app, `PanelModel.swift` turns each seat's `SeatView` into the card's colours and layout, `PanelRoot.swift` holds `GaugeMirror` (the main-actor copy of the latest state), `WindowController.swift` and `PanelHeight.swift` size the window, `WakeSource.swift` turns `NSWorkspace.didWakeNotification` into the wakes `Poll` reads, `SignIn.swift` is a card's Sign in (the browser, the code prompt and the proof around `SeatLogin`), and `main.swift` wires it all together.
 
