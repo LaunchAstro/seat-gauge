@@ -319,6 +319,33 @@ import Testing
         }
     }
 
+    @Test("Sol proof, criterion 1: control whitespace in symbolic-ref chains cannot hide volume links")
+    func controlWhitespaceInRefChains() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func chain(_ name: String, _ space: String, drive: String) throws -> URL {
+            let git = root.appendingPathComponent(name + "/.git")
+            for folder in ["objects/info", "refs/heads"] {
+                try FileManager.default.createDirectory(at: git.appendingPathComponent(folder), withIntermediateDirectories: true)
+            }
+            try "ref: refs/heads/alias\n".write(to: git.appendingPathComponent("HEAD"), atomically: true, encoding: .utf8)
+            try "ref:\(space)refs/heads/drive/main\n".write(to: git.appendingPathComponent("refs/heads/alias"), atomically: true, encoding: .utf8)
+            try FileManager.default.createSymbolicLink(atPath: git.appendingPathComponent("refs/heads/drive").path, withDestinationPath: drive)
+            return git.deletingLastPathComponent()
+        }
+        for (index, space) in ["\r", "\u{0B}", "\u{0C}", " \r\t"].enumerated() {
+            let repo = try chain("volume\(index)", space, drive: "/Volumes/NAS")
+            let calls = Calls()
+            _ = try await SessionProbe(runner: Scene(panes: [("w1:p1", ["claude"], repo.path)], git: [:], calls: calls),
+                                       directory: root.appendingPathComponent("private\(index)"), home: root).run()
+            #expect(calls.git.isEmpty, "\(space.debugDescription): \(calls.git)")
+        }
+        // The same chain through a local folder is still read.
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("shelf"), withIntermediateDirectories: true)
+        let local = try chain("local", "\r", drive: root.appendingPathComponent("shelf").path)
+        #expect(!SessionProbe.gitReachesVolumes(try #require(SessionProbe.readable(local.path))))
+    }
+
     @Test("Sol proof, criterion 5: a local nested repository ignores its parent repository, and real repositories and worktrees are still read")
     func ordinaryRepositoriesStillRead() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

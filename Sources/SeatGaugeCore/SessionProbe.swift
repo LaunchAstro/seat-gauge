@@ -350,7 +350,7 @@ public struct SessionProbe: Sendable {
         while text.hasPrefix("ref:") {
             hops += 1
             guard hops <= 5 else { return .volume }
-            let ref = withoutNewlines(text.dropFirst(4)).trimmingCharacters(in: blank)
+            let ref = text.dropFirst(4).trimmingCharacters(in: gitSpace)
             let name = ref.hasPrefix("refs/heads/") ? String(ref.dropFirst(11)) : ref
             let paths = [gitDir + "/" + ref]
                 + [ref, "refs/" + name, "refs/tags/" + name, "refs/heads/" + name, "refs/remotes/" + name, "refs/remotes/" + name + "/HEAD"].map { common + "/" + $0 }
@@ -457,8 +457,11 @@ public struct SessionProbe: Sendable {
         return .text(text)
     }
 
-    /// The only characters git trims around a config value or a ref name.
+    /// The only characters git trims around a config value.
     static let blank = CharacterSet(charactersIn: " \t")
+
+    /// What git's `isspace` takes as space, all trimmed around a ref's target.
+    static let gitSpace = CharacterSet(charactersIn: " \t\n\u{0B}\u{0C}\r")
 
     /// `text` split at each line feed, as git splits it, so a carriage
     /// return stays on its line.
