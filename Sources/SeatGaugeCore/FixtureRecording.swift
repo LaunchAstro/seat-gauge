@@ -59,7 +59,7 @@ public enum FixtureRecording {
     private static let plainText = try? NSRegularExpression(
         pattern: #"\A[\p{L}\p{N} .,:;_+\-/()\[\]!?·…%]{0,200}\z"#)
     private static let credential = try? NSRegularExpression(
-        pattern: #"(?i)pass(word|phrase|wd)?|secret|token|bearer|basic|auth|credential|cookie|session.?key|api.?key|private.?key|access.?key|keys?(?-i:(?!\p{Ll}))|pin(?:s|code)?(?-i:(?!\p{Ll}))|(?-i:KEY|PIN)|sk-|eyJ"#)
+        pattern: #"(?i)pass(word|phrase|wd)?|secret|token|bearer|basic|auth|credential|cookie|session.?key|api.?key|private.?key|access.?key|keys?(?-i:(?!\p{Ll}))|pin(?:code)?s?(?-i:(?!\p{Ll}))|(?-i:KEY|PIN)|sk-|eyJ"#)
     private static let run = try? NSRegularExpression(pattern: #"[\p{L}\p{N}_\-+/.]{24,}"#)
 
     /// One recorded stdout line with only what the parsers read left in it.
