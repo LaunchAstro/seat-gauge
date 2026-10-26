@@ -52,10 +52,12 @@ import SeatGaugeCore
         return (process, input)
     }
 
+    /// Waits for the whole line, not just the file: the shell makes the file
+    /// before it writes to it, and a busy machine can be read in between.
     static func appears(_ file: URL, within seconds: Double = 10) -> Bool {
         let end = Date().addingTimeInterval(seconds)
         while Date() < end {
-            if FileManager.default.fileExists(atPath: file.path) { return true }
+            if ((try? String(contentsOf: file, encoding: .utf8)) ?? "").hasSuffix("\n") { return true }
             usleep(20_000)
         }
         return false
