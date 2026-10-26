@@ -185,6 +185,204 @@ import Testing
                 "\(calls.git)")
     }
 
+    @Test("#141: a folder whose repository points git under /Volumes is never handed to git, and one that does not still is")
+    func repositoryPointersIntoVolumes() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func write(_ text: String, _ path: String) throws {
+            let file = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try text.write(to: file, atomically: true, encoding: .utf8)
+        }
+        func link(_ path: String, _ target: String) throws {
+            try FileManager.default.createDirectory(at: root.appendingPathComponent(path).deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent(path).path, withDestinationPath: target)
+        }
+        /// A git folder at `path` with what git needs to take it as one.
+        func repository(_ path: String) throws {
+            try write("ref: refs/heads/main\n", path + "/HEAD")
+            for folder in ["/objects/info", "/refs/heads"] {
+                try FileManager.default.createDirectory(at: root.appendingPathComponent(path + folder), withIntermediateDirectories: true)
+            }
+        }
+        try link("drive", "/Volumes/NAS")
+        // A linked worktree of a repository on a drive, by absolute and by relative name.
+        try write("gitdir: /Volumes/NAS/x.git/worktrees/wt\n", "worktree/.git")
+        try write("gitdir: ../../../../../../../../../../../../../../../../Volumes/NAS/x.git\n", "relative/.git")
+        // Found by walking up, as git finds it from a folder inside the work tree.
+        try write("gitdir: /Volumes/NAS/x.git\n", "above/.git")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("above/deep/down"), withIntermediateDirectories: true)
+        // A `.git` that is itself a link to a drive, or names one through a trailing space.
+        try link("linked/.git", "/Volumes/NAS/x.git")
+        try link("spaced/x ", root.appendingPathComponent("drive").path); try write("gitdir: x \n", "spaced/.git")
+        // A worktree's git folder whose shared folder is on a drive.
+        try repository("common/.git"); try write("/Volumes/NAS/x.git\n", "common/.git/commondir")
+        // Borrowed objects on a drive, directly or through a chain of alternates.
+        try repository("alternate/.git"); try write("# borrowed\n/Volumes/NAS/x.git/objects\n", "alternate/.git/objects/info/alternates")
+        try repository("chain/.git"); try repository("store")
+        try write(root.appendingPathComponent("store/objects").path + "\n", "chain/.git/objects/info/alternates")
+        try write("/Volumes/NAS/x.git/objects\n", "store/objects/info/alternates")
+        // Files git reads that are links to a drive: the refs, the branch, packed refs.
+        try repository("refs/.git"); try FileManager.default.removeItem(at: root.appendingPathComponent("refs/.git/refs"))
+        try link("refs/.git/refs", "/Volumes/NAS/x.git/refs")
+        try repository("branch/.git"); try link("branch/.git/refs/heads/main", "/Volumes/NAS/main")
+        try repository("packed/.git"); try link("packed/.git/packed-refs", "/Volumes/NAS/packed-refs")
+        // A pipe where a pointer file goes would hold the pass, so it counts as a volume.
+        try repository("pipe/.git"); #expect(mkfifo(root.appendingPathComponent("pipe/.git/config").path, 0o600) == 0)
+        // Config git reads with every command, included from a drive however it is written.
+        let configs = [
+            "included": "[core]\n\tbare = false\n[include]\n\tpath = /Volumes/NAS/shared.config\n",
+            "conditional": "[includeIf \"gitdir:~/\"]\n  path = \"/Volumes/NAS/shared.config\"\n",
+            "header": "[include] path = /Volumes/NAS/shared.config\n",
+            "headers": "[core][include]path=/Volumes/NAS/shared.config\n",
+            "carried": "[include]\n\tx = a \\\n[core]\n\tpath = /Volumes/NAS/shared.config\n",
+            "crlf": "[include]\r\n\tpath = /Volumes/NAS/shared.config\r\n",
+            "account": "[include]\n\tpath = ~guest/shared.config\n",
+            "commented": "[core]\n\tworktree = ../../drive ; the drive copy\n",
+        ]
+        for (name, config) in configs { try repository(name + "/.git"); try write(config, name + "/.git/config") }
+        // A bare repository the agent works in directly.
+        try repository("bare.git"); try write("/Volumes/NAS/x.git/objects\n", "bare.git/objects/info/alternates")
+        let unread = ["worktree", "relative", "above/deep/down", "linked", "spaced", "common", "alternate", "chain", "refs", "branch",
+                      "packed", "pipe", "bare.git"] + configs.keys.sorted()
+        for name in unread {
+            let folder = root.appendingPathComponent(name).path
+            #expect(SessionProbe.gitReachesVolumes(try #require(SessionProbe.readable(folder))), "\(name)")
+            let calls = Calls()
+            let log = try await SessionProbe(runner: Scene(panes: [("w1:p1", ["claude"], folder)], git: [:], calls: calls),
+                                             directory: root.appendingPathComponent("private-" + name), home: root).run()
+            #expect(log.sessions.count == 1)
+            #expect(log.sessions.first?.branch == nil, "\(name)")
+            #expect(calls.git.isEmpty, "\(name): \(calls.git)")
+        }
+    }
+
+    @Test("Sol proof, criterion 1: concatenated quoted config paths cannot bypass the volume guard")
+    func concatenatedQuotes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for config in ["[include]\n\tpath = \"\"/Volumes/NAS/config\n", "[include]\n\tpath = \"../../dri\"ve\n", "[core]\n\tworktree = \"\"/Volumes/NAS\n"] {
+            let git = root.appendingPathComponent("repo/.git")
+            try? FileManager.default.removeItem(at: root.appendingPathComponent("repo"))
+            for folder in ["objects/info", "refs/heads"] {
+                try FileManager.default.createDirectory(at: git.appendingPathComponent(folder), withIntermediateDirectories: true)
+            }
+            try "ref: refs/heads/main\n".write(to: git.appendingPathComponent("HEAD"), atomically: true, encoding: .utf8)
+            try config.write(to: git.appendingPathComponent("config"), atomically: true, encoding: .utf8)
+            #expect(SessionProbe.gitReachesVolumes(try #require(SessionProbe.readable(root.appendingPathComponent("repo").path))), "\(config)")
+        }
+    }
+
+    @Test("Sol proof, criterion 1: embedded carriage returns cannot hide volume config paths")
+    func embeddedCarriageReturns() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configs = ["[include]\npath=\r/Volumes/NAS/config\n", "[core]\nworktree=\r/Volumes/NAS\n", "[include]\npath\r= /Volumes/NAS/config\n",
+                       "[include]\n\tpath = \u{0B}/Volumes/NAS/config\n", "[core]\n\tworktree =\u{0C}/Volumes/NAS\n"]
+        for (index, config) in configs.enumerated() {
+            let repo = root.appendingPathComponent("repo\(index)"), git = repo.appendingPathComponent(".git")
+            for folder in ["objects/info", "refs/heads"] {
+                try FileManager.default.createDirectory(at: git.appendingPathComponent(folder), withIntermediateDirectories: true)
+            }
+            try "ref: refs/heads/main\n".write(to: git.appendingPathComponent("HEAD"), atomically: true, encoding: .utf8)
+            try config.write(to: git.appendingPathComponent("config"), atomically: true, encoding: .utf8)
+            let calls = Calls()
+            _ = try await SessionProbe(runner: Scene(panes: [("w1:p1", ["claude"], repo.path)], git: [:], calls: calls),
+                                       directory: root.appendingPathComponent("private\(index)"), home: root).run()
+            #expect(calls.git.isEmpty, "\(config.debugDescription): \(calls.git)")
+        }
+    }
+
+    @Test("Sol proof, criterion 1: symbolic-ref chains cannot hide volume links")
+    func symbolicRefChains() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repo = root.appendingPathComponent("repo"), git = repo.appendingPathComponent(".git")
+        for folder in ["objects/info", "refs/heads"] {
+            try FileManager.default.createDirectory(at: git.appendingPathComponent(folder), withIntermediateDirectories: true)
+        }
+        try "ref: refs/heads/alias\n".write(to: git.appendingPathComponent("HEAD"), atomically: true, encoding: .utf8)
+        try "ref: refs/heads/drive/main\n".write(to: git.appendingPathComponent("refs/heads/alias"), atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(atPath: git.appendingPathComponent("refs/heads/drive").path, withDestinationPath: "/Volumes/NAS")
+        // A chain longer than git follows counts as a volume too.
+        let loop = root.appendingPathComponent("loop/.git")
+        for folder in ["objects/info", "refs/heads"] {
+            try FileManager.default.createDirectory(at: loop.appendingPathComponent(folder), withIntermediateDirectories: true)
+        }
+        try "ref: refs/heads/a\n".write(to: loop.appendingPathComponent("HEAD"), atomically: true, encoding: .utf8)
+        try "ref: refs/heads/a\n".write(to: loop.appendingPathComponent("refs/heads/a"), atomically: true, encoding: .utf8)
+        for folder in [repo, loop.deletingLastPathComponent()] {
+            let calls = Calls()
+            _ = try await SessionProbe(runner: Scene(panes: [("w1:p1", ["claude"], folder.path)], git: [:], calls: calls),
+                                       directory: root.appendingPathComponent("private-" + folder.lastPathComponent), home: root).run()
+            #expect(calls.git.isEmpty, "\(folder.lastPathComponent): \(calls.git)")
+        }
+    }
+
+    @Test("Sol proof, criterion 1: control whitespace in symbolic-ref chains cannot hide volume links")
+    func controlWhitespaceInRefChains() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func chain(_ name: String, _ space: String, drive: String) throws -> URL {
+            let git = root.appendingPathComponent(name + "/.git")
+            for folder in ["objects/info", "refs/heads"] {
+                try FileManager.default.createDirectory(at: git.appendingPathComponent(folder), withIntermediateDirectories: true)
+            }
+            try "ref: refs/heads/alias\n".write(to: git.appendingPathComponent("HEAD"), atomically: true, encoding: .utf8)
+            try "ref:\(space)refs/heads/drive/main\n".write(to: git.appendingPathComponent("refs/heads/alias"), atomically: true, encoding: .utf8)
+            try FileManager.default.createSymbolicLink(atPath: git.appendingPathComponent("refs/heads/drive").path, withDestinationPath: drive)
+            return git.deletingLastPathComponent()
+        }
+        for (index, space) in ["\r", "\u{0B}", "\u{0C}", " \r\t"].enumerated() {
+            let repo = try chain("volume\(index)", space, drive: "/Volumes/NAS")
+            let calls = Calls()
+            _ = try await SessionProbe(runner: Scene(panes: [("w1:p1", ["claude"], repo.path)], git: [:], calls: calls),
+                                       directory: root.appendingPathComponent("private\(index)"), home: root).run()
+            #expect(calls.git.isEmpty, "\(space.debugDescription): \(calls.git)")
+        }
+        // The same chain through a local folder is still read.
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("shelf"), withIntermediateDirectories: true)
+        let local = try chain("local", "\r", drive: root.appendingPathComponent("shelf").path)
+        #expect(!SessionProbe.gitReachesVolumes(try #require(SessionProbe.readable(local.path))))
+    }
+
+    @Test("Sol proof, criterion 5: a local nested repository ignores its parent repository, and real repositories and worktrees are still read")
+    func ordinaryRepositoriesStillRead() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func git(_ folder: URL, _ args: String...) throws {
+            let git = Process()
+            git.executableURL = URL(fileURLWithPath: "/usr/bin/git"); git.arguments = ["-C", folder.path] + args
+            try git.run(); git.waitUntilExit()
+            #expect(git.terminationStatus == 0, "\(args)")
+        }
+        // A real repository inside a folder whose own `.git` file points at a drive.
+        let outer = root.appendingPathComponent("outer"), inner = outer.appendingPathComponent("inner")
+        try FileManager.default.createDirectory(at: inner, withIntermediateDirectories: true)
+        try "gitdir: /Volumes/NAS/x.git\n".write(to: outer.appendingPathComponent(".git"), atomically: true, encoding: .utf8)
+        try git(inner, "init", "-q", "-b", "sol-local")
+        // A real repository with a local alternate and include, and a linked worktree of it.
+        let main = root.appendingPathComponent("main"), shelf = root.appendingPathComponent("shelf")
+        try FileManager.default.createDirectory(at: main, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: shelf, withIntermediateDirectories: true)
+        try git(shelf, "init", "-q", "--bare")
+        try git(main, "init", "-q", "-b", "feature")
+        try git(main, "config", "include.path", "../shared.config")
+        try git(main, "-c", "user.name=t", "-c", "user.email=t", "commit", "-q", "--allow-empty", "-m", "first")
+        try (shelf.path + "/objects\n").write(to: main.appendingPathComponent(".git/objects/info/alternates"), atomically: true, encoding: .utf8)
+        try git(main, "worktree", "add", "-q", "-b", "side", root.appendingPathComponent("side").path)
+        try FileManager.default.createDirectory(at: main.appendingPathComponent("src"), withIntermediateDirectories: true)
+        for (folder, branch) in [(inner, "sol-local"), (main.appendingPathComponent("src"), "feature"), (root.appendingPathComponent("side"), "side")] {
+            let real = try #require(SessionProbe.readable(folder.path))
+            #expect(!SessionProbe.gitReachesVolumes(real), "\(folder.lastPathComponent)")
+            let calls = Calls()
+            let log = try await SessionProbe(runner: Scene(panes: [("w1:p1", ["claude"], real)], git: [:], calls: calls, realGit: true),
+                                             directory: root.appendingPathComponent("private-" + branch), home: root).run()
+            #expect(log.sessions.first?.branch == branch)
+            #expect(calls.git.count == 2)
+        }
+    }
+
     @Test("Sol proof, criterion 3: relative -C preserves symlink/.. semantics")
     func relativeLinkThenParent() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
