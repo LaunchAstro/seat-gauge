@@ -155,6 +155,13 @@ public enum CodexRollout {
         case "turn_context": return .model(payload["model"] as? String ?? "unknown")
         case "event_msg" where payload["type"] as? String == "token_count":
             let info = payload["info"] as? [String: Any] ?? [:]
+            // A count no session could reach is a broken line, not a figure,
+            // and refusing it here keeps the sums and differences below
+            // inside an Int.
+            for key in ["total_token_usage", "last_token_usage"] {
+                guard let usage = info[key] as? [String: Any] else { continue }
+                guard Self.fields.allSatisfy({ JSON.isCount(usage[$0]) }) else { return nil }
+            }
             return .tokens(JSON.date(object["timestamp"]), usage(info["total_token_usage"]), usage(info["last_token_usage"]))
         default: return nil
         }
@@ -163,7 +170,7 @@ public enum CodexRollout {
     static func usage(_ value: Any?) -> [String: Int]? {
         guard let object = value as? [String: Any] else { return nil }
         var out: [String: Int] = [:]
-        for field in fields { out[field] = JSON.int(object[field]) }
+        for field in fields { out[field] = JSON.count(object[field]) }
         return out
     }
 

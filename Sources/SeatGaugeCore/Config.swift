@@ -19,9 +19,9 @@ public struct Config: Equatable, Sendable {
     public init(seats: [Seat], pollMinutes: Int, machines: [Machine] = [.here], machineSeconds: Int = 5,
                 spendFrom: String? = nil) {
         self.seats = seats
-        self.pollMinutes = pollMinutes
+        self.pollMinutes = min(Self.longestPollMinutes, max(1, pollMinutes))
         self.machines = machines
-        self.machineSeconds = machineSeconds
+        self.machineSeconds = min(Self.longestMachineSeconds, max(1, machineSeconds))
         self.spendFrom = spendFrom
     }
 }

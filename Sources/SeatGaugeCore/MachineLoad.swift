@@ -178,7 +178,10 @@ public enum MachineProbe {
     ]
 
     /// Nil unless every figure but the agents is there, so a cut-off read
-    /// never draws as an idle machine.
+    /// never draws as an idle machine. Nil too when a figure is outside what
+    /// a Mac can report: the answer may come from another machine, and an
+    /// absurd number there would otherwise trap in the arithmetic below and
+    /// end the app.
     public static func parse(_ lines: [String], at now: Date) -> MachineReading? {
         var fields: [String: String] = [:]
         for line in lines {
@@ -187,18 +190,23 @@ public enum MachineProbe {
             fields[String(key)] = parts.count > 1 ? String(parts[1]) : ""
         }
         guard fields["end"] != nil,
-              let cores = fields["cores"].flatMap({ Int($0) }),
-              let ramBytes = fields["memsize"].flatMap({ Int64($0) }),
-              let memoryFree = fields["memfree"].flatMap({ Int($0) }),
+              let cores = fields["cores"].flatMap({ Int($0) }), cores > 0,
+              let ramBytes = fields["memsize"].flatMap({ Int64($0) }), ramBytes >= 0,
+              let memoryFree = fields["memfree"].flatMap({ Int($0) }), (0 ... 100).contains(memoryFree),
               let load = fields["load"].map(loads), load.count == 3,
+              load.allSatisfy({ (0 ... highestLoad).contains($0) }),
               let disk = fields["disk"].flatMap(disk),
-              let idle = fields["cpu"].flatMap(cpuIdle)
+              let idle = fields["cpu"].flatMap(cpuIdle), idle.isFinite
         else { return nil }
         return MachineReading(takenAt: now, cpuUsed: clamp(100 - idle), load: load, cores: cores,
                               ramUsed: clamp(100 - Double(memoryFree)), ramBytes: ramBytes,
                               diskUsed: disk.used, diskFreeBytes: disk.free,
                               agents: fields["agents"].flatMap(agents))
     }
+
+    /// A load average no Mac reaches, a thousand times the busiest, and
+    /// still small enough that the LOAD tab's whole-number text cannot trap.
+    static let highestLoad = 100_000.0
 
     /// `{ 1.20 2.30 3.40 }`, as `vm.loadavg` prints it.
     static func loads(_ text: String) -> [Double] {
@@ -210,8 +218,10 @@ public enum MachineProbe {
     static func disk(_ row: String) -> (used: Int, free: Int64)? {
         let columns = row.split(separator: " ")
         guard columns.count >= 4, let blocks = Double(columns[1]), let available = Int64(columns[3]),
-              blocks > 0 else { return nil }
-        return (clamp(100 - Double(available) / blocks * 100), available * 1024)
+              blocks > 0, blocks.isFinite, available >= 0 else { return nil }
+        let (bytes, overflow) = available.multipliedReportingOverflow(by: 1024)
+        guard !overflow else { return nil }
+        return (clamp(100 - Double(available) / blocks * 100), bytes)
     }
 
     /// `CPU usage: 12.5% user, 7.5% sys, 80.0% idle`.

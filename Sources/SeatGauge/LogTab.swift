@@ -50,7 +50,7 @@ struct LogTab: View {
 
     private func tokenLine(_ row: SessionRow) -> String {
         guard let tokens = row.tokens else { return "Tokens pending" }
-        let total = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite5m + tokens.cacheWrite1h
+        let total = tokens.total
         let price = row.usd.map { " · $\($0.formatted(.number.precision(.fractionLength(2)))) list price" } ?? ""
         return "\(total.formatted()) tokens · \(tokens.input.formatted()) in · \(tokens.output.formatted()) out" + price
     }
