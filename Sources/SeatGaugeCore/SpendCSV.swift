@@ -58,9 +58,7 @@ public enum SpendCSV {
     }
 
     public static func write(_ rows: [SpendRow], to file: URL = SpendCSV.defaultFile) throws {
-        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(text(rows).utf8).write(to: file, options: .atomic)
+        try PrivateFile.write(Data(text(rows).utf8), to: file, makingFolder: true)
     }
 
     // MARK: - The day and hour columns

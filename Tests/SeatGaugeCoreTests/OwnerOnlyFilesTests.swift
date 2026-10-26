@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-import SeatGaugeCore
+@testable import SeatGaugeCore
 import SeatGaugeTestSupport
 
 /// The files the app keeps name the user's clients, repositories, sessions
@@ -116,5 +116,23 @@ import SeatGaugeTestSupport
         for name in HistoryBackup.names {
             #expect(Self.mode(written.appendingPathComponent(name)) == 0o600, "\(name)")
         }
+    }
+
+    @Test("a write never leaves a draft behind, and never touches a folder that is not the user's")
+    func noDraftAndNoForeignFolder() throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("state.json")
+        try PrivateFile.write(Data("one".utf8), to: file)
+        try PrivateFile.write(Data("two".utf8), to: file)
+        #expect(try String(contentsOf: file, encoding: .utf8) == "two")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["state.json"])
+        // A missing folder is made only when the caller asks.
+        let missing = root.appendingPathComponent("missing/state.json")
+        #expect(throws: (any Error).self) { try PrivateFile.write(Data(), to: missing) }
+        // The shared temporary folder is root's, and stays as it is.
+        let before = Self.mode(URL(fileURLWithPath: "/private/tmp"))
+        PrivateFile.narrow(URL(fileURLWithPath: "/private/tmp"))
+        #expect(Self.mode(URL(fileURLWithPath: "/private/tmp")) == before)
     }
 }

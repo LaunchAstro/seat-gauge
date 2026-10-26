@@ -147,7 +147,7 @@ public struct StateStore: Sendable {
                 change(&state)
                 let writer = JSONEncoder()
                 writer.outputFormatting = [.prettyPrinted, .sortedKeys]
-                try writer.encode(state).write(to: file, options: .atomic)
+                try PrivateFile.write(writer.encode(state), to: file)
                 return state
             }
         }

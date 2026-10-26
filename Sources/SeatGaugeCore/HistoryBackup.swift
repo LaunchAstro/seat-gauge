@@ -47,9 +47,10 @@ public struct HistoryBackup: Sendable {
         let partial = folder.appendingPathComponent(".\(day)", isDirectory: true)
         try? manager.removeItem(at: partial)
         do {
-            try manager.createDirectory(at: partial, withIntermediateDirectories: true)
+            try PrivateFile.folder(folder)
+            try PrivateFile.folder(partial)
             for (name, data) in live {
-                try data.write(to: partial.appendingPathComponent(name))
+                try PrivateFile.create(data, at: partial.appendingPathComponent(name))
             }
             try manager.moveItem(at: partial, to: target)
         } catch {

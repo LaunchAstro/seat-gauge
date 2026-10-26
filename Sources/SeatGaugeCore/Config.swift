@@ -158,7 +158,7 @@ public struct ConfigLoader: Sendable {
     private func create() throws {
         let found = machine.seats()
         let folder = file.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try PrivateFile.folder(folder)
         // Only the fresh seat's profile is not there yet. Make it, private to
         // the user, so step 3 has a folder to sign in to.
         for case let .claude(profile) in found.map(\.kind) where SeatDiscovery.nothing(at: profile) {
@@ -166,7 +166,7 @@ public struct ConfigLoader: Sendable {
                                                      attributes: [.posixPermissions: 0o700])
         }
         let draft = folder.appendingPathComponent(".\(file.lastPathComponent).\(UUID().uuidString)")
-        try Data(Self.seeded(with: found).utf8).write(to: draft)
+        try PrivateFile.create(Data(Self.seeded(with: found).utf8), at: draft)
         defer { try? FileManager.default.removeItem(at: draft) }
         guard link(draft.path, file.path) == 0 || errno == EEXIST else {
             throw ConfigProblem("\(file.lastPathComponent) could not be written: \(String(cString: strerror(errno)))")

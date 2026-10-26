@@ -266,8 +266,7 @@ public actor SessionLogMonitor {
         let log = SessionLogFile(updated: now, sessions: machines.flatMap { rows[$0.id] ?? [] }
             .sorted { ($0.startedAt ?? .distantPast, $0.id) > ($1.startedAt ?? .distantPast, $1.id) }, problems: problems)
         do {
-            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try SessionLogFile.encoder().encode(log).write(to: file, options: .atomic)
+            try PrivateFile.write(SessionLogFile.encoder().encode(log), to: file, makingFolder: true)
         } catch { PollLog.system("log: snapshot could not be written") }
         notify(log)
         return log
