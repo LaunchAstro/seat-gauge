@@ -45,19 +45,21 @@ refuse() { printf 'install: %s\n' "$1" >&2; exit 1; }
   refuse "$APP has no seatgauge-cli in it. Run make install, which builds both. Nothing has been removed."
 # Only a copy of this app is ever replaced: an unrelated app of the same name,
 # or a link, is the user's to move. `checked` is the folder that passed, by
-# device and inode, so the copy moved aside later is deleted only if it is
-# still that folder (`ours_as_checked`).
+# device and inode, read before and after the bundle check so both name the
+# same folder; the copy moved aside later is deleted only if it is still that
+# folder (`remove_checked`). `stat` by its full path, since a GNU `stat` first
+# on PATH reads `-f` another way.
 ours() {
   [ ! -L "$1" ] && [ -d "$1" ] &&
     [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null)" = "$ID" ]
 }
+identity() { /usr/bin/stat -f '%d:%i' "$1" 2>/dev/null || true; }
 checked=""
 if [ -e "$DEST" ] || [ -L "$DEST" ]; then
-  ours "$DEST" ||
+  checked="$(identity "$DEST")"
+  [ -n "$checked" ] && ours "$DEST" && [ "$(identity "$DEST")" = "$checked" ] ||
     refuse "$DEST is there and is not Seat Gauge ($ID), so this script will not replace it. Move it away, then install again. Nothing has been removed."
-  checked="$(stat -f '%d:%i' "$DEST")"
 fi
-ours_as_checked() { [ -n "$checked" ] && ours "$1" && [ "$(stat -f '%d:%i' "$1")" = "$checked" ]; }
 if [ -e "$LINK" ] || [ -L "$LINK" ]; then
   [ -L "$LINK" ] && [ "$(readlink "$LINK")" = "$DEST/$HELPER" ] ||
     refuse "$LINK is already there, and this script did not put it there. Move it away, then install again. Nothing has been removed."
@@ -121,7 +123,7 @@ mkdir -p "$APPLICATIONS"
 stage="$(mktemp -d "$APPLICATIONS/.seat-gauge-install.XXXXXX")"
 NEW="$stage/Seat Gauge.app"
 OLD="$stage/old/Seat Gauge.app"
-trap 'rm -rf "$scratch"; if [ -e "$OLD" ]; then rm -rf "$NEW"; else rm -rf "$stage"; fi' EXIT
+trap 'rm -rf "$scratch"; if [ -e "$OLD" ] || [ -L "$OLD" ]; then rm -rf "$NEW"; else rm -rf "$stage"; fi' EXIT
 ditto "$CLEAN" "$NEW" ||
   refuse "the new copy could not be written in $APPLICATIONS. Nothing has been removed."
 codesign --verify --strict "$NEW" >/dev/null 2>&1 ||
@@ -148,11 +150,32 @@ if ! put "$NEW" "$DEST"; then
   refuse "the new copy could not be put in place. The copy before it is back in $APPLICATIONS."
 fi
 # Something can take the destination's place in the seconds between the check
-# and the move aside. Whatever was moved aside is deleted only if it is still
-# the copy of Seat Gauge that was checked; anything else is left where it now
-# is, and said.
-if [ -e "$OLD" ] && ! ours_as_checked "$OLD"; then
-  printf 'install: what was moved aside from %s is not the copy of Seat Gauge checked before the install, so it is left at %s. Move it back or to the Trash yourself.\n' "$DEST" "$OLD" >&2
+# and the move aside, so the moved-aside copy is never deleted by its path.
+# perl changes into it, confirms by device and inode that it is the folder
+# checked at the start and that its own Info.plist is Seat Gauge's, and
+# empties it from inside. The empty folders then go by rmdir, which refuses
+# anything that is not empty. Whatever is swapped in, at any moment, is left
+# where it now is, and said.
+remove_checked() {
+  [ -n "$checked" ] && [ ! -L "$OLD" ] && [ -d "$OLD" ] &&
+    perl -MFile::Path=remove_tree -e '
+      my ($old, $checked, $id) = @ARGV;
+      chdir $old or exit 1;
+      my @here = stat ".";
+      exit 1 unless @here && "$here[0]:$here[1]" eq $checked;
+      my $read = qx(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" Contents/Info.plist 2>/dev/null);
+      chomp $read;
+      exit 1 unless $read eq $id;
+      opendir my $folder, "." or exit 1;
+      for my $entry (grep { $_ ne "." && $_ ne ".." } readdir $folder) {
+        remove_tree($entry, { error => \my $failed });
+        exit 1 if @$failed;
+      }' "$OLD" "$checked" "$ID" &&
+    rmdir "$OLD" "$stage/old" "$stage" 2>/dev/null
+}
+if [ -e "$OLD" ] || [ -L "$OLD" ]; then
+  remove_checked ||
+    printf 'install: what was moved aside from %s is not the copy of Seat Gauge checked before the install, so it is left at %s. Move it back or to the Trash yourself.\n' "$DEST" "$OLD" >&2
 else
   rm -rf "$stage"
 fi
