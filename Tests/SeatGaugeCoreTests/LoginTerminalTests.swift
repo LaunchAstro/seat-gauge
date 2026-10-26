@@ -31,6 +31,15 @@ import SeatGaugeCore
 
         deinit { close(master); close(slave) }
 
+        /// Every setting, compared field by field.
+        var settings: [UInt64] {
+            var now = termios()
+            tcgetattr(slave, &now)
+            let cc = withUnsafeBytes(of: now.c_cc) { $0.map { UInt64($0) } }
+            return [UInt64(now.c_iflag), UInt64(now.c_oflag), UInt64(now.c_cflag), UInt64(now.c_lflag),
+                    UInt64(now.c_ispeed), UInt64(now.c_ospeed)] + cc
+        }
+
         var echoes: Bool {
             var settings = termios()
             tcgetattr(slave, &settings)
@@ -129,6 +138,43 @@ import SeatGaugeCore
         #expect(task.terminationReason == .uncaughtSignal)
         #expect(task.terminationStatus == SIGINT)
         #expect(terminal.echoes)
+    }
+
+    @Test("Sol proof, criterion 2: a sign-in leaves every terminal setting as it found it")
+    func everySettingIsPutBack() throws {
+        let scratch = try SeatLoginTests.scratch(.accepts(Self.code))
+        defer { scratch.remove() }
+        let terminal = try Terminal()
+        let before = terminal.settings
+        let task = try Self.start(scratch, on: terminal)
+        #expect(terminal.read { terminal.said.contains("code> ") })
+        terminal.type(Self.code + "\n")
+        Self.finish(task, terminal)
+
+        #expect(task.terminationStatus == 0)
+        #expect(terminal.settings == before)
+    }
+
+    @Test("Sol proof, criterion 2: a sign-in that fails as the code prompt shows leaves the terminal echoing")
+    func aFailureAtThePromptLeavesEcho() throws {
+        let scratch = try SeatLoginTests.scratch(.refuses)
+        defer { scratch.remove() }
+        // A claude that asks for the code and dies at once, so the login ends
+        // while the code is still being asked for.
+        let claude = scratch.bin.appendingPathComponent("claude")
+        try #"""
+            #!/bin/sh
+            printf 'visit: https://example.test/oauth/authorize?code=true\nPaste code here if prompted > '
+            exit 2
+            """#.write(to: claude, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: claude.path)
+        for _ in 0 ..< 10 {
+            let terminal = try Terminal()
+            let task = try Self.start(scratch, on: terminal)
+            Self.finish(task, terminal)
+            #expect(task.terminationStatus == 1)
+            #expect(terminal.echoes)
+        }
     }
 
     @Test("claude auth login and status run in the seat's own profile, not the caller's folder")
