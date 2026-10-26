@@ -106,12 +106,14 @@ codesign --verify --strict "$CLEAN" >/dev/null 2>&1 ||
 
 # Staged on the same volume, so the swap below is two renames. The new copy
 # sits at the same depth it will be installed at, and `old` holds the copy
-# being replaced until the new one is in; the folder is removed at the end
-# unless the old copy could not be put back, when it is all that is left.
+# being replaced until the new one is in. Every exit removes the folder,
+# unless the old copy could not be put back: then only the new copy goes, so
+# the old one is all that is left and no second copy blocks the next install.
 mkdir -p "$APPLICATIONS"
 stage="$(mktemp -d "$APPLICATIONS/.seat-gauge-install.XXXXXX")"
-trap 'rm -rf "$scratch"; [ -e "$stage/old" ] || rm -rf "$stage"' EXIT
 NEW="$stage/Seat Gauge.app"
+OLD="$stage/old/Seat Gauge.app"
+trap 'rm -rf "$scratch"; if [ -e "$OLD" ]; then rm -rf "$NEW"; else rm -rf "$stage"; fi' EXIT
 ditto "$CLEAN" "$NEW" ||
   refuse "the new copy could not be written in $APPLICATIONS. Nothing has been removed."
 codesign --verify --strict "$NEW" >/dev/null 2>&1 ||
@@ -123,15 +125,18 @@ printf 'install: quitting the installed copy\n'
 pattern="$(printf '%s' "$DEST/Contents/MacOS/SeatGauge" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
 pkill -f "^$pattern( |$)" || true
 
+# A bare rename(2): where mv would move into a folder that is already there,
+# such as a copy another install put in place meanwhile, this fails instead.
+put() { perl -e 'rename($ARGV[0], $ARGV[1]) or exit 1' "$1" "$2"; }
 if [ -e "$DEST" ]; then
   mkdir "$stage/old"
-  mv "$DEST" "$stage/old/" ||
+  put "$DEST" "$OLD" ||
     refuse "the installed copy could not be moved aside. It is where it was."
 fi
-if ! mv "$NEW" "$DEST"; then
-  [ -e "$stage/old" ] || refuse "the new copy could not be put in place, and there was no copy before it."
-  mv "$stage/old/Seat Gauge.app" "$DEST" && rmdir "$stage/old" ||
-    refuse "the new copy could not be put in place, and the copy before it is at $stage/old. Move it back to $APPLICATIONS."
+if ! put "$NEW" "$DEST"; then
+  [ -e "$OLD" ] || refuse "the new copy could not be put in place, and there was no copy before it."
+  put "$OLD" "$DEST" ||
+    refuse "the new copy could not be put in place, and the copy before it is at $OLD. Move it back to $APPLICATIONS."
   refuse "the new copy could not be put in place. The copy before it is back in $APPLICATIONS."
 fi
 rm -rf "$stage"

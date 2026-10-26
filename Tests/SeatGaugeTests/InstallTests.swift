@@ -44,14 +44,17 @@ import SeatGaugeCore
     /// `busy` is what `mdutil` says before it says `indexing`, as it can
     /// straight after a build. `gone` has `mdfind` also list a copy that is no
     /// longer on disk. `prior` is what sits at the destination beforehand.
-    /// `copyFails` fails the copy into the applications root, and `swapFails`
-    /// the rename that puts the new copy in place.
+    /// `copyFails` fails the copy into the applications root, `asideFails` the
+    /// rename that moves the installed copy aside, `swapFails` the rename that
+    /// puts the new copy in place, and `raced` has another install put its
+    /// copy at the destination straight after the old one is moved aside.
     @discardableResult
     static func install(indexing: String = "Indexing enabled.", busy: String? = nil, signed: Bool = true,
                         bundle: Bool = true, helper: Bool = true, other: Bool = false, gone: Bool = false,
                         iCloud: Bool = false, cli: Planted = .nothing,
                         onPath: Bool = true, folder: Folder = .usable, prior: Prior = .nothing,
-                        copyFails: Bool = false, swapFails: Bool = false) throws -> Ran {
+                        copyFails: Bool = false, asideFails: Bool = false, swapFails: Bool = false,
+                        raced: Bool = false) throws -> Ran {
         let base = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("seat-gauge-install-\(UUID().uuidString)", isDirectory: true)
         let applications = base.appendingPathComponent("Applications", isDirectory: true)
@@ -146,10 +149,15 @@ import SeatGaugeCore
                 exec /usr/bin/ditto "$@"
                 """)
         }
-        if swapFails {
-            try stub("mv", """
-                case "$1" in */old/*) ;; */.seat-gauge-install.*/'Seat Gauge.app') exit 1 ;; esac
-                exec /bin/mv "$@"
+        // The script's renames go through perl, so the stub fails the one a
+        // case names and passes every other to the real one.
+        if asideFails || swapFails || raced {
+            try stub("perl", """
+                from="$3"; to="$4"
+                case "$to" in */old/'Seat Gauge.app') \(asideFails ? "exit 1" : ":") ;; esac
+                case "$from" in */old/*) ;; */.seat-gauge-install.*/'Seat Gauge.app') \(swapFails ? "exit 1" : ":") ;; esac
+                /usr/bin/perl "$@" || exit 1
+                case "$to" in */old/'Seat Gauge.app') \(raced ? "mkdir -p \"$from/Contents\"; printf other > \"$from/marker-other\"" : ":") ;; esac
                 """)
         }
         if !iCloud { try stub("codesign", "exit \(signed ? 0 : 1)") }
@@ -375,6 +383,32 @@ import SeatGaugeCore
         #expect(Self.exists(ran.installed.appendingPathComponent("marker")))
         #expect(!ran.trace.contains("open"))
         #expect(Self.staged(ran).isEmpty)
+    }
+
+    @Test("proof: an installed copy that cannot be moved aside stays put, and no staged copy is left")
+    func aFailedMoveAsideLeavesNoSecondCopy() throws {
+        let ran = try Self.install(prior: .ours, asideFails: true)
+        defer { try? FileManager.default.removeItem(at: ran.applications.deletingLastPathComponent()) }
+        #expect(ran.status != 0)
+        #expect(ran.out.contains("could not be moved aside"), "\(ran.out)")
+        #expect(Self.exists(ran.installed.appendingPathComponent("marker")))
+        #expect(Self.staged(ran).isEmpty)
+    }
+
+    @Test("proof: a copy another install put in place meanwhile is never nested into, and only the old copy is kept aside")
+    func aRacedDestinationIsNotNestedInto() throws {
+        let ran = try Self.install(prior: .ours, raced: true)
+        defer { try? FileManager.default.removeItem(at: ran.applications.deletingLastPathComponent()) }
+        #expect(ran.status != 0)
+        #expect(!Self.exists(ran.installed.appendingPathComponent("Seat Gauge.app")))
+        #expect(Self.exists(ran.installed.appendingPathComponent("marker-other")))
+        // The old copy is kept and said where; the new staged one is gone.
+        let staged = Self.staged(ran)
+        #expect(staged.count == 1)
+        let stage = ran.applications.appendingPathComponent(staged.first ?? "")
+        #expect(Self.exists(stage.appendingPathComponent("old/Seat Gauge.app/marker")))
+        #expect(!Self.exists(stage.appendingPathComponent("Seat Gauge.app")))
+        #expect(ran.out.contains(stage.appendingPathComponent("old/Seat Gauge.app").path), "\(ran.out)")
     }
 
     @Test("proof: only the installed copy is quit, never a make run build or a path the pattern only looks like")
