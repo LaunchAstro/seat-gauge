@@ -185,6 +185,70 @@ import Testing
                 "\(calls.git)")
     }
 
+    @Test("#141: a folder whose repository points git under /Volumes is never handed to git, and one that does not still is")
+    func repositoryPointersIntoVolumes() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func write(_ text: String, _ path: String) throws {
+            let file = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try text.write(to: file, atomically: true, encoding: .utf8)
+        }
+        /// A repository's git folder at `path`, with the files git needs to take it as one.
+        func repository(_ path: String) throws {
+            try write("ref: refs/heads/main\n", path + "/HEAD")
+            try FileManager.default.createDirectory(at: root.appendingPathComponent(path + "/objects/info"), withIntermediateDirectories: true)
+        }
+        // A linked worktree of a repository on a drive, by absolute and by relative name.
+        try write("gitdir: /Volumes/NAS/x.git/worktrees/wt\n", "worktree/.git")
+        try write("gitdir: ../../../../../../../../../../../../../../../../Volumes/NAS/x.git\n", "relative/.git")
+        // Found by walking up, as git finds it from a folder inside the work tree.
+        try write("gitdir: /Volumes/NAS/x.git\n", "above/.git")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("above/deep/down"), withIntermediateDirectories: true)
+        // A `.git` that is itself a link to a drive.
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("linked"), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("linked/.git").path, withDestinationPath: "/Volumes/NAS/x.git")
+        // A worktree's git folder whose shared folder is on a drive.
+        try repository("common/.git"); try write("/Volumes/NAS/x.git\n", "common/.git/commondir")
+        // Borrowed objects on a drive, directly or through a chain of alternates.
+        try repository("alternate/.git"); try write("# borrowed\n/Volumes/NAS/x.git/objects\n", "alternate/.git/objects/info/alternates")
+        try repository("chain/.git"); try repository("store")
+        try write(root.appendingPathComponent("store/objects").path + "\n", "chain/.git/objects/info/alternates")
+        try write("/Volumes/NAS/x.git/objects\n", "store/objects/info/alternates")
+        // Config git reads with every command, included from a drive.
+        try repository("included/.git"); try write("[core]\n\tbare = false\n[include]\n\tpath = /Volumes/NAS/shared.config\n", "included/.git/config")
+        try repository("conditional/.git")
+        try write("[includeIf \"gitdir:~/\"]\n  path = \"/Volumes/NAS/shared.config\"\n", "conditional/.git/config")
+        // A key on the header's own line, and a link at the end of a commented value.
+        try repository("header/.git"); try write("[include] path = /Volumes/NAS/shared.config\n", "header/.git/config")
+        try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("drive").path, withDestinationPath: "/Volumes/NAS")
+        try repository("commented/.git"); try write("[core]\n\tworktree = ../../drive ; the drive copy\n", "commented/.git/config")
+        // A bare repository the agent works in directly.
+        try repository("bare.git"); try write("/Volumes/NAS/x.git/objects\n", "bare.git/objects/info/alternates")
+        let unread = ["worktree", "relative", "above/deep/down", "linked", "common", "alternate", "chain", "included", "conditional", "header", "commented", "bare.git"]
+        for name in unread {
+            let folder = root.appendingPathComponent(name).path
+            #expect(SessionProbe.gitReachesVolumes(try #require(SessionProbe.readable(folder))), "\(name)")
+            let calls = Calls()
+            let log = try await SessionProbe(runner: Scene(panes: [("w1:p1", ["claude"], folder)], git: [:], calls: calls),
+                                             directory: root.appendingPathComponent("private-" + name), home: root).run()
+            #expect(log.sessions.count == 1)
+            #expect(log.sessions.first?.branch == nil, "\(name)")
+            #expect(calls.git.isEmpty, "\(name): \(calls.git)")
+        }
+        // A repository whose pointers stay off the drives is still read.
+        try repository("plain/.git"); try write("[include]\n\tpath = ../shared.config\n", "plain/.git/config")
+        try repository("shelf"); try write(root.appendingPathComponent("shelf/objects").path + "\n", "plain/.git/objects/info/alternates")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("plain/src"), withIntermediateDirectories: true)
+        let plain = try #require(SessionProbe.readable(root.appendingPathComponent("plain/src").path))
+        #expect(!SessionProbe.gitReachesVolumes(plain))
+        let calls = Calls()
+        let log = try await SessionProbe(runner: Scene(panes: [("w1:p1", ["claude"], plain)], git: [plain: ("feature", "https://github.com/LaunchAstro/seat-gauge.git")], calls: calls),
+                                         directory: root.appendingPathComponent("private-plain"), home: root).run()
+        #expect(log.sessions.first?.branch == "feature")
+        #expect(calls.git.count == 2)
+    }
+
     @Test("Sol proof, criterion 3: relative -C preserves symlink/.. semantics")
     func relativeLinkThenParent() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

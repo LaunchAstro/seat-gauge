@@ -251,7 +251,7 @@ public struct SessionProbe: Sendable {
             return
         }
         guard !pass.gitHeld else { return }
-        guard let real = Self.readable(folder) else {
+        guard let real = Self.readable(folder), !Self.gitReachesVolumes(real) else {
             pass.folders[folder] = (nil, nil)
             row.branch = nil; row.repository = nil
             return
@@ -284,6 +284,140 @@ public struct SessionProbe: Sendable {
     static func readable(_ folder: String) -> String? {
         guard folder.hasPrefix("/"), walk(folder, follow: false) != nil, let real = walk(folder, follow: true) else { return nil }
         return "/" + real.joined(separator: "/")
+    }
+
+    /// Whether git, run in `folder`, could open something under `/Volumes`
+    /// through the repository's own pointers (issue #141): a `.git` file or
+    /// link, `commondir`, an alternates chain, or a config include or
+    /// `core.worktree`. Every git folder from `folder` up to `/` is looked
+    /// at, more than git would use, and a pointer the probe cannot follow
+    /// counts as a volume, so a doubt costs the branch, never a read of a drive.
+    static func gitReachesVolumes(_ folder: String) -> Bool {
+        var names = folder.split(separator: "/").map(String.init)
+        while true {
+            let here = "/" + names.joined(separator: "/")
+            switch peek((names.isEmpty ? "" : here) + "/.git") {
+            case .volume: return true
+            case .text(let text):
+                guard text.hasPrefix("gitdir:") else { break }
+                if gitDirectoryReachesVolumes(resolve(text.dropFirst(7).trimmingCharacters(in: .whitespacesAndNewlines), against: here)) { return true }
+            case .folder(let place): if gitDirectoryReachesVolumes(place) { return true }
+            case .missing: break
+            }
+            if gitDirectoryReachesVolumes(here) { return true }
+            if names.isEmpty { return false }
+            names.removeLast()
+        }
+    }
+
+    /// Whether the git folder at `path`, when it is one, points anywhere
+    /// under `/Volumes`.
+    static func gitDirectoryReachesVolumes(_ path: String) -> Bool {
+        let found = peek(path)
+        guard case .folder(let gitDir) = found else { return found == .volume }
+        switch peek(gitDir + "/HEAD") {
+        case .volume: return true
+        case .missing: return false
+        default: break
+        }
+        var common = gitDir
+        switch peek(gitDir + "/commondir") {
+        case .volume: return true
+        case .text(let text):
+            guard case .folder(let place) = peek(resolve(text.trimmingCharacters(in: .whitespacesAndNewlines), against: gitDir)) else { return true }
+            common = place
+        default: break
+        }
+        return configReachesVolumes(common + "/config", depth: 0) || configReachesVolumes(gitDir + "/config.worktree", depth: 0)
+            || alternatesReachVolumes(common + "/objects", depth: 0)
+    }
+
+    /// Whether a config file, or one it includes, names a path under
+    /// `/Volumes` as an include or `core.worktree`. Includes are checked
+    /// whatever their condition. A value git would read otherwise than as
+    /// written (an escape, a line carried on, quotes inside) is taken as a
+    /// volume.
+    static func configReachesVolumes(_ file: String, depth: Int) -> Bool {
+        switch peek(file) {
+        case .volume: return true
+        case .text(let text):
+            guard depth < 10 else { return true }
+            var section = ""
+            for raw in text.split(whereSeparator: \.isNewline) {
+                var line = Substring(raw.trimmingCharacters(in: .whitespaces))
+                if line.hasPrefix("[") {
+                    line = line.dropFirst()
+                    section = line.prefix { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "." }.lowercased()
+                    // git reads a key on the header's own line too.
+                    if section.hasPrefix("include"), line.contains("\\") { return true }
+                    if let quote = line.firstIndex(of: "\""), quote < (line.firstIndex(of: "]") ?? line.endIndex) {
+                        guard let close = line[line.index(after: quote)...].firstIndex(of: "\"") else { continue }
+                        line = line[line.index(after: close)...]
+                    }
+                    guard let close = line.firstIndex(of: "]") else { continue }
+                    line = Substring(line[line.index(after: close)...].trimmingCharacters(in: .whitespaces))
+                }
+                guard let equals = line.firstIndex(of: "=") else { continue }
+                let key = line[..<equals].trimmingCharacters(in: .whitespaces).lowercased()
+                guard (section.hasPrefix("include") && key == "path") || (section == "core" && key == "worktree") else { continue }
+                var value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
+                if value.contains("\\") { return true }
+                if value.hasPrefix("\"") {
+                    guard let close = value.dropFirst().firstIndex(of: "\"") else { return true }
+                    value = String(value[value.index(after: value.startIndex)..<close])
+                } else {
+                    value = value.prefix { $0 != "#" && $0 != ";" }.trimmingCharacters(in: .whitespaces)
+                }
+                if value.contains("\"") { return true }
+                if value.hasPrefix("~/") { value = NSHomeDirectory() + value.dropFirst(1) }
+                let target = resolve(value, against: (file as NSString).deletingLastPathComponent)
+                if peek(target) == .volume || (key == "path" && configReachesVolumes(target, depth: depth + 1)) { return true }
+            }
+            return false
+        default: return false
+        }
+    }
+
+    /// Whether the objects folder `objects` borrows from one under
+    /// `/Volumes`, directly or down a chain as deep as git follows.
+    static func alternatesReachVolumes(_ objects: String, depth: Int) -> Bool {
+        switch peek(objects + "/info/alternates") {
+        case .volume: return true
+        case .text(let text):
+            guard depth < 5 else { return true }
+            for raw in text.split(whereSeparator: \.isNewline) {
+                let line = raw.trimmingCharacters(in: .whitespaces)
+                if line.isEmpty || line.hasPrefix("#") { continue }
+                if line.hasPrefix("\"") { return true }
+                switch peek(resolve(line, against: objects)) {
+                case .volume: return true
+                case .folder(let place): if alternatesReachVolumes(place, depth: depth + 1) { return true }
+                default: break
+                }
+            }
+            return false
+        default: return false
+        }
+    }
+
+    /// What is at `path`, looked at only once `readable` has cleared every
+    /// name and link on the way to it.
+    enum Peek: Equatable { case volume, missing, folder(String), text(String) }
+
+    static func peek(_ path: String) -> Peek {
+        guard let place = readable(path) else { return .volume }
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: place, isDirectory: &isFolder) else { return .missing }
+        if isFolder.boolValue { return .folder(place) }
+        guard let data = FileManager.default.contents(atPath: place) else { return .missing }
+        // git reads bytes; a file that is not UTF-8 could name anything.
+        guard let text = String(data: data, encoding: .utf8) else { return .volume }
+        return .text(text)
+    }
+
+    /// `path` read against `folder` when it is relative.
+    static func resolve(_ path: String, against folder: String) -> String {
+        path.hasPrefix("/") ? path : folder + "/" + path
     }
 
     /// The names of `folder` once `.`, `..` and, when `follow` is set, its
