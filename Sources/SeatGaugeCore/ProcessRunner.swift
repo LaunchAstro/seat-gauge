@@ -7,14 +7,25 @@ public struct ProcessSpec: Sendable, Equatable {
     public let environment: [String: String]
     public let currentDirectory: URL?
     public let timeout: Duration
+    /// The most standard output a child may print, in bytes, before it is
+    /// stopped. Its lines are kept until the reader takes them, and a child,
+    /// a local CLI or a machine at the far end of ssh, can print without end
+    /// well inside its timeout.
+    public let outputLimit: Int
+
+    /// 16 MB by default. The largest protocol is the Log probe's reply, which
+    /// `log.json`'s own cap holds near 3 MB; a seat's reply and a machine's
+    /// load read are kilobytes.
+    public static let outputLimit = 16 << 20
 
     public init(executable: URL, arguments: [String], environment: [String: String],
-                currentDirectory: URL? = nil, timeout: Duration = .seconds(60)) {
+                currentDirectory: URL? = nil, timeout: Duration = .seconds(60), outputLimit: Int = Self.outputLimit) {
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
         self.currentDirectory = currentDirectory
         self.timeout = timeout
+        self.outputLimit = outputLimit
     }
 }
 
@@ -81,7 +92,8 @@ public struct RealProcessRunner: ProcessRunning {
             throw ProcessFailure("\(spec.arguments.first ?? "the CLI") would not start: "
                                  + error.localizedDescription)
         }
-        return LiveSession(process: process, input: input, output: output, timeout: spec.timeout)
+        return LiveSession(process: process, input: input, output: output, timeout: spec.timeout,
+                           limit: spec.outputLimit)
     }
 }
 
@@ -94,13 +106,16 @@ final class LiveSession: ProcessSession, @unchecked Sendable {
     private let lock = NSLock()
     private let outputLock = NSLock()
     private var rest = Data()
+    private var printed = 0
+    private let limit: Int
     private var finished = false
     private let continuation: AsyncThrowingStream<String, Error>.Continuation
     let stdoutLines: AsyncThrowingStream<String, Error>
 
-    init(process: Process, input: Pipe, output: Pipe, timeout: Duration) {
+    init(process: Process, input: Pipe, output: Pipe, timeout: Duration, limit: Int) {
         self.process = process
         self.input = input
+        self.limit = limit
         (stdoutLines, continuation) = AsyncThrowingStream.makeStream()
 
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
@@ -111,7 +126,10 @@ final class LiveSession: ProcessSession, @unchecked Sendable {
             guard let self else { return }
             output.fileHandleForReading.readabilityHandler = nil
             self.outputLock.withLock {
-                self.take(output.fileHandleForReading.readDataToEndOfFile())
+                // No more than the limit leaves, so a child that left the
+                // pipe to a writer of its own cannot grow this read either.
+                let left = (try? output.fileHandleForReading.read(upToCount: limit + 1)) ?? nil
+                self.take(left ?? Data())
                 self.finish(nil)
             }
         }
@@ -125,8 +143,22 @@ final class LiveSession: ProcessSession, @unchecked Sendable {
 
     private var isFinished: Bool { lock.withLock { finished } }
 
-    /// Whole lines only. A read can land mid line, so the tail is kept.
+    /// Whole lines only. A read can land mid line, so the tail is kept. Past
+    /// the limit the child is stopped and the read fails, whether the bytes
+    /// came as lines or as one line that never ends.
     private func take(_ data: Data) {
+        let over: Bool = lock.withLock {
+            guard !finished else { return false }
+            printed += data.count
+            return printed > limit
+        }
+        if over {
+            terminate()
+            lock.withLock { rest = Data() }
+            let megabytes = max(1, limit >> 20)
+            finish(ProcessFailure("the reply ran past \(megabytes) MB, so it was stopped"))
+            return
+        }
         let lines: [String] = lock.withLock {
             guard !finished else { return [] }
             rest.append(data)

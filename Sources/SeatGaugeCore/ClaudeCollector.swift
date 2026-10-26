@@ -119,13 +119,22 @@ public struct ClaudeCollector: Sendable {
 
     /// `type == "assistant"` lines carrying `message.usage`, deduped inside the
     /// file, with `<synthetic>` and the gauge's own primer calls left out, and
-    /// each `cost-state` total picked up on the way past.
+    /// each `cost-state` total picked up on the way past. Read a chunk at a
+    /// time through `TranscriptLines`, never whole: a transcript can run to
+    /// gigabytes, and up to twelve are read at once. A line past its ceiling
+    /// is counted as unreadable.
     public static func read(file: URL, primer: URL) -> FileReading {
-        guard let data = try? Data(contentsOf: file) else {
-            return FileReading(responses: [], sessionCosts: [:], skipped: 0)
-        }
         var seen: Set<String> = []
-        return read(data: data, primer: primer, seen: &seen)
+        var responses: [SpendResponse] = []
+        var costs: [String: Double] = [:]
+        var skipped = 0
+        guard let stop = try? TranscriptLines.read(file, tail: true, { lines, _ in
+            let reading = read(data: lines, primer: primer, seen: &seen)
+            responses += reading.responses
+            costs.merge(reading.sessionCosts) { _, fresh in fresh }
+            skipped += reading.skipped
+        }) else { return FileReading(responses: [], sessionCosts: [:], skipped: 0) }
+        return FileReading(responses: responses, sessionCosts: costs, skipped: skipped + stop.dropped)
     }
 
     static func read(data: Data, primer: URL, seen: inout Set<String>) -> FileReading {
