@@ -253,6 +253,24 @@ import Testing
         }
     }
 
+    @Test("Sol proof, criterion 5: equivalent folder spellings share one git read")
+    func equivalentSpellingsReadOnce() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repo = root.appendingPathComponent("repo")
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("alias").path, withDestinationPath: repo.path)
+        let real = try #require(SessionProbe.readable(repo.path))
+        let calls = Calls()
+        let log = try await SessionProbe(runner: Scene(panes: [("w1:p1", ["claude"], repo.path), ("w1:p2", ["claude"], root.path + "/alias"),
+                                                               ("w1:p3", ["claude"], repo.path + "/.")],
+                                                       git: [real: ("feature", "https://github.com/LaunchAstro/seat-gauge.git")], calls: calls),
+                                         directory: root.appendingPathComponent("private"), home: root).run()
+        #expect(log.sessions.count == 3)
+        #expect(log.sessions.allSatisfy { $0.repository == "LaunchAstro/seat-gauge" && $0.branch == "feature" })
+        #expect(calls.git.count == 2, "\(calls.git)")
+    }
+
     @Test("a held git read keeps the repository and branch last seen")
     func heldReadKeepsLastSeen() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

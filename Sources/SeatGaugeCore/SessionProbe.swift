@@ -255,11 +255,19 @@ public struct SessionProbe: Sendable {
             row.branch = nil; row.repository = nil
             return
         }
+        // Kept under both spellings: a link, `.` or `..` to a folder already
+        // read this pass reads nothing again. A followed folder has no links,
+        // so it never names another folder's spelling.
+        if let known = pass.folders[real] {
+            pass.folders[folder] = known
+            row.branch = known.branch; row.repository = known.repository
+            return
+        }
         do {
             let branch = try await git(["-C", real, "symbolic-ref", "--short", "HEAD"])
             let remote = try await git(["-C", real, "config", "--local", "--includes", "--get-all", "remote.origin.url"])
             let read = (branch: branch, repository: remote.flatMap(Self.githubRepository))
-            pass.folders[folder] = read
+            pass.folders[folder] = read; pass.folders[real] = read
             row.branch = read.branch; row.repository = read.repository
         } catch {
             pass.gitHeld = true
