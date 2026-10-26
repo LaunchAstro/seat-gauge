@@ -343,14 +343,27 @@ public struct SessionProbe: Sendable {
         guard case .text(let headText) = head, case .folder = objects, case .folder = refs else { return .none }
         var touched = [gitDir + "/config.worktree"]
             + ["config", "packed-refs", "reftable", "refs/heads", "refs/tags", "refs/remotes", "objects/info"].map { common + "/" + $0 }
-        if headText.hasPrefix("ref:") {
-            // The branch, and the refs `--short` looks at to keep its name unambiguous.
-            let ref = withoutNewlines(headText.dropFirst(4)).trimmingCharacters(in: .whitespaces)
-            let name = ref.hasPrefix("refs/heads/") ? String(ref.dropFirst(11)) : ref
-            touched += [gitDir + "/" + ref]
-                + [ref, "refs/" + name, "refs/tags/" + name, "refs/heads/" + name, "refs/remotes/" + name, "refs/remotes/" + name + "/HEAD"].map { common + "/" + $0 }
-        }
         if touched.contains(where: { look($0) == .volume }) { return .volume }
+        // Each ref down the chain from HEAD, as far as git follows one, and
+        // the refs `--short` looks at to keep a name unambiguous.
+        var text = headText, hops = 0
+        while text.hasPrefix("ref:") {
+            hops += 1
+            guard hops <= 5 else { return .volume }
+            let ref = withoutNewlines(text.dropFirst(4)).trimmingCharacters(in: blank)
+            let name = ref.hasPrefix("refs/heads/") ? String(ref.dropFirst(11)) : ref
+            let paths = [gitDir + "/" + ref]
+                + [ref, "refs/" + name, "refs/tags/" + name, "refs/heads/" + name, "refs/remotes/" + name, "refs/remotes/" + name + "/HEAD"].map { common + "/" + $0 }
+            if paths.contains(where: { look($0) == .volume }) { return .volume }
+            text = ""
+            for path in [gitDir + "/" + ref, common + "/" + ref] {
+                switch read(path) {
+                case .volume: return .volume
+                case .text(let next) where text.isEmpty: text = next
+                default: break
+                }
+            }
+        }
         let pointed = configReachesVolumes(common + "/config", base: gitDir, depth: 0)
             || configReachesVolumes(gitDir + "/config.worktree", base: gitDir, depth: 0)
             || alternatesReachVolumes(common + "/objects", depth: 0)
@@ -361,8 +374,9 @@ public struct SessionProbe: Sendable {
     /// `/Volumes` as an include or `core.worktree`, the latter read against
     /// the git folder `base`. Includes are checked whatever their condition.
     /// Anything git might read otherwise than as written (a line carried
-    /// on, an escape or quote in a value, `~user` or `%(prefix)`) is taken as
-    /// a volume.
+    /// on, an escape or quote in a value, a control character anywhere but a
+    /// tab or a line's closing carriage return, `~user` or `%(prefix)`) is
+    /// taken as a volume. Only spaces and tabs are trimmed, as git trims.
     static func configReachesVolumes(_ file: String, base: String, depth: Int) -> Bool {
         let found = read(file)
         guard case .text(var text) = found else { return found == .volume }
@@ -370,8 +384,9 @@ public struct SessionProbe: Sendable {
         if text.hasPrefix("\u{FEFF}") { text.removeFirst() }
         var section = ""
         for raw in lines(text) {
-            if raw.hasSuffix("\\") || raw.hasSuffix("\\\r") { return true }
-            var line = Substring(raw.trimmingCharacters(in: .whitespacesAndNewlines))
+            let bare = raw.hasSuffix("\r") ? String(raw.dropLast()) : raw
+            if bare.hasSuffix("\\") || bare.unicodeScalars.contains(where: { ($0.value < 0x20 && $0 != "\t") || $0.value == 0x7F }) { return true }
+            var line = Substring(bare.trimmingCharacters(in: blank))
             // git reads more headers, and a key, on a header's own line.
             while line.hasPrefix("[") {
                 line = line.dropFirst()
@@ -382,14 +397,14 @@ public struct SessionProbe: Sendable {
                     line = line[line.index(after: close)...]
                 }
                 guard let close = line.firstIndex(of: "]") else { line = ""; break }
-                line = Substring(line[line.index(after: close)...].trimmingCharacters(in: .whitespaces))
+                line = Substring(line[line.index(after: close)...].trimmingCharacters(in: blank))
             }
             guard let equals = line.firstIndex(of: "=") else { continue }
-            let key = line[..<equals].trimmingCharacters(in: .whitespaces).lowercased()
+            let key = line[..<equals].trimmingCharacters(in: blank).lowercased()
             guard (section.hasPrefix("include") && key == "path") || (section == "core" && key == "worktree") else { continue }
-            var value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
+            var value = line[line.index(after: equals)...].trimmingCharacters(in: blank)
             if value.contains("\\") || value.contains("\"") { return true }
-            value = value.prefix { $0 != "#" && $0 != ";" }.trimmingCharacters(in: .whitespaces)
+            value = value.prefix { $0 != "#" && $0 != ";" }.trimmingCharacters(in: blank)
             if value.hasPrefix("~") || value.hasPrefix("%(") {
                 guard value.hasPrefix("~/") else { return true }
                 value = NSHomeDirectory() + value.dropFirst()
@@ -441,6 +456,9 @@ public struct SessionProbe: Sendable {
         guard data.count <= 1 << 20, let text = String(data: data, encoding: .utf8) else { return .volume }
         return .text(text)
     }
+
+    /// The only characters git trims around a config value or a ref name.
+    static let blank = CharacterSet(charactersIn: " \t")
 
     /// `text` split at each line feed, as git splits it, so a carriage
     /// return stays on its line.

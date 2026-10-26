@@ -273,6 +273,52 @@ import Testing
         }
     }
 
+    @Test("Sol proof, criterion 1: embedded carriage returns cannot hide volume config paths")
+    func embeddedCarriageReturns() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configs = ["[include]\npath=\r/Volumes/NAS/config\n", "[core]\nworktree=\r/Volumes/NAS\n", "[include]\npath\r= /Volumes/NAS/config\n",
+                       "[include]\n\tpath = \u{0B}/Volumes/NAS/config\n", "[core]\n\tworktree =\u{0C}/Volumes/NAS\n"]
+        for (index, config) in configs.enumerated() {
+            let repo = root.appendingPathComponent("repo\(index)"), git = repo.appendingPathComponent(".git")
+            for folder in ["objects/info", "refs/heads"] {
+                try FileManager.default.createDirectory(at: git.appendingPathComponent(folder), withIntermediateDirectories: true)
+            }
+            try "ref: refs/heads/main\n".write(to: git.appendingPathComponent("HEAD"), atomically: true, encoding: .utf8)
+            try config.write(to: git.appendingPathComponent("config"), atomically: true, encoding: .utf8)
+            let calls = Calls()
+            _ = try await SessionProbe(runner: Scene(panes: [("w1:p1", ["claude"], repo.path)], git: [:], calls: calls),
+                                       directory: root.appendingPathComponent("private\(index)"), home: root).run()
+            #expect(calls.git.isEmpty, "\(config.debugDescription): \(calls.git)")
+        }
+    }
+
+    @Test("Sol proof, criterion 1: symbolic-ref chains cannot hide volume links")
+    func symbolicRefChains() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repo = root.appendingPathComponent("repo"), git = repo.appendingPathComponent(".git")
+        for folder in ["objects/info", "refs/heads"] {
+            try FileManager.default.createDirectory(at: git.appendingPathComponent(folder), withIntermediateDirectories: true)
+        }
+        try "ref: refs/heads/alias\n".write(to: git.appendingPathComponent("HEAD"), atomically: true, encoding: .utf8)
+        try "ref: refs/heads/drive/main\n".write(to: git.appendingPathComponent("refs/heads/alias"), atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(atPath: git.appendingPathComponent("refs/heads/drive").path, withDestinationPath: "/Volumes/NAS")
+        // A chain longer than git follows counts as a volume too.
+        let loop = root.appendingPathComponent("loop/.git")
+        for folder in ["objects/info", "refs/heads"] {
+            try FileManager.default.createDirectory(at: loop.appendingPathComponent(folder), withIntermediateDirectories: true)
+        }
+        try "ref: refs/heads/a\n".write(to: loop.appendingPathComponent("HEAD"), atomically: true, encoding: .utf8)
+        try "ref: refs/heads/a\n".write(to: loop.appendingPathComponent("refs/heads/a"), atomically: true, encoding: .utf8)
+        for folder in [repo, loop.deletingLastPathComponent()] {
+            let calls = Calls()
+            _ = try await SessionProbe(runner: Scene(panes: [("w1:p1", ["claude"], folder.path)], git: [:], calls: calls),
+                                       directory: root.appendingPathComponent("private-" + folder.lastPathComponent), home: root).run()
+            #expect(calls.git.isEmpty, "\(folder.lastPathComponent): \(calls.git)")
+        }
+    }
+
     @Test("Sol proof, criterion 5: a local nested repository ignores its parent repository, and real repositories and worktrees are still read")
     func ordinaryRepositoriesStillRead() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
