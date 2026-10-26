@@ -13,6 +13,10 @@ enum SeatMark {
     nonisolated static let baseSide: CGFloat = 14
     nonisolated static let minimumSide: CGFloat = 12
 
+    nonisolated static let largestSide = 1024
+    nonisolated static let largestFrames = 32
+    nonisolated static let thumbnailSide = 128
+
     nonisolated static func side(_ scale: TextScale) -> CGFloat {
         max(minimumSide, CGFloat(scale.scaled(Double(baseSide))))
     }

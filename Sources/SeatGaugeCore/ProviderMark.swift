@@ -10,7 +10,14 @@ import Foundation
 public struct MarkCache: Sendable {
     /// Hands back the body of a `200` reply, or nil for anything else. A
     /// parameter so no case reaches the network.
-    public typealias Download = @Sendable (URL) async -> Data?
+    public typealias Download = @Sendable (URL, Int) async -> Data?
+
+    public static let largestIcon = 1 << 20
+    public static let largestPage = 4 << 20
+
+    static func collect<S: AsyncSequence>(_ bytes: S, limit: Int) async -> Data? where S.Element == UInt8 { nil }
+    static func allows(_ url: URL, for provider: Provider) -> Bool { true }
+    public func evict(_ provider: Provider) {}
 
     let folder: URL
     let download: Download
@@ -36,10 +43,10 @@ public struct MarkCache: Sendable {
     /// `/favicon.ico` first, then the icon the home page declares.
     func fetch(_ site: URL) async -> Data? {
         if let root = URL(string: "/favicon.ico", relativeTo: site)?.absoluteURL,
-           let data = await download(root), Self.isImage(data) { return data }
-        guard let page = await download(site),
+           let data = await download(root, 0), Self.isImage(data) { return data }
+        guard let page = await download(site, 0),
               let declared = Self.declaredIcon(in: String(decoding: page, as: UTF8.self), site: site),
-              let data = await download(declared), Self.isImage(data) else { return nil }
+              let data = await download(declared, 0), Self.isImage(data) else { return nil }
         return data
     }
 
@@ -86,7 +93,7 @@ public struct MarkCache: Sendable {
     }()
 
     /// A plain GET over https. Anything but a `200` is no icon.
-    public static let download: Download = { url in
+    public static let download: Download = { url, _ in
         guard url.scheme == "https",
               let (data, response) = try? await session.data(from: url),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }

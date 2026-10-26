@@ -18,7 +18,7 @@ import Testing
         private(set) var asked: [String] = []
         init(_ answers: [String: Data]) { self.answers = answers }
         var download: MarkCache.Download {
-            { url in
+            { url, _ in
                 self.lock.withLock {
                     self.asked.append(url.absoluteString)
                     return self.answers[url.absoluteString]
