@@ -27,11 +27,26 @@ import UniformTypeIdentifiers
         return data as Data
     }
 
-    @Test("an ordinary icon still makes a mark, at its own size")
-    func ordinary() throws {
-        let data = Self.encode([Self.image(side: 64), Self.image(side: 32), Self.image(side: 16)], as: .ico)
+    @Test("icons shaped like the real ones still make a mark, at their own size",
+          arguments: [[48, 32, 16], [64, 48, 32, 16]])
+    func ordinary(_ sides: [Int]) throws {
+        let data = Self.encode(sides.map { Self.image(side: $0) }, as: .ico)
         let mark = try #require(SeatMark.template(from: data))
-        #expect(mark.size.width == 64)
+        #expect(mark.size.width == CGFloat(sides[0]))
+    }
+
+    @Test("Sol proof, criterion 4: exactly one thumbnail is decoded, of the largest frame, at the bounded size")
+    func oneThumbnail() throws {
+        let data = Self.encode([Self.image(side: 16), Self.image(side: 512), Self.image(side: 32)], as: .tiff)
+        var calls: [(index: Int, side: Int?)] = []
+        let mask = SeatMark.mask(from: data) { source, index, options in
+            calls.append((index, (options as NSDictionary)[kCGImageSourceThumbnailMaxPixelSize] as? Int))
+            return CGImageSourceCreateThumbnailAtIndex(source, index, options)
+        }
+        #expect(mask != nil)
+        #expect(calls.count == 1)
+        #expect(calls.first?.index == 1)
+        #expect(calls.first?.side == SeatMark.thumbnailSide)
     }
 
     @Test("an image wider than the limit is refused before it is decoded")

@@ -59,7 +59,11 @@ enum SeatMark {
     /// from the header first, so a compact file that would decode to
     /// gigabytes is refused unread, and only the largest frame is decoded,
     /// as a thumbnail no bigger than `thumbnailSide`.
-    nonisolated static func mask(from data: Data) -> CGImage? {
+    /// `thumbnail` is ImageIO's own, a parameter so a case can count the
+    /// decodes.
+    nonisolated static func mask(from data: Data,
+                                 thumbnail make: (CGImageSource, Int, CFDictionary) -> CGImage? = CGImageSourceCreateThumbnailAtIndex)
+        -> CGImage? {
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithData(data as CFData, options) else { return nil }
         let count = CGImageSourceGetCount(source)
@@ -76,7 +80,7 @@ enum SeatMark {
                          kCGImageSourceCreateThumbnailWithTransform: true,
                          kCGImageSourceShouldCacheImmediately: true,
                          kCGImageSourceThumbnailMaxPixelSize: thumbnailSide] as CFDictionary
-        guard let largest, let image = CGImageSourceCreateThumbnailAtIndex(source, largest.index, thumbnail)
+        guard let largest, let image = make(source, largest.index, thumbnail)
         else { return nil }
         let width = image.width, height = image.height
         guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
