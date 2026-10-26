@@ -2,7 +2,8 @@ import Foundation
 import SeatGaugeCore
 
 // The app's core, headless. `read` prints every seat's outcome, `record`
-// writes one seat's raw reply to a fixture, `watch` runs the panel's own poll
+// writes what the parsers read of one seat's reply to a private file in
+// `.scratch/recordings/`, `watch` runs the panel's own poll
 // loop with nothing drawn, and `spend` runs the roll-up once over the real
 // transcripts and says what it found. `login` signs one seat in. `machines`
 // reads each machine's load once.
@@ -62,8 +63,7 @@ func record(_ name: String, from path: String?) async throws {
     guard !outcome.lines.isEmpty else {
         throw ProcessFailure("\(name) printed nothing to record: \(view(seat, outcome.state, now: Date()).describe(now: Date()))")
     }
-    let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Tests/Fixtures", isDirectory: true)
+    let directory = FixtureRecording.directory(in: URL(fileURLWithPath: FileManager.default.currentDirectoryPath))
     let file = try FixtureRecording.write(outcome.lines.map(FixtureRecording.redact),
                                           seat: seat.id, date: Date(), into: directory)
     print("recorded \(outcome.lines.count) line(s) to \(file.path)")
