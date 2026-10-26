@@ -177,6 +177,39 @@ import SeatGaugeTestSupport
         #expect(read.rows.map(\.responses) == [1])
     }
 
+    @Test("#143: the old writer's line for a model starting with a joining mark goes once a walk writes that response under its real hour, so it is counted once")
+    func aMisreadHourGoesOnceTheWalkRecountsIt() async throws {
+        let folder = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        // The line the old writer made of model `\u{0301}x,y`: the mark joins
+        // the comma before it, so it reads with hour `22,\u{0301}x` and model `y`.
+        try Data((SpendCSV.header + "\nwork,2026-10-25,22,\u{0301}x,y,1,9,1,0,0,0,0,,false\n").utf8)
+            .write(to: folder.appendingPathComponent("spend.csv"))
+        _ = try await Self.rollUp([Self.line(1, model: "\u{0301}x,y", at: "2026-10-25T22:30:00.000Z")],
+                                  in: folder, now: "2026-10-26T01:00:00Z")
+        let read = SpendCSV.read(folder.appendingPathComponent("spend.csv"), state: folder.appendingPathComponent("state.json"))
+        #expect(read.isWhole)
+        #expect(read.rows.map(\.hour) == ["22"])
+        #expect(read.rows.map(\.model) == [" \u{0301}x y"])
+        #expect(read.rows.map(\.responses) == [1])
+    }
+
+    @Test("#143: a misread line stays while nothing in the record counts its response again (ADR 0004)")
+    func aMisreadHourStaysUntilRecounted() {
+        let misread = SpendCSV.rows(SpendCSV.header + "\nwork,2026-10-25,22,\u{0301}x,y,1,9,1,0,0,0,0,,false\n")
+        #expect(misread.map(\.hour) == ["22,\u{0301}x"])
+        // A walk that found other responses that day, but not this one.
+        let fresh = [Self.row(seat: "work", model: "claude-opus-5"), Self.row(seat: "work", model: "y")]
+        let now = SpendRollupTests.date("2026-10-26T01:00:00Z")
+        let merged = SpendCSV.merge(misread, with: fresh, now: now, calendar: SpendRollupTests.utc)
+        #expect(merged.count == 3)
+        #expect(merged.contains(misread[0]))
+        // A row the record holds as sealed is never dropped.
+        let sealed = misread.map { SpendRow(cell: $0.cell, counts: $0.counts, usd: nil, sealed: true) }
+        let recount = [Self.row(seat: "work", model: "\u{0301}x,y")]
+        #expect(SpendCSV.merge(sealed, with: recount, now: now, calendar: SpendRollupTests.utc).count == 2)
+    }
+
     @Test("a line the record held reads and rewrites byte for byte, a combining mark or a quote at its start included")
     func aKeptLineRewritesAsItWas() {
         let lines = ["\u{0301}work,2026-10-25,22,plain,1,9,1,0,0,0,0,,false",

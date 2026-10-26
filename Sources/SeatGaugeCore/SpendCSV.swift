@@ -174,8 +174,27 @@ public enum SpendCSV {
             else { continue }
             rows[row.cell] = row
         }
+        for (cell, row) in rows where !row.sealed {
+            if let rewritten = rewritten(row), rows[rewritten] != nil { rows[cell] = nil }
+        }
         return rows.values
             .map { $0.sealing(sealed(day: $0.day, hour: $0.hour, now: now, calendar: calendar)) }
             .sorted { $0.cell < $1.cell }
+    }
+
+    /// The cell today's writer makes of a line the old one misread (#143). A
+    /// model that starts with a joining mark and holds a comma was written
+    /// raw, the mark joined the comma before it, and the line reads with the
+    /// model's start in its hour (`22,\u{0301}x`) and its tail as the model.
+    /// That hour never seals, so a walk that writes the response under its
+    /// real hour would count it twice. The merge drops the line only once the
+    /// record holds this cell, never on a walk that merely saw the day: its
+    /// transcript may be gone, and the line is then the response's only copy
+    /// (ADR 0004).
+    static func rewritten(_ row: SpendRow) -> SpendCell? {
+        let hour = row.hour.unicodeScalars
+        guard let comma = hour.firstIndex(of: ","), Int(String(hour[..<comma])) != nil else { return nil }
+        return SpendCell(seat: row.seat, day: row.day, hour: String(hour[..<comma]),
+                         model: String(hour[hour.index(after: comma)...]) + "," + row.model)
     }
 }
