@@ -5,7 +5,8 @@ import Foundation
 /// digest of each message the file counts and the totals they make; for
 /// Codex, the file's first usage event, what it adds after that, and the
 /// total it ends on, which is all a resume needs to be put in order exactly
-/// as Spend orders it.
+/// as Spend orders it. A Codex file whose usage fields change inside it
+/// keeps its events instead, since nothing smaller resumes it exactly.
 struct SessionTokens: Sendable {
     var offset: UInt64 = 0
     var identity: UInt64 = 0
@@ -18,9 +19,10 @@ struct SessionTokens: Sendable {
     var models: [String: TokenCounts] = [:]
 
     var counted = MessageDigests()
-    /// Messages another file was counting when this one read them, kept so
-    /// this file counts them once that file has gone.
-    var deferred: [Deferred] = []
+    /// The files that were counting a message when this one read it. When
+    /// one of them stops counting anything, this file is read again from its
+    /// start, keeping what it counts, so it takes over what nobody counts now.
+    var deferredTo: Set<String> = []
 
     var session: String?
     var cwd: String?
@@ -35,27 +37,34 @@ struct SessionTokens: Sendable {
     var resetAfter = false
     /// True when an event after the head carries a usage field the head did
     /// not, or no `total_tokens`. Then what the file adds after an earlier
-    /// file depends on more than its head, and a resume cannot be exact.
+    /// file depends on more than its head, so `events` keeps every event.
     var uneven = false
+    var events: [CodexRollout.Event]?
 
     /// A checkpoint written before issue #120 kept every response, and which
     /// file counted each lives in `SessionCheckpoint`, so it migrates there.
     var legacy: [SpendResponse]?
 
-    struct Deferred: Codable, Sendable, Equatable {
-        let digest: UInt64
-        let model: String
-        let counts: TokenCounts
-    }
-
-    /// `countedElsewhere` says whether another file counts a message already.
+    /// `countedBy` names the other file that counts a message already.
     mutating func read(_ url: URL, tool: String, budget: Int = 32 << 20,
-                       countedElsewhere: (UInt64) -> Bool = { _ in false }) throws {
+                       countedBy: (UInt64) -> String? = { _ in nil }) throws {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
         let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
         if inode != identity || size < offset { self = SessionTokens(); identity = inode }
-        var waiting = Set(deferred.map(\.digest))
+        if try readOnce(url, tool: tool, budget: budget, size: size, countedBy: countedBy) {
+            // Its fields changed partway, so the file is read again from the
+            // start keeping every event, which a later read goes on adding to.
+            let inode = identity
+            self = SessionTokens(); identity = inode; events = []
+            _ = try readOnce(url, tool: tool, budget: budget, size: size, countedBy: countedBy)
+        }
+    }
+
+    /// True when a Codex file has just turned out uneven without its events.
+    private mutating func readOnce(_ url: URL, tool: String, budget: Int, size: UInt64,
+                                   countedBy: (UInt64) -> String?) throws -> Bool {
+        var restart = false
         let stop = try TranscriptLines.read(url, from: offset, skipping: skipping ?? false, budget: budget) { data, through in
             if tool == "codex" {
                 for line in CodexRollout.candidates(data) {
@@ -64,7 +73,10 @@ struct SessionTokens: Sendable {
                     case let .model(named): model = named
                     case let .tokens(at, total, last):
                         if firstToken == nil { firstToken = at }
-                        if let total, let at { add(CodexRollout.Event(at: at, model: model, total: total, last: last)) }
+                        if !restart, let total, let at {
+                            add(CodexRollout.Event(at: at, model: model, total: total, last: last))
+                            if uneven && events == nil { restart = true }
+                        }
                     default: break
                     }
                 }
@@ -74,10 +86,9 @@ struct SessionTokens: Sendable {
                 var fresh: Set<String> = []
                 for response in ClaudeCollector.read(data: data, primer: AppPaths.primer, seen: &fresh).responses {
                     let digest = MessageDigests.digest(response.messageID)
-                    guard !counted.contains(digest), !waiting.contains(digest) else { continue }
-                    if countedElsewhere(digest) {
-                        deferred.append(Deferred(digest: digest, model: response.filedModel, counts: response.counts))
-                        waiting.insert(digest)
+                    guard !counted.contains(digest) else { continue }
+                    if let owner = countedBy(digest) {
+                        deferredTo.insert(owner)
                     } else {
                         counted.insert(digest)
                         models[response.filedModel, default: TokenCounts()] += response.counts
@@ -86,16 +97,18 @@ struct SessionTokens: Sendable {
             }
             // Moved with each run, so a read that fails later in the pass
             // leaves the offset on what was counted, and nothing is counted twice.
-            offset = through
-            skipping = nil
+            if !restart { offset = through; skipping = nil }
         }
+        if restart { return true }
         offset = stop.offset
         skipping = stop.skipping ? true : nil
         complete = offset == size
+        return false
     }
 
     /// One timestamped usage event, measured from the one before it.
     mutating func add(_ event: CodexRollout.Event) {
+        events?.append(event)
         let step = CodexRollout.contribution(total: event.total, last: event.last, after: baseline)
         let adds = step.added.values.contains { $0 > 0 }
         if adds { models[event.model, default: TokenCounts()] += CodexRollout.counts(step.added) }
@@ -111,12 +124,18 @@ struct SessionTokens: Sendable {
     }
 
     /// What the file adds after an earlier one that ended on `entry`, and the
-    /// total it ends on; nil when that cannot be told exactly. With nothing
-    /// before it, the file is what it adds alone.
-    func added(after entry: [String: Int]?) -> (models: [String: TokenCounts], baseline: [String: Int]?)? {
+    /// total it ends on. With nothing before it, the file is what it adds alone.
+    func added(after entry: [String: Int]?) -> (models: [String: TokenCounts], baseline: [String: Int]?) {
         guard let head else { return ([:], entry) }
-        guard let entry else { return (models, baseline) }
-        guard !uneven, let baseline else { return nil }
+        guard let entry, let baseline else { return (models, self.baseline) }
+        if uneven {
+            var replay = SessionTokens()
+            replay.baseline = entry
+            for event in events ?? [] { replay.add(event) }
+            // `add` takes the first event as the head and measures it from
+            // `entry`, which is what a resume does.
+            return (replay.models, replay.baseline)
+        }
         let step = CodexRollout.contribution(total: head.total, last: head.last, after: entry)
         var models = after
         if step.added.values.contains(where: { $0 > 0 }) {
@@ -132,9 +151,9 @@ struct SessionTokens: Sendable {
 
 extension SessionTokens: Codable {
     enum CodingKeys: String, CodingKey {
-        case offset, identity, complete, skipping, models, counted, deferred
-        case session, cwd, firstToken, model, baseline, head, after, resetAfter, uneven
-        case responses, events
+        case offset, identity, complete, skipping, models, counted, deferredTo
+        case session, cwd, firstToken, model, baseline, head, after, resetAfter, uneven, events
+        case responses, seen
     }
 
     init(from decoder: any Decoder) throws {
@@ -145,7 +164,7 @@ extension SessionTokens: Codable {
         skipping = try values.decodeIfPresent(Bool.self, forKey: .skipping)
         models = try values.decodeIfPresent([String: TokenCounts].self, forKey: .models) ?? [:]
         counted = try values.decodeIfPresent(MessageDigests.self, forKey: .counted) ?? MessageDigests()
-        deferred = try values.decodeIfPresent([Deferred].self, forKey: .deferred) ?? []
+        deferredTo = try values.decodeIfPresent(Set<String>.self, forKey: .deferredTo) ?? []
         session = try values.decodeIfPresent(String.self, forKey: .session)
         cwd = try values.decodeIfPresent(String.self, forKey: .cwd)
         firstToken = try values.decodeIfPresent(Date.self, forKey: .firstToken)
@@ -155,14 +174,18 @@ extension SessionTokens: Codable {
         after = try values.decodeIfPresent([String: TokenCounts].self, forKey: .after) ?? [:]
         resetAfter = try values.decodeIfPresent(Bool.self, forKey: .resetAfter) ?? false
         uneven = try values.decodeIfPresent(Bool.self, forKey: .uneven) ?? false
+        events = try values.decodeIfPresent([CodexRollout.Event].self, forKey: .events)
         if let responses = try values.decodeIfPresent([SpendResponse].self, forKey: .responses), !responses.isEmpty {
             legacy = responses
         }
-        // The old shape kept every Codex event, so the new one is built by
-        // reading them again in order, as a read of the file would.
-        if let events = try values.decodeIfPresent([CodexRollout.Event].self, forKey: .events), !events.isEmpty {
+        // The old shape kept every Codex event and no head, so the new one is
+        // built by reading them again in order, as a read of the file would,
+        // and keeps them only when the file turns out uneven.
+        if values.contains(.seen), let old = events {
             models = [:]; baseline = nil; head = nil; after = [:]; resetAfter = false; uneven = false
-            for event in events where event.at != nil { add(event) }
+            events = []
+            for event in old where event.at != nil { add(event) }
+            if !uneven { events = nil }
         }
     }
 
@@ -174,7 +197,7 @@ extension SessionTokens: Codable {
         try values.encodeIfPresent(skipping, forKey: .skipping)
         if !models.isEmpty { try values.encode(models, forKey: .models) }
         if !counted.isEmpty { try values.encode(counted, forKey: .counted) }
-        if !deferred.isEmpty { try values.encode(deferred, forKey: .deferred) }
+        if !deferredTo.isEmpty { try values.encode(deferredTo.sorted(), forKey: .deferredTo) }
         try values.encodeIfPresent(session, forKey: .session)
         try values.encodeIfPresent(cwd, forKey: .cwd)
         try values.encodeIfPresent(firstToken, forKey: .firstToken)
@@ -184,6 +207,7 @@ extension SessionTokens: Codable {
         if !after.isEmpty { try values.encode(after, forKey: .after) }
         if resetAfter { try values.encode(resetAfter, forKey: .resetAfter) }
         if uneven { try values.encode(uneven, forKey: .uneven) }
+        try values.encodeIfPresent(events, forKey: .events)
     }
 }
 

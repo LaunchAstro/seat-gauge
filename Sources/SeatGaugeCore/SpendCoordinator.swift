@@ -171,10 +171,14 @@ public actor SpendCoordinator {
     /// session's cost is kept only while the log shows the session (issue
     /// #120): nothing reads it after that.
     static func shownSessions(_ log: URL) -> Set<String>? {
-        guard let data = FileManager.default.contents(atPath: log.path) else {
-            return FileManager.default.fileExists(atPath: log.path) ? nil : []
-        }
-        return (try? SessionLogFile.decoder().decode(SessionLogFile.self, from: data)).map { Set($0.sessions.map(\.sessionId)) }
+        do {
+            let data = try Data(contentsOf: log)
+            return (try? SessionLogFile.decoder().decode(SessionLogFile.self, from: data)).map { Set($0.sessions.map(\.sessionId)) }
+        } catch CocoaError.fileReadNoSuchFile, CocoaError.fileNoSuchFile {
+            // Only a read that says so counts as no log: one macOS refuses
+            // can also make the file look missing to a plain existence test.
+            return []
+        } catch { return nil }
     }
 
     static func priced(_ cells: [SpendCell: TokenCounts], rates: RateCard) -> [SpendRow] {

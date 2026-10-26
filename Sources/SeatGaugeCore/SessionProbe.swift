@@ -319,6 +319,11 @@ public struct SessionProbe: Sendable {
             checkpoint.owners[path] = original.sessionId
             if !checkpoint.read(path, tool: original.tool, budget: byteBudget) { failed = true }
         }
+        // A file read before another of the session dropped a message it
+        // passed by reads again now, so the session takes it over this pass.
+        for path in paths.sorted() where checkpoint.rescanned.contains(path) && checkpoint.owners[path] == original.sessionId {
+            if !checkpoint.read(path, tool: original.tool, budget: byteBudget) { failed = true }
+        }
         var row = summarized(original, paths: paths, checkpoint: &checkpoint, rates: rates)
         row.stale = row.stale || failed
         return row
@@ -336,7 +341,7 @@ public struct SessionProbe: Sendable {
                 // As Spend reads them: a file no session names adds nothing.
                 if let session = tokens.session { rollouts[session, default: []].append((path, tokens)) }
             } else {
-                for (model, counts) in checkpoint.models(path) { models[model, default: TokenCounts()] += counts }
+                for (model, counts) in tokens.models { models[model, default: TokenCounts()] += counts }
             }
         }
         let primers = AppPaths.primers(beside: AppPaths.codexPrimer)
@@ -348,7 +353,7 @@ public struct SessionProbe: Sendable {
                 ($0.tokens.firstToken ?? .distantFuture, URL(fileURLWithPath: $0.path).lastPathComponent, $0.path)
                     < ($1.tokens.firstToken ?? .distantFuture, URL(fileURLWithPath: $1.path).lastPathComponent, $1.path)
             }) {
-                guard let step = file.tokens.added(after: entry) else { complete = false; break }
+                let step = file.tokens.added(after: entry)
                 for (model, counts) in step.models { models[model, default: TokenCounts()] += counts }
                 entry = step.baseline
             }

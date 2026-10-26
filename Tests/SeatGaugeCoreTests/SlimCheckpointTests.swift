@@ -111,13 +111,16 @@ import Testing
         #expect(codexRow.tokens == spend)
         #expect(spend.input == 100 + 50 + 30 + 20)
         // Written again, it is the new shape alone, and the shared message
-        // passes to the first file once the second no longer has it.
+        // passes to the first file once the second no longer has it, read
+        // from that file's own transcript.
         let written = String(decoding: try JSONEncoder().encode(checkpoint), as: UTF8.self)
         for key in ["msg_", "messageOwners", "\"events\"", "\"seen\""] { #expect(!written.contains(key)) }
         var reread = try JSONDecoder().decode(SessionCheckpoint.self, from: Data(written.utf8))
         try Data(claude("b-new", input: 1).utf8).write(to: second, options: .atomic)
         let moved = probe.refreshed(row("claude"), paths: [first.path, second.path], checkpoint: &reread, rates: .bundled)
-        #expect(moved.tokens?.input == 7 + 20 + 1)
+        #expect(moved.tokens?.input == 100 + 20 + 1)
+        #expect(moved.tokens?.responses == 3)
+        #expect(!moved.stale)
     }
 
     /// One rollout: `(hour, input total, last input)` per usage event.
@@ -172,8 +175,8 @@ import Testing
         }
     }
 
-    @Test("a resumed file whose usage fields change inside it keeps its tokens pending rather than guess")
-    func unevenResumeIsPending() throws {
+    @Test("a resumed file whose usage fields change inside it keeps its events, and its totals stay exact")
+    func unevenResumeStaysExact() throws {
         let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
         let first = root.appendingPathComponent("rollout-a.jsonl")
         let second = root.appendingPathComponent("rollout-b.jsonl")
@@ -183,16 +186,80 @@ import Testing
             + #"{"timestamp":"2026-10-15T03:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":170,"cached_input_tokens":5,"output_tokens":10,"total_tokens":180}}}}"#
             + "\n"
         try Data(uneven.utf8).write(to: second)
+        let spend = CodexRollout.read(files: [first, second], calendar: .current).cells.values.reduce(TokenCounts(), +)
+        for budget in [256, 32 << 20] {
+            let probe = SessionProbe(directory: root, home: root, byteBudget: budget)
+            var checkpoint = SessionCheckpoint()
+            var shown = row("codex")
+            for _ in 0 ..< 10 {
+                shown = probe.refreshed(row("codex"), paths: [first.path, second.path], checkpoint: &checkpoint, rates: .bundled)
+                checkpoint = try JSONDecoder().decode(SessionCheckpoint.self, from: JSONEncoder().encode(checkpoint))
+                if !shown.stale { break }
+            }
+            #expect(!shown.stale)
+            #expect(shown.tokens == spend)
+            #expect(checkpoint.files[second.path]?.events?.count == 2)
+            #expect(checkpoint.files[first.path]?.events == nil)
+        }
+    }
+
+    @Test("Sol proof, criterion 1: three transcripts sharing one message store one digest and no per-message record")
+    func sharedMessageStoredOnce() throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let files = (0 ..< 3).map { root.appendingPathComponent("t\($0).jsonl") }
+        for file in files { try Data(claude("only", input: 100).utf8).write(to: file) }
         let probe = SessionProbe(directory: root, home: root)
         var checkpoint = SessionCheckpoint()
-        let shown = probe.refreshed(row("codex"), paths: [first.path, second.path], checkpoint: &checkpoint, rates: .bundled)
-        #expect(shown.stale)
-        #expect(shown.usd == nil)
-        // Alone, the same file is exact.
-        var alone = SessionCheckpoint()
-        let single = probe.refreshed(row("codex"), paths: [second.path], checkpoint: &alone, rates: .bundled)
-        #expect(!single.stale)
-        #expect(single.tokens == CodexRollout.read(files: [second], calendar: .current).cells.values.reduce(TokenCounts(), +))
+        let shown = probe.refreshed(row("claude"), paths: files.map(\.path), checkpoint: &checkpoint, rates: .bundled)
+        #expect(shown.tokens?.input == 100)
+        let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(checkpoint)) as? [String: Any])
+        let stored = try #require(object["files"] as? [String: [String: Any]])
+        let digests = stored.values.compactMap { $0["counted"] as? String }.compactMap { Data(base64Encoded: $0) }
+        #expect(digests.reduce(0) { $0 + $1.count } == 8)
+        for file in stored.values { #expect(Set(file.keys).isSubset(of: ["offset", "identity", "complete", "models", "counted", "deferredTo"])) }
+        // The message passes on, once, when the file counting it is replaced.
+        try Data(claude("other", input: 1).utf8).write(to: files[0], options: .atomic)
+        let moved = probe.refreshed(row("claude"), paths: files.map(\.path), checkpoint: &checkpoint, rates: .bundled)
+        #expect(moved.tokens?.input == 101)
+        #expect(moved.tokens?.responses == 2)
+    }
+
+    @Test("Sol proof, criterion 2: an old checkpoint whose resumed file gains a usage field migrates with its totals")
+    func unevenOldCheckpointMigrates() throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let first = root.appendingPathComponent("rollout-a.jsonl")
+        let second = root.appendingPathComponent("rollout-b.jsonl")
+        try Data(Self.rollout("main", [(1, 100, nil)]).utf8).write(to: first)
+        try Data((Self.rollout("main", [(2, 150, nil)])
+            + #"{"timestamp":"2026-10-15T03:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":170,"cached_input_tokens":5,"output_tokens":10,"total_tokens":180}}}}"#
+            + "\n").utf8).write(to: second)
+        func file(_ url: URL, _ at: Double, _ events: [[String: Any]]) throws -> [String: Any] {
+            ["offset": try FileManager.default.attributesOfItem(atPath: url.path)[.size] as! Int, "identity": try inode(url),
+             "session": "main", "cwd": "/work/project", "firstToken": at, "model": "gpt-6.1-sol",
+             "seen": [] as [Any], "models": [:] as [String: Any], "responses": [] as [Any], "events": events, "complete": true]
+        }
+        let legacy: [String: Any] = [
+            "files": [
+                first.path: try file(first, 3_600, [["at": 3_600.0, "model": "gpt-6.1-sol",
+                                                      "total": ["input_tokens": 100, "output_tokens": 10, "total_tokens": 110]]]),
+                second.path: try file(second, 7_200, [
+                    ["at": 7_200.0, "model": "gpt-6.1-sol", "total": ["input_tokens": 150, "output_tokens": 10, "total_tokens": 160]],
+                    ["at": 10_800.0, "model": "gpt-6.1-sol",
+                     "total": ["input_tokens": 170, "cached_input_tokens": 5, "output_tokens": 10, "total_tokens": 180]],
+                ]),
+            ],
+            "owners": [first.path: "main", second.path: "main"], "messageOwners": [:] as [String: Any],
+        ]
+        var checkpoint = try JSONDecoder().decode(SessionCheckpoint.self, from: JSONSerialization.data(withJSONObject: legacy))
+        let probe = SessionProbe(directory: root, home: root)
+        for _ in 0 ..< 2 {
+            let shown = probe.refreshed(row("codex"), paths: [first.path, second.path], checkpoint: &checkpoint, rates: .bundled)
+            #expect(shown.tokens?.input == 170)
+            #expect(shown.tokens?.responses == 3)
+            #expect(shown.usd == Decimal(string: "0.00044"))
+            #expect(!shown.stale)
+            checkpoint = try JSONDecoder().decode(SessionCheckpoint.self, from: JSONEncoder().encode(checkpoint))
+        }
     }
 
     @Test("the roll-up keeps a session's cost only while log.json shows the session")
@@ -210,6 +277,30 @@ import Testing
         try FileManager.default.removeItem(at: scratch.directory.appendingPathComponent("log.json"))
         _ = try await scratch.run()
         #expect(state.load().sessionCosts.isEmpty)
+    }
+
+    @Test("Sol proof, criterion 4: a log.json macOS will not let the roll-up read, attributes included, prunes nothing")
+    func unreadableLogPrunesNothing() async throws {
+        let scratch = try SpendRollupTests.Scratch()
+        let log = scratch.directory.appendingPathComponent("log.json")
+        defer { _ = try? Self.chmod(["-N", log.path]); scratch.remove() }
+        let state = StateStore(file: scratch.directory.appendingPathComponent("state.json"))
+        try state.update { $0.sessionCosts = ["main": 9] }
+        let shown = SessionLogFile(updated: Date(), sessions: [
+            SessionRow(sessionId: "main", workspace: "", pane: "w1:p1", tool: "claude", status: "closed", asOf: Date()),
+        ])
+        try SessionLogFile.encoder().encode(shown).write(to: log)
+        try Self.chmod(["+a", "everyone deny read,readattr", log.path])
+        _ = try await scratch.run()
+        #expect(state.load().sessionCosts["main"] == 9)
+    }
+
+    static func chmod(_ arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/chmod")
+        process.arguments = arguments
+        try process.run(); process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw ProcessFailure("chmod failed") }
     }
 }
 
