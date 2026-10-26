@@ -216,13 +216,6 @@ public actor SessionLogMonitor {
     let config: @Sendable () async -> Config
     let notify: @Sendable (SessionLogFile) -> Void
     private var rows: [String: [SessionRow]] = [:]
-    /// The newest second whose closed rows the file cap has dropped, handed
-    /// to every probe so each drops them from its own store too. It is kept
-    /// in `cutOffFile`, so a monitor made afresh, as each `seatgauge-cli log`
-    /// is, still hands it on.
-    private var closedThrough: Date?
-    nonisolated var cutOffFile: URL { Self.cutOff(beside: file) }
-    static func cutOff(beside file: URL) -> URL { file.deletingLastPathComponent().appendingPathComponent("log-closed-through") }
 
     public init(prober: MachineProber, file: URL = SessionLogFile.file,
                 config: @escaping @Sendable () async -> Config,
@@ -232,9 +225,6 @@ public actor SessionLogMonitor {
            let saved = try? SessionLogFile.decoder().decode(SessionLogFile.self, from: data) {
             rows = Dictionary(grouping: saved.sessions, by: \.machine)
         }
-        closedThrough = (try? String(contentsOf: Self.cutOff(beside: file), encoding: .utf8))
-            .flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
-            .map { Date(timeIntervalSince1970: Double($0)) }
     }
 
     public func run() async {
@@ -247,8 +237,7 @@ public actor SessionLogMonitor {
     @discardableResult public func read() async -> SessionLogFile {
         let machines = await config().machines
         let prober = self.prober
-        let through = closedThrough
-        let results = await Machine.each(machines) { await prober.readLog($0, closedThrough: through) }
+        let results = await Machine.each(machines) { await prober.readLog($0) }
         var problems: [String: String] = [:]
         let now = Date()
         for machine in machines {
@@ -258,31 +247,22 @@ public actor SessionLogMonitor {
                 // such as a folder macOS held; it shows under the machine.
                 let said = log.problems.keys.sorted().compactMap { log.problems[$0] }
                 if !said.isEmpty { problems[machine.id] = said.joined(separator: "; ") }
-                // An older probe ignores the cut-off, so it is applied here too.
-                rows[machine.id] = SessionRetention.kept(log.sessions, row: { $0 }, now: now, through: through).map { row in
+                // An older probe keeps every closed session, so the rule is
+                // applied here too.
+                rows[machine.id] = SessionRetention.kept(log.sessions, row: { $0 }, now: now).map { row in
                     var row = row; row.machine = machine.id
                     row.stale = row.stale || now.timeIntervalSince(row.asOf) > 90
                     return row
                 }
             case let .failure(error):
                 problems[machine.id] = error.reason
-                rows[machine.id] = SessionRetention.kept(rows[machine.id] ?? [], row: { $0 }, now: now, through: through)
+                rows[machine.id] = SessionRetention.kept(rows[machine.id] ?? [], row: { $0 }, now: now)
                     .map { var row = $0; row.stale = true; return row }
             case .none: break
             }
         }
-        let (log, dropped) = SessionRetention.bounded(SessionLogFile(updated: now, sessions: machines.flatMap { rows[$0.id] ?? [] }
-            .sorted { ($0.startedAt ?? .distantPast, $0.id) > ($1.startedAt ?? .distantPast, $1.id) }, problems: problems))
-        // Kept before the snapshot is written, so the file never hides a row
-        // that the next round's probes are not told to drop.
-        if let dropped, dropped > closedThrough ?? .distantPast {
-            closedThrough = dropped
-            do {
-                try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try Data("\(Int(SessionRetention.second(dropped)))\n".utf8).write(to: cutOffFile, options: .atomic)
-                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: cutOffFile.path)
-            } catch { PollLog.system("log: the closed-row cut-off could not be written") }
-        }
+        let log = SessionLogFile(updated: now, sessions: machines.flatMap { rows[$0.id] ?? [] }
+            .sorted { ($0.startedAt ?? .distantPast, $0.id) > ($1.startedAt ?? .distantPast, $1.id) }, problems: problems)
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try SessionLogFile.encoder().encode(log).write(to: file, options: .atomic)
@@ -301,55 +281,18 @@ public enum SessionRetention {
     /// a day, that is some 450 closed rows per machine.
     public static let closedFor: TimeInterval = 7 * 86_400
     /// A burst of short sessions cannot outgrow the file within the week.
+    /// At the 350 to 550 bytes a row takes, four machines stay under the
+    /// 5,000 rows and 4,000,000 bytes a reader may cap `log.json` at (issue
+    /// #38).
     public static let closedPerMachine = 1_000
-    /// The whole file, under the 5,000 rows and 4,000,000 bytes a reader of
-    /// `log.json` may cap it at (issue #38), with room to spare.
-    public static let fileRows = 4_000
-    public static let fileBytes = 3_000_000
-
-    /// `log.json` writes whole seconds, so a cut-off is compared by the
-    /// second a row shows.
-    static func second(_ date: Date) -> Double { date.timeIntervalSince1970.rounded(.down) }
 
     /// Every open session, and the newest `closedPerMachine` that closed
-    /// within `closedFor` of `now` and after the second `through`. `items`
-    /// are one machine's.
-    static func kept<T>(_ items: [T], row: (T) -> SessionRow, now: Date, through: Date? = nil) -> [T] {
-        let recent = items.filter { item in
-            row(item).closedAt.map { closed in
-                now.timeIntervalSince(closed) < closedFor && through.map { second(closed) > second($0) } ?? true
-            } ?? true
-        }
+    /// within `closedFor` of `now`. `items` are one machine's.
+    static func kept<T>(_ items: [T], row: (T) -> SessionRow, now: Date) -> [T] {
+        let recent = items.filter { item in row(item).closedAt.map { now.timeIntervalSince($0) < closedFor } ?? true }
         let closed = recent.compactMap { item in row(item).closedAt.map { ($0, row(item).sessionId) } }
         guard closed.count > closedPerMachine else { return recent }
         let dropped = Set(closed.sorted { $0 > $1 }.dropFirst(closedPerMachine).map(\.1))
         return recent.filter { !dropped.contains(row($0).sessionId) }
-    }
-
-    /// `log` with its oldest closed rows dropped until it is within
-    /// `fileRows` and `fileBytes`, a whole second at a time, and the newest
-    /// second dropped, or nil. Every closed row at or before that second has
-    /// gone, so the monitor hands it to each probe, which drops the same rows
-    /// from its own store (`SessionProbe.run`). Open rows are never dropped.
-    static func bounded(_ log: SessionLogFile) -> (log: SessionLogFile, through: Date?) {
-        let encoder = SessionLogFile.encoder()
-        var empty = log; empty.sessions = []
-        let base = (try? encoder.encode(empty).count) ?? 0
-        let sizes = log.sessions.map { (try? encoder.encode($0).count) ?? 0 }
-        // Each row after the first adds a comma inside the array.
-        var bytes = base + sizes.reduce(0, +) + max(0, sizes.count - 1)
-        var count = log.sessions.count
-        let bySecond = Dictionary(grouping: log.sessions.indices.filter { log.sessions[$0].closedAt != nil }) {
-            second(log.sessions[$0].closedAt!)
-        }
-        var dropped = Set<Int>()
-        var through: Double?
-        for moment in bySecond.keys.sorted() where count > fileRows || bytes > fileBytes {
-            for index in bySecond[moment]! { dropped.insert(index); count -= 1; bytes -= sizes[index] + 1 }
-            through = moment
-        }
-        var bounded = log
-        bounded.sessions = log.sessions.indices.filter { !dropped.contains($0) }.map { log.sessions[$0] }
-        return (bounded, through.map { Date(timeIntervalSince1970: $0) })
     }
 }

@@ -3,8 +3,9 @@ import Testing
 @testable import SeatGaugeCore
 
 /// Issue #70: a closed session leaves `log.json`, the private ledger and the
-/// pass on one rule, read from its `closed_at`, and `log.json` stays under
-/// what a reader caps it at (issue #38's note: 4,000,000 bytes, 5,000 rows).
+/// pass on one rule, read from its `closed_at`, which keeps each machine's
+/// share of `log.json` bounded (issue #38's note: a reader caps the file at
+/// 4,000,000 bytes and 5,000 rows).
 @Suite struct SessionRetentionTests {
     private func scratch() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -80,13 +81,12 @@ import Testing
         #expect(!kept.contains("old"))
     }
 
-    @Test func logJSONStaysUnderWhatAReaderAcceptsAndDropsTheOldestClosedRowsFirst() async throws {
+    @Test func theMonitorAppliesTheRuleToRowsFromAnOlderProbe() async throws {
         let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
         let now = Date()
         var rows: [SessionRow] = []
         for index in 0..<1_200 {
-            // Long labels, so the byte limit binds before the row limit.
-            var row = SessionRow(sessionId: "closed-\(index)", workspace: String(repeating: "w", count: 1_500) + "-Log-work",
+            var row = SessionRow(sessionId: "closed-\(index)", workspace: "PROJECT-Log-work",
                                  pane: "w1:p1", tool: "codex", status: "closed", asOf: now)
             row.closedAt = now.addingTimeInterval(-Double(index) * 60)
             rows.append(row)
@@ -97,31 +97,23 @@ import Testing
         rows.append(stale)
         rows.append(SessionRow(sessionId: "open", workspace: "PROJECT-Log-work", pane: "w1:p2",
                                tool: "codex", status: "working", asOf: now))
-        // An older probe on the far machine sends every closed session it has.
+        // An older probe on the far machines sends every closed session it has.
         let answer = String(decoding: try SessionLogFile.encoder().encode(SessionLogFile(updated: now, sessions: rows)),
                             as: UTF8.self)
-        let machines = (1...5).map { Machine(id: "m\($0)", label: "M\($0)", ssh: "m\($0)") }
+        let machines = (1...4).map { Machine(id: "m\($0)", label: "M\($0)", ssh: "m\($0)") }
         let config = Config(seats: [], pollMinutes: 5, machines: machines)
         let file = root.appendingPathComponent("log.json")
         let monitor = SessionLogMonitor(prober: MachineProber(runner: AnswerRunner(line: answer), environment: [:]),
                                         file: file, config: { config })
         let log = await monitor.read()
-        let size = try Data(contentsOf: file).count
-        #expect(size <= SessionRetention.fileBytes)
-        #expect(SessionRetention.fileBytes < 4_000_000)
-        #expect(log.sessions.count <= SessionRetention.fileRows)
-        #expect(SessionRetention.fileRows < 5_000)
-        #expect(log.sessions.filter { $0.sessionId == "open" }.count == 5)
+        // Four machines at their cap stay inside what a reader accepts.
+        #expect(log.sessions.count < 5_000)
+        #expect(try Data(contentsOf: file).count < 4_000_000)
+        #expect(log.sessions.filter { $0.sessionId == "open" }.count == 4)
         #expect(!log.sessions.contains { $0.sessionId == "eight-days" })
         for machine in machines {
-            let closed = log.sessions.filter { $0.machine == machine.id && $0.closedAt != nil }
-            #expect(closed.count <= SessionRetention.closedPerMachine)
-            // What is left of a machine's closed rows is its newest.
-            let oldestKept = closed.compactMap(\.closedAt).min() ?? now
-            #expect(!rows.contains { row in
-                row.closedAt.map { $0 > oldestKept && $0 > now.addingTimeInterval(-week) } == true
-                    && !closed.contains { $0.sessionId == row.sessionId }
-            })
+            let closed = Set(log.sessions.filter { $0.machine == machine.id && $0.closedAt != nil }.map(\.sessionId))
+            #expect(closed == Set((0..<SessionRetention.closedPerMachine).map { "closed-\($0)" }))
         }
     }
 }

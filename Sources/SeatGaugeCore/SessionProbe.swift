@@ -50,43 +50,19 @@ public struct SessionProbe: Sendable {
         return result
     }
 
-    /// What `log-probe` is told: `--directory <folder>` for its private
-    /// store, and `--closed-through <seconds since 1970>`, the newest second
-    /// whose closed rows `log.json` no longer shows. A flag it does not know
-    /// is passed over with its value, so a newer app can drive this helper.
-    public struct Arguments {
-        public var directory: URL?
-        public var closedThrough: Date?
-
-        public init(_ arguments: [String]) {
-            var index = 0
-            while index + 1 < arguments.count {
-                let value = arguments[index + 1]
-                switch arguments[index] {
-                case "--directory": directory = URL(fileURLWithPath: value)
-                case "--closed-through": closedThrough = Int(value).map { Date(timeIntervalSince1970: Double($0)) }
-                default: break
-                }
-                index += 2
-            }
-        }
-    }
-
-    /// `closedThrough` is the monitor's cut-off for rows it no longer shows
-    /// (see `SessionRetention.bounded`).
-    public func run(now: Date = Date(), rates: RateCard = .bundled, closedThrough: Date? = nil) async throws -> SessionLogFile {
+    public func run(now: Date = Date(), rates: RateCard = .bundled) async throws -> SessionLogFile {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         return try await FileLock.holdingAsync(directory.appendingPathComponent("probe.lock"), timeout: .seconds(1)) {
-            try await collect(now: now, rates: rates, closedThrough: closedThrough)
+            try await collect(now: now, rates: rates)
         }
     }
 
-    func collect(now: Date, rates: RateCard, closedThrough: Date? = nil) async throws -> SessionLogFile {
+    func collect(now: Date, rates: RateCard) async throws -> SessionLogFile {
         let ledger = SessionLedger(directory: directory)
         let stored = try ledger.read()
         func staying(_ rows: [String: SessionObservation]) -> [String: SessionObservation] {
-            SessionRetention.kept(Array(rows), row: { $0.value.row }, now: now, through: closedThrough)
+            SessionRetention.kept(Array(rows), row: { $0.value.row }, now: now)
                 .reduce(into: [String: SessionObservation]()) { $0[$1.key] = $1.value }
         }
         // A session `log.json` no longer shows leaves the pass.
@@ -410,7 +386,7 @@ public struct SessionProbe: Sendable {
 extension MachineProber {
     static func quote(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
 
-    public func readLog(_ machine: Machine, closedThrough: Date? = nil) async -> Result<SessionLogFile, ProcessFailure> {
+    public func readLog(_ machine: Machine) async -> Result<SessionLogFile, ProcessFailure> {
         var spec = Self.spec(machine, environment: environment)
         spec = ProcessSpec(executable: spec.executable, arguments: spec.arguments, environment: spec.environment,
                            timeout: .seconds(90))
@@ -422,8 +398,7 @@ extension MachineProber {
                     ? "\"$HOME/.local/bin/seatgauge-cli\"" : "\"$HOME/.local/libexec/seatgauge-log-probe\""
             let state = machine.ssh == nil
                 ? " --directory " + Self.quote(AppPaths.support.appendingPathComponent("log-private").path) : ""
-            let through = closedThrough.map { " --closed-through \(Int(SessionRetention.second($0)))" } ?? ""
-            try child.send("\(helper) log-probe\(state)\(through)")
+            try child.send("\(helper) log-probe\(state)")
             child.closeInput()
             var lines: [String] = []
             for try await line in child.stdoutLines { lines.append(line) }
