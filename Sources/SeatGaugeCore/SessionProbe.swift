@@ -25,7 +25,7 @@ public struct SessionProbe: Sendable {
     /// The Log problem a held git call leaves. It names no folder, since
     /// `log.json` carries no paths.
     static let folderAccessProblem = "git could not read a session's folder within \(Int(gitTimeout.seconds)) s,"
-        + " so branches show as last seen;"
+        + " so branches and repositories show as last seen;"
         + " macOS may be waiting for you to let Seat Gauge open Desktop, Documents or Downloads."
         + " Answer the prompt, or allow it in System Settings > Privacy & Security > Files and Folders"
 
@@ -174,7 +174,7 @@ public struct SessionProbe: Sendable {
         row.closedAt = nil; row.asOf = pass.now; row.stale = false
         let options = Self.options(argv)
         row.model = options.model ?? row.model; row.effort = options.effort ?? row.effort
-        await readBranch(cwd, into: &row, in: &pass)
+        await readFolder(Self.folder(argv: argv, cwd: cwd), into: &row, in: &pass)
         let keptPaths = Array(Set((pass.observations[id]?.paths ?? inherited?.paths ?? []) + paths)).sorted()
         let owned = keptPaths.filter { path in
             if pass.checkpoint.owners[path] == nil { pass.checkpoint.owners[path] = id }
@@ -234,17 +234,93 @@ public struct SessionProbe: Sendable {
         return (id, inherited)
     }
 
-    /// Once one git call is held, the rest of the pass skips git, so a
-    /// folder prompt nobody has answered costs one short wait per pass, not
-    /// one per pane. A held read keeps the branch last seen.
-    func readBranch(_ cwd: String, into row: inout SessionRow, in pass: inout ProbePass) async {
-        guard !cwd.isEmpty, !cwd.hasPrefix("/Volumes/"), !pass.gitHeld else { return }
+    /// The branch and GitHub repository of the folder the session works in,
+    /// read once per folder per pass. Once one git call is held, the rest of
+    /// the pass skips git, so a folder prompt nobody has answered costs one
+    /// short wait per pass, not one per pane. A held read keeps what was last
+    /// seen. A folder outside any repository, or on a detached head, has no
+    /// branch (issue #122). A row this probe writes always carries
+    /// `repository`, null when it was never read, so only an older probe's
+    /// row lacks the key.
+    func readFolder(_ folder: String, into row: inout SessionRow, in pass: inout ProbePass) async {
+        row.repositoryRead = true
+        guard !folder.isEmpty, !folder.hasPrefix("/Volumes/") else { return }
+        if let known = pass.folders[folder] {
+            row.branch = known.branch; row.repository = known.repository
+            return
+        }
+        guard !pass.gitHeld else { return }
         do {
-            row.branch = try await command("/usr/bin/git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"],
-                                           timeout: Self.gitTimeout).first
-        } catch let failure as ProcessFailure where failure == .timedOut(after: Self.gitTimeout) {
+            let branch = try await git(["-C", folder, "symbolic-ref", "--short", "HEAD"])
+            let remote = try await git(["-C", folder, "remote", "get-url", "origin"])
+            let read = (branch: branch, repository: remote.flatMap(Self.githubRepository))
+            pass.folders[folder] = read
+            row.branch = read.branch; row.repository = read.repository
+        } catch {
             pass.gitHeld = true
-        } catch { row.branch = nil }
+        }
+    }
+
+    /// git's first line, or nil when it says nothing, as it does outside a
+    /// repository; throws only when it does not answer in time.
+    func git(_ arguments: [String]) async throws -> String? {
+        do {
+            return try await command("/usr/bin/git", arguments, timeout: Self.gitTimeout).first
+        } catch let failure as ProcessFailure where failure == .timedOut(after: Self.gitTimeout) {
+            throw failure
+        } catch { return nil }
+    }
+
+    /// `owner/name` from a github.com remote, as the remote spells it, and
+    /// nil for any other host or shape. Only the two names leave the probe,
+    /// never the URL, a user name or a token in it, or a path.
+    static func githubRepository(remote: String) -> String? {
+        var path: Substring
+        if let range = remote.range(of: "^git@github\\.com:", options: [.regularExpression, .caseInsensitive]) {
+            path = remote[range.upperBound...]
+        } else if let url = URLComponents(string: remote), let port = ["https": 443, "http": 80, "ssh": 22, "git": 9418][url.scheme?.lowercased() ?? ""],
+                  url.host?.lowercased() == "github.com", url.query == nil, url.fragment == nil, url.port == nil || url.port == port {
+            path = Substring(url.path.drop { $0 == "/" })
+        } else { return nil }
+        if path.hasSuffix("/") { path = path.dropLast() }
+        if path.hasSuffix(".git") { path = path.dropLast(4) }
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0].range(of: "^[A-Za-z0-9-]+$", options: .regularExpression) != nil,
+              parts[1].range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) != nil,
+              parts[1] != ".", parts[1] != ".." else { return nil }
+        return parts.joined(separator: "/")
+    }
+
+    /// Codex's `-C` or `--cd`, the last one before `--`, in any of its
+    /// spellings and wherever it comes, as Codex takes it. Only git reads
+    /// it; nothing from it is published but what git says of the folder.
+    static func codexFolder(_ argv: [String]) -> String? {
+        var folder: String?
+        var index = 1
+        while index < argv.count, argv[index] != "--" {
+            let arg = argv[index]; index += 1
+            if arg == "-C" || arg == "--cd" {
+                guard index < argv.count else { break }
+                folder = argv[index]; index += 1
+            } else if arg.hasPrefix("--cd=") {
+                folder = String(arg.dropFirst(5))
+            } else if arg.hasPrefix("-C=") {
+                folder = String(arg.dropFirst(3))
+            } else if arg.hasPrefix("-C"), !arg.hasPrefix("--") {
+                folder = String(arg.dropFirst(2))
+            }
+        }
+        return folder
+    }
+
+    /// The folder an agent works in: Codex's `-C` or `--cd`, read against its
+    /// own folder, else the folder the process runs in. A relative one with
+    /// no folder to read it against names none.
+    static func folder(argv: [String], cwd: String) -> String {
+        guard URL(fileURLWithPath: argv.first ?? "").lastPathComponent == "codex",
+              let named = codexFolder(argv), !named.isEmpty else { return cwd }
+        if named.hasPrefix("/") { return named }
+        return cwd.isEmpty ? "" : URL(fileURLWithPath: cwd).appendingPathComponent(named).standardized.path
     }
 
     /// Each session this pass did not see: still running beside a session
@@ -485,6 +561,8 @@ struct ProbePass {
     /// Every session this pass touched, for the ledger to sift.
     var changes: [SessionObservation] = []
     var gitHeld = false
+    /// What git said of each folder this pass.
+    var folders: [String: (branch: String?, repository: String?)] = [:]
 
     /// `rows` less any session `SessionRetention` retires.
     func staying(_ rows: [String: SessionObservation]) -> [String: SessionObservation] {
