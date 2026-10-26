@@ -56,10 +56,10 @@ privacy() {
 }
 
 # Suites that time real child processes, timers or memory against tight
-# bounds. Beside other cases they read a busy machine as a failure, so the
-# full run gives them the machine to themselves. A new suite like them goes
-# here.
-ALONE=(MemoryCeilingTests SearchPathTests SeatOpenTests SeatOpenPanelTests SeatsRowTests
+# bounds, or find processes by name. Beside other cases they read a busy
+# machine as a failure, so the full run gives them the machine to
+# themselves. A new suite like them goes here.
+ALONE=(InstallTests MemoryCeilingTests SearchPathTests SeatOpenTests SeatOpenPanelTests SeatsRowTests
   SolSeatOpenProofTests SolSeatOpenRaceProofTests SolPR73DeadlineProofTests)
 alone="\.($(IFS='|'; printf '%s' "${ALONE[*]}"))/"
 
