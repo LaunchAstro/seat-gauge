@@ -44,12 +44,20 @@ refuse() { printf 'install: %s\n' "$1" >&2; exit 1; }
 [ -f "$APP/$HELPER" ] ||
   refuse "$APP has no seatgauge-cli in it. Run make install, which builds both. Nothing has been removed."
 # Only a copy of this app is ever replaced: an unrelated app of the same name,
-# or a link, is the user's to move.
+# or a link, is the user's to move. `checked` is the folder that passed, by
+# device and inode, so the copy moved aside later is deleted only if it is
+# still that folder (`ours_as_checked`).
+ours() {
+  [ ! -L "$1" ] && [ -d "$1" ] &&
+    [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null)" = "$ID" ]
+}
+checked=""
 if [ -e "$DEST" ] || [ -L "$DEST" ]; then
-  [ ! -L "$DEST" ] && [ -d "$DEST" ] &&
-    [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$DEST/Contents/Info.plist" 2>/dev/null)" = "$ID" ] ||
+  ours "$DEST" ||
     refuse "$DEST is there and is not Seat Gauge ($ID), so this script will not replace it. Move it away, then install again. Nothing has been removed."
+  checked="$(stat -f '%d:%i' "$DEST")"
 fi
+ours_as_checked() { [ -n "$checked" ] && ours "$1" && [ "$(stat -f '%d:%i' "$1")" = "$checked" ]; }
 if [ -e "$LINK" ] || [ -L "$LINK" ]; then
   [ -L "$LINK" ] && [ "$(readlink "$LINK")" = "$DEST/$HELPER" ] ||
     refuse "$LINK is already there, and this script did not put it there. Move it away, then install again. Nothing has been removed."
@@ -139,7 +147,15 @@ if ! put "$NEW" "$DEST"; then
     refuse "the new copy could not be put in place, and the copy before it is at $OLD. Move it back to $APPLICATIONS."
   refuse "the new copy could not be put in place. The copy before it is back in $APPLICATIONS."
 fi
-rm -rf "$stage"
+# Something can take the destination's place in the seconds between the check
+# and the move aside. Whatever was moved aside is deleted only if it is still
+# the copy of Seat Gauge that was checked; anything else is left where it now
+# is, and said.
+if [ -e "$OLD" ] && ! ours_as_checked "$OLD"; then
+  printf 'install: what was moved aside from %s is not the copy of Seat Gauge checked before the install, so it is left at %s. Move it back or to the Trash yourself.\n' "$DEST" "$OLD" >&2
+else
+  rm -rf "$stage"
+fi
 # dist/ is emptied of the copy it was built from, so Spotlight finds one copy.
 rm -rf "$APP"
 
