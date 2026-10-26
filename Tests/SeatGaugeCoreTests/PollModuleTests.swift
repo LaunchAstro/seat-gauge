@@ -17,6 +17,24 @@ import Testing
 
     static let tokenLine = "{ \"id\": \"paid\", \"label\": \"Paid\", \"kind\": \"claude\", \"profile\": \"~/profiles/paid\", \"token\": \"~/paid.token\" }"
 
+    // MARK: - Start-up
+
+    /// Neither start-up step can fail, so neither is written with `try`: a
+    /// `seats.json` that will not parse is a `problem` the loop polls
+    /// through, and the app has no branch for a loop that never started.
+    @Test("proof: a seats.json that will not parse still makes the watcher and the loop, without try")
+    func startsWithoutTry() async throws {
+        let folder = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let seats = folder.appendingPathComponent("seats.json")
+        try Data("{ not json".utf8).write(to: seats)
+        let watcher = ConfigWatcher(loader: ConfigLoader(file: seats))
+        #expect(await watcher.problem != nil)
+        let poll = Poll(file: seats, readings: folder.appendingPathComponent("readings.json"),
+                        primer: folder.appendingPathComponent("primer"))
+        #expect(await poll.watcher.problem != nil)
+    }
+
     // MARK: - The primer
 
     @Test("proof: a Claude read whose primer folder is missing fails before the CLI starts")
@@ -43,7 +61,7 @@ import Testing
         let seats = folder.appendingPathComponent("seats.json")
         try Data(Loop.config(Loop.workLine).utf8).write(to: seats)
         let primer = folder.appendingPathComponent("primer", isDirectory: true)
-        _ = try Poll(file: seats, readings: folder.appendingPathComponent("readings.json"), primer: primer)
+        _ = Poll(file: seats, readings: folder.appendingPathComponent("readings.json"), primer: primer)
         var isDirectory: ObjCBool = false
         #expect(FileManager.default.fileExists(atPath: primer.path, isDirectory: &isDirectory))
         #expect(isDirectory.boolValue)
@@ -56,7 +74,7 @@ import Testing
         let seats = folder.appendingPathComponent("seats.json")
         try Data(Loop.config(Loop.workLine).utf8).write(to: seats)
         let primer = folder.appendingPathComponent("primer", isDirectory: true)
-        let poll = try Poll(file: seats, readings: folder.appendingPathComponent("readings.json"), primer: primer)
+        let poll = Poll(file: seats, readings: folder.appendingPathComponent("readings.json"), primer: primer)
         let seat = Seat(id: SeatID(rawValue: "work"), label: "Work",
                         kind: .claude(profileDir: folder.appendingPathComponent("profile")))
         let service = await poll.poller.service
@@ -75,7 +93,7 @@ import Testing
         let clock = Loop.TestClock(parks: true)
         let counter = Loop.Counter()
         let (wakes, wake) = AsyncStream<Void>.makeStream()
-        let poll = try Poll(file: seats, readings: folder.appendingPathComponent("readings.json"),
+        let poll = Poll(file: seats, readings: folder.appendingPathComponent("readings.json"),
                             primer: folder.appendingPathComponent("primer"),
                             options: Poll.Options(wakes: wakes, wakeDelay: .zero, log: { _ in },
                                                   fetcher: { _ in Loop.CountingFetcher(counter: counter, gate: nil) }),

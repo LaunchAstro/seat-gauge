@@ -34,7 +34,7 @@ extension ConfigAndPollTests {
         try JSONEncoder().encode([held]).write(to: scratch.readings)
         let counter = Counter()
         let poller = Poller(
-            watcher: try ConfigWatcher(loader: ConfigLoader(file: scratch.seats)),
+            watcher: ConfigWatcher(loader: ConfigLoader(file: scratch.seats)),
             service: RefreshService(clock: ContinuousClock(), gap: .zero) { _ in CountingFetcher(counter: counter, gate: nil) },
             store: GaugeStore(file: scratch.readings),
             clock: TestClock(), log: { _ in })
@@ -58,7 +58,7 @@ extension ConfigAndPollTests {
         let counter = Counter()
         let syncing = Syncing()
         let poller = Poller(
-            watcher: try ConfigWatcher(loader: ConfigLoader(file: scratch.seats)),
+            watcher: ConfigWatcher(loader: ConfigLoader(file: scratch.seats)),
             service: RefreshService(clock: ContinuousClock(), gap: .zero) { _ in CountingFetcher(counter: counter, gate: nil) },
             store: GaugeStore(file: scratch.readings),
             clock: clock, log: { _ in }, syncing: { syncing.add($0) })
@@ -128,7 +128,7 @@ extension ConfigAndPollTests {
         await token.close()
 
         let poller = Poller(
-            watcher: try ConfigWatcher(loader: ConfigLoader(file: scratch.seats)),
+            watcher: ConfigWatcher(loader: ConfigLoader(file: scratch.seats)),
             service: RefreshService(clock: ContinuousClock(), gap: .zero) { seat in
                 CountingFetcher(counter: counter,
                                 gate: seat.id.rawValue == "work" ? first : token)
@@ -159,7 +159,7 @@ extension ConfigAndPollTests {
     func changedIntervalAppliesAfterPoll() async throws {
         let scratch = Scratch()
         scratch.write(Self.config(Self.workLine, minutes: 5), to: scratch.seats)
-        let watcher = try ConfigWatcher(loader: ConfigLoader(file: scratch.seats))
+        let watcher = ConfigWatcher(loader: ConfigLoader(file: scratch.seats))
         let clock = AdvancingClock()
         let counter = Counter()
         let gate = Gate()

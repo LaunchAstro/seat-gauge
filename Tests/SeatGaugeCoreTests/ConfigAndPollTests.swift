@@ -199,7 +199,7 @@ import SeatGaugeCore
     func reReadsWhenTheFileChanges() async throws {
         let scratch = Scratch()
         scratch.write(Self.config("\(Self.workLine), \(Self.codexLine)"), to: scratch.seats)
-        let watcher = try ConfigWatcher(loader: ConfigLoader(file: scratch.seats))
+        let watcher = ConfigWatcher(loader: ConfigLoader(file: scratch.seats))
         #expect(await watcher.config.seats.map(\.id.rawValue) == ["work", "codex"])
 
         // A tick with nothing changed reads nothing.
@@ -283,7 +283,7 @@ import SeatGaugeCore
         let activity = PollActivity()
         let (wakes, wake) = AsyncStream<Void>.makeStream()
         let poller = Poller(
-            watcher: try ConfigWatcher(loader: ConfigLoader(file: scratch.seats)),
+            watcher: ConfigWatcher(loader: ConfigLoader(file: scratch.seats)),
             service: RefreshService(clock: clock) { _ in CountingFetcher(counter: counter, gate: gate) },
             store: GaugeStore(file: scratch.readings),
             clock: clock, activity: activity, wakes: wakes, log: { _ in })
@@ -323,7 +323,7 @@ import SeatGaugeCore
         let counter = Counter()
         let lines = Counted()
         let poller = Poller(
-            watcher: try ConfigWatcher(loader: ConfigLoader(file: scratch.seats)),
+            watcher: ConfigWatcher(loader: ConfigLoader(file: scratch.seats)),
             service: RefreshService(clock: clock) { _ in CountingFetcher(counter: counter, gate: nil) },
             store: GaugeStore(file: scratch.readings),
             clock: clock, log: { lines.add($0) })
@@ -350,7 +350,7 @@ import SeatGaugeCore
         scratch.write(Self.config("\(Self.workLine), \(Self.codexLine)"), to: scratch.seats)
         let clock = TestClock()
         let counter = Counter()
-        let watcher = try ConfigWatcher(loader: ConfigLoader(file: scratch.seats))
+        let watcher = ConfigWatcher(loader: ConfigLoader(file: scratch.seats))
         let poller = Poller(
             watcher: watcher,
             service: RefreshService(clock: clock) { _ in CountingFetcher(counter: counter, gate: nil) },
@@ -379,7 +379,7 @@ import SeatGaugeCore
         scratch.write(Self.config("\(Self.workLine), \(Self.codexLine)"), to: scratch.seats)
         let counter = Counter()
         let poller = Poller(
-            watcher: try ConfigWatcher(loader: ConfigLoader(file: scratch.seats)),
+            watcher: ConfigWatcher(loader: ConfigLoader(file: scratch.seats)),
             service: RefreshService(clock: ContinuousClock(), gap: .seconds(2)) { _ in
                 CountingFetcher(counter: counter, gate: nil)
             },
@@ -407,7 +407,7 @@ import SeatGaugeCore
         scratch.write(Self.config("\(Self.workLine), \(Self.codexLine)"), to: scratch.seats)
         let clock = TestClock()
         let counter = Counter()
-        let watcher = try ConfigWatcher(loader: ConfigLoader(file: scratch.seats))
+        let watcher = ConfigWatcher(loader: ConfigLoader(file: scratch.seats))
         let poller = Poller(
             watcher: watcher,
             service: RefreshService(clock: clock) { _ in CountingFetcher(counter: counter, gate: nil) },

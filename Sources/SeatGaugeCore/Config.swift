@@ -394,7 +394,7 @@ public actor ConfigWatcher {
     /// anything good has been read is reported with the decoder's line and
     /// column, and the seats first launch would seed on this machine stand
     /// in, so `watch` keeps polling instead of ending on the first read.
-    public init(loader: ConfigLoader = ConfigLoader()) throws {
+    public init(loader: ConfigLoader = ConfigLoader()) {
         self.loader = loader
         do {
             config = try loader.loadOrCreate()

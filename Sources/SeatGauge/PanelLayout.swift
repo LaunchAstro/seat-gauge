@@ -69,7 +69,9 @@ enum CardMetrics {
     static var minimumWidth: CGFloat { fixedColumns + minimumMeter }
 
     /// What the meter gets at a given card width: the card's padding and box
-    /// inset come off, and the line width left answers.
+    /// inset come off, and the line width left answers. Only the layout tests
+    /// call it, to prove a drawn meter is as wide as this sum says at any card
+    /// width; the cards themselves go through `meterWidth(lineWidth:)`.
     static func meterWidth(cardWidth: CGFloat, overflow: CGFloat = 0) -> CGFloat {
         meterWidth(lineWidth: cardWidth - (horizontalPadding + PanelLayout.boxInset) * 2, overflow: overflow)
     }
@@ -110,6 +112,8 @@ enum CardMetrics {
     /// provider in capitals, the seat, the spacer after it, the pick when the
     /// card carries it, the plan when it has one and the sync icon. Measured
     /// in the faces `Type` draws, so a case reads the width `CardHeader` gets.
+    /// Only the layout tests call it, to prove every header fits the narrowest
+    /// card at every text size.
     static func headerWidth(provider: String, seat: String, picked: Bool, plan: String? = nil,
                             marked: Bool = true) -> CGFloat {
         var width = horizontalPadding * 2 + PanelLayout.boxInset * 2

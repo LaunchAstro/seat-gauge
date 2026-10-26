@@ -124,7 +124,7 @@ import SeatGaugeCore
         defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("seats.json")
         try Self.seats(Self.work, Self.team, Self.personal, Self.codex).write(to: file)
-        let watcher = try ConfigWatcher(loader: ConfigLoader(file: file))
+        let watcher = ConfigWatcher(loader: ConfigLoader(file: file))
         #expect(await watcher.config.seats.map(\.id.rawValue) == ["work", "team", "personal", "codex"])
 
         try Self.seats(Self.work, Self.personal, Self.codex).write(to: file)
@@ -176,7 +176,7 @@ import SeatGaugeCore
 
         // At launch the seats first launch would seed stand in, under their
         // own names.
-        let watcher = try ConfigWatcher(loader: loader)
+        let watcher = ConfigWatcher(loader: loader)
         let launch = await watcher.config
         let seeded = try ConfigLoader.decode(Data(loader.seed().utf8)).seats
         #expect(!seeded.isEmpty)

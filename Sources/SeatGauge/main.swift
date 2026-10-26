@@ -49,9 +49,7 @@ if Alerter.wantsTestBanner(Array(CommandLine.arguments.dropFirst())) {
     Task { await alerter.testBanner() }
 }
 
-// A config that will not open at all is the one thing the window cannot poll
-// through, and it says so in the one line the empty state already has.
-if let poll = try? Poll(options: Poll.Options(
+let poll = Poll(options: Poll.Options(
     identity: true,
     wakes: WakeSource.stream(),
     notify: { snapshot, seats, watcher in
@@ -64,51 +62,50 @@ if let poll = try? Poll(options: Poll.Options(
     },
     // The seats a poll is reading, then none, for the busy icons.
     syncing: { ids in Task { @MainActor in GaugeMirror.shared.syncing = ids } },
-    rolledUp: { await MainActor.run { GaugeMirror.shared.readSpend() } })) {
-    let watcher = poll.watcher, store = poll.store, poller = poll.poller
-    // Each machine's load, on its own loop beside the seat poll, into the
-    // LOAD tab and `machines.json`.
-    let machineMonitor = MachineMonitor(prober: MachineProber(runner: RealProcessRunner()),
-                                        config: { await watcher.config },
-                                        notify: { machines, states, history in
-                                            Task { @MainActor in
-                                                let mirror = GaugeMirror.shared
-                                                // A card that gains or loses its meters
-                                                // changes the tab's height.
-                                                let shape = { (all: [String: MachineState]) in
-                                                    all.filter { $0.value.reading != nil }.keys.sorted() }
-                                                let reshaped = mirror.machines != machines
-                                                    || shape(mirror.machineStates) != shape(states)
-                                                mirror.machines = machines
-                                                mirror.machineStates = states
-                                                mirror.machineHistory = history
-                                                if reshaped { controller.refit(.drawn) }
-                                            }
-                                        })
-    let logMonitor = SessionLogMonitor(prober: MachineProber(runner: RealProcessRunner()),
-        config: { await watcher.config }, notify: { log in
-            Task { @MainActor in GaugeMirror.shared.sessionLog = log }
-        })
-    Task { await logMonitor.run() }
-    GaugeMirror.shared.readMachines = { Task { await machineMonitor.read() } }
-    Task {
-        GaugeMirror.shared.machines = await watcher.config.machines
-        await machineMonitor.run()
-    }
-    GaugeMirror.shared.sync = { id in Task { await poller.sync([id]) } }
-    GaugeMirror.shared.syncAll = { Task { await poller.syncAll() } }
-    GaugeMirror.shared.signIn = { id in
-        SignIn.start(id, seats: GaugeMirror.shared.seats) { Task { await poller.sync([id]) } }
-    }
-    Task {
-        // The store restores `readings.json` as it is built, so a cold
-        // start is instant: last night's cards are up, dimmed and dated,
-        // before the first fetch answers.
-        await GaugeMirror.shared.take(await store.snapshot, seats: await watcher.config.seats, through: watcher)
-        // The cards are in, so the user's height has something to fill.
-        controller.refit(.drawn)
-        await poll.run()
-    }
+    rolledUp: { await MainActor.run { GaugeMirror.shared.readSpend() } }))
+let watcher = poll.watcher, store = poll.store, poller = poll.poller
+// Each machine's load, on its own loop beside the seat poll, into the
+// LOAD tab and `machines.json`.
+let machineMonitor = MachineMonitor(prober: MachineProber(runner: RealProcessRunner()),
+                                    config: { await watcher.config },
+                                    notify: { machines, states, history in
+                                        Task { @MainActor in
+                                            let mirror = GaugeMirror.shared
+                                            // A card that gains or loses its meters
+                                            // changes the tab's height.
+                                            let shape = { (all: [String: MachineState]) in
+                                                all.filter { $0.value.reading != nil }.keys.sorted() }
+                                            let reshaped = mirror.machines != machines
+                                                || shape(mirror.machineStates) != shape(states)
+                                            mirror.machines = machines
+                                            mirror.machineStates = states
+                                            mirror.machineHistory = history
+                                            if reshaped { controller.refit(.drawn) }
+                                        }
+                                    })
+let logMonitor = SessionLogMonitor(prober: MachineProber(runner: RealProcessRunner()),
+    config: { await watcher.config }, notify: { log in
+        Task { @MainActor in GaugeMirror.shared.sessionLog = log }
+    })
+Task { await logMonitor.run() }
+GaugeMirror.shared.readMachines = { Task { await machineMonitor.read() } }
+Task {
+    GaugeMirror.shared.machines = await watcher.config.machines
+    await machineMonitor.run()
+}
+GaugeMirror.shared.sync = { id in Task { await poller.sync([id]) } }
+GaugeMirror.shared.syncAll = { Task { await poller.syncAll() } }
+GaugeMirror.shared.signIn = { id in
+    SignIn.start(id, seats: GaugeMirror.shared.seats) { Task { await poller.sync([id]) } }
+}
+Task {
+    // The store restores `readings.json` as it is built, so a cold
+    // start is instant: last night's cards are up, dimmed and dated,
+    // before the first fetch answers.
+    await GaugeMirror.shared.take(await store.snapshot, seats: await watcher.config.seats, through: watcher)
+    // The cards are in, so the user's height has something to fill.
+    controller.refit(.drawn)
+    await poll.run()
 }
 
 application.run()

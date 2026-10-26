@@ -80,7 +80,7 @@ func watch() async throws {
     }
     // No identity observer: the app's is the only one, so `watch` never
     // writes a second observation.
-    let poll = try Poll(options: Poll.Options(log: say))
+    let poll = Poll(options: Poll.Options(log: say))
     print("watching \(ConfigLoader.defaultFile.path), logged under \(PollLog.subsystem).")
     await poll.run()
 }
@@ -206,7 +206,7 @@ do {
         let log = try await SessionProbe(directory: directory, profiles: SpendProfile.from(seats: seats)).run(rates: RateCard.load())
         print(String(decoding: try SessionLogFile.encoder().encode(log), as: UTF8.self))
     case "log":
-        let watcher = try ConfigWatcher()
+        let watcher = ConfigWatcher()
         let log = await SessionLogMonitor(prober: MachineProber(runner: RealProcessRunner()),
                                          config: { await watcher.config }).read()
         print(String(decoding: try SessionLogFile.encoder().encode(log), as: UTF8.self))
