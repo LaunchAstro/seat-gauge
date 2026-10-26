@@ -27,17 +27,19 @@ public enum FixtureRecording {
     ]
 
     /// Each rule is a pattern and what replaces it, in the order they run, on
-    /// the text of each kept string. Credentials first, so a token inside one
-    /// is gone before a looser rule looks at it.
+    /// the text of each kept string, once any JSON written inside it is gone
+    /// (`scrub`). Credentials first, so a token inside one is gone before a
+    /// looser rule looks at it.
     private static let rules: [(pattern: String, keep: String)] = [
-        // A bearer credential, in a header or in prose.
-        (#"(?i)\b(bearer)\s+[^\s"',;}\]]+"#, "$1 [redacted]"),
+        // A bearer or basic credential, in a header or in prose.
+        (#"(?i)\b(bearer|basic)\s+[^\s"',;}\]]+"#, "$1 [redacted]"),
         // A credential word, alone or as part of a name such as
-        // `refresh_token` or `client_secret`, assigned a value with `:` or
-        // `=`, quoted or not, as an error message may quote a JSON body.
-        (#"(?i)([A-Za-z0-9_\-]*(?:password|passwd|secret|token|authorization|credential|cookie|api[_\-]?key|session[_\-]?key)[A-Za-z0-9_\-]*\\?["']?\s*[:=]\s*\\?["']?)(?!\s*bearer\b)[^\s"',;}\]\\]+"#, "$1[redacted]"),
+        // `refresh_token`, `client_secret` or `API key`, given a value with
+        // `:` or `=`: a quoted value goes whole, and an unquoted one up to the
+        // next comma, semicolon or bracket, spaces and all.
+        (#"(?i)([A-Za-z0-9_\-]*(?:password|passphrase|passwd|secret|token|authorization|credential|cookie|api[ _\-]?key|access[ _\-]?key|private[ _\-]?key|session[ _\-]?key)[A-Za-z0-9_\-]*["']?\s*[:=]\s*)(?:"[^"]*"?|'[^']*'?|(?!\s*(?:bearer|basic)\b)[^,;}\]\n]+)"#, "$1[redacted]"),
         (#"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"#, ""),
-        (#"\bsk-[A-Za-z0-9]{2,8}-[A-Za-z0-9_-]{8,}"#, "[redacted]"),
+        (#"\bsk-[A-Za-z0-9_\-]{12,}"#, "[redacted]"),
         (#"\beyJ[A-Za-z0-9_\-]{8,}(?:\.[A-Za-z0-9_\-]+){1,2}"#, "[redacted]"),
         (#"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"#, zeroUUID),
         // A home folder, macOS or Linux, becomes one neutral home.
@@ -51,6 +53,10 @@ public enum FixtureRecording {
         guard let expression = try? NSRegularExpression(pattern: $0.pattern) else { return nil }
         return (expression, $0.keep)
     }
+
+    /// A long unbroken run mixing letters and digits is a key or an id,
+    /// never anyone's prose, so it goes whatever names it.
+    private static let run = try? NSRegularExpression(pattern: #"[A-Za-z0-9_\-+/=.]{24,}"#)
 
     /// One recorded stdout line with only what the parsers read left in it.
     /// A line that is not JSON is the CLI's own prose, which no parser reads,
@@ -79,13 +85,47 @@ public enum FixtureRecording {
         }
     }
 
+    /// A kept string with any JSON object written inside it taken out
+    /// whole, since no parser reads one there and it can carry a credential
+    /// under any name, nested or escaped, then put through `rules` and `run`.
     static func scrub(_ text: String) -> String {
-        var text = text
+        var text = withoutObjects(text)
         for (expression, keep) in compiled {
             text = expression.stringByReplacingMatches(
                 in: text, range: NSRange(text.startIndex..., in: text), withTemplate: keep)
         }
-        return text
+        guard let run else { return text }
+        var out = text
+        for match in run.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+            guard let range = Range(match.range, in: text) else { continue }
+            let found = text[range]
+            if found.contains(where: \.isNumber), found.contains(where: \.isLetter) {
+                out.replaceSubrange(Range(match.range, in: out)!, with: "[redacted]")
+            }
+        }
+        return out
+    }
+
+    /// Each `{` and what follows it to its matching `}`, or to the end when
+    /// it never closes, as `{…}`. Braces inside a quoted string do not count.
+    static func withoutObjects(_ text: String) -> String {
+        var out = ""
+        var depth = 0, quoted = false, escaped = false
+        for character in text {
+            if depth == 0 {
+                if character == "{" { depth = 1; out += "{…}" } else { out.append(character) }
+                continue
+            }
+            if escaped { escaped = false; continue }
+            switch character {
+            case "\\" where quoted: escaped = true
+            case "\"": quoted.toggle()
+            case "{" where !quoted: depth += 1
+            case "}" where !quoted: depth -= 1
+            default: break
+            }
+        }
+        return out
     }
 
     /// `.scratch/recordings/` in the folder `record` runs from: in a clone,
@@ -120,13 +160,27 @@ public enum FixtureRecording {
         guard !seat.rawValue.isEmpty, !seat.rawValue.contains("/"), !seat.rawValue.contains("\0"),
               file.deletingLastPathComponent().standardizedFileURL.path == directory.standardizedFileURL.path
         else { throw ProcessFailure("\(seat.rawValue.debugDescription) cannot name a recording, so nothing was written.") }
+        // Neither the folder nor the one above it may be a link, checked
+        // before anything is made, so nothing outside is made, written or
+        // narrowed. The folder is then opened without following a link, and
+        // every step after works through that one descriptor.
+        for folder in [directory.deletingLastPathComponent(), directory] where isLink(folder) {
+            throw ProcessFailure("\(folder.path) is a link, so no recording was written.")
+        }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
-        guard chmod(directory.path, 0o700) == 0 else { throw failure(directory) }
+        let folder = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard folder >= 0 else { throw failure(directory) }
+        defer { close(folder) }
+        var info = stat()
+        guard fstat(folder, &info) == 0, info.st_uid == geteuid() else {
+            throw ProcessFailure("\(directory.path) is not yours, so no recording was written.")
+        }
+        guard fchmod(folder, 0o700) == 0 else { throw failure(directory) }
 
-        let draft = directory.appendingPathComponent(".\(name).\(UUID().uuidString)")
-        let descriptor = open(draft.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard descriptor >= 0 else { throw failure(draft) }
+        let draft = ".\(name).\(UUID().uuidString)"
+        let descriptor = openat(folder, draft, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else { throw failure(directory.appendingPathComponent(draft)) }
         var bytes = Array((lines.joined(separator: "\n") + "\n").utf8)[...]
         var written = fchmod(descriptor, 0o600) == 0
         while written, !bytes.isEmpty {
@@ -136,12 +190,17 @@ public enum FixtureRecording {
             if written { bytes = bytes.dropFirst(count) }
         }
         let closed = close(descriptor) == 0
-        guard written, closed, rename(draft.path, file.path) == 0 else {
+        guard written, closed, renameat(folder, draft, folder, name) == 0 else {
             let problem = failure(file)
-            unlink(draft.path)
+            unlinkat(folder, draft, 0)
             throw problem
         }
         return file
+    }
+
+    static func isLink(_ url: URL) -> Bool {
+        var info = stat()
+        return lstat(url.path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFLNK
     }
 
     private static func failure(_ url: URL) -> ProcessFailure {
