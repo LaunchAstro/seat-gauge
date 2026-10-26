@@ -451,19 +451,19 @@ public struct MachinesFile: Encodable, Equatable, Sendable {
             if case let .unreachable(reason, _) = state { problem = reason }
             let fresh = state.map { if case .live = $0 { true } else { false } } ?? false
             let summary = reading.map { MachineSummary(reading: $0, samples: samples[machine.id] ?? [], now: now) }
+            var cpu: CPU?, ram: Memory?, disk: Disk?
+            if let reading, let summary {
+                cpu = CPU(used: summary.cpu, now: reading.cpuUsed, trend: summary.cpuTrend,
+                          load: reading.load.map { ($0 * 10).rounded() / 10 }, cores: reading.cores,
+                          loadPerCore: (reading.loadPerCore * 10).rounded() / 10)
+                ram = Memory(used: summary.ram, now: reading.ramUsed, trend: summary.ramTrend,
+                             totalGB: Int((Double(reading.ramBytes) / 1_073_741_824).rounded()))
+                disk = Disk(used: reading.diskUsed, freeGB: Int((Double(reading.diskFreeBytes) / 1e9).rounded()),
+                            change10mGB: summary.diskChangeGB)
+            }
             return Row(id: machine.id, label: machine.label, reachable: fresh, stale: !fresh || (reading?.takenAt ?? .distantPast) < oldest,
                        problem: problem, readAt: reading.map { dates.string(from: $0.takenAt) },
-                       room: summary?.room, why: summary?.why ?? [],
-                       cpu: reading.flatMap { reading in summary.map {
-                           CPU(used: $0.cpu, now: reading.cpuUsed, trend: $0.cpuTrend,
-                               load: reading.load.map { ($0 * 10).rounded() / 10 }, cores: reading.cores,
-                               loadPerCore: (reading.loadPerCore * 10).rounded() / 10) } },
-                       ram: reading.flatMap { reading in summary.map {
-                           Memory(used: $0.ram, now: reading.ramUsed, trend: $0.ramTrend,
-                                  totalGB: Int((Double(reading.ramBytes) / 1_073_741_824).rounded())) } },
-                       disk: reading.flatMap { reading in summary.map {
-                           Disk(used: reading.diskUsed, freeGB: Int((Double(reading.diskFreeBytes) / 1e9).rounded()),
-                                change10mGB: $0.diskChangeGB) } },
+                       room: summary?.room, why: summary?.why ?? [], cpu: cpu, ram: ram, disk: disk,
                        agents: reading?.agents)
         }
     }
