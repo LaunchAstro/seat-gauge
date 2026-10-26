@@ -175,6 +175,26 @@ import SeatGaugeTestSupport
         }
     }
 
+    @Test("#142: a key or pin spelt in look-alike letters, and an OTP, code, seed, signature or client id label, go whole")
+    func lookAlikesAndOtherLabelsGoWhole() {
+        let value = "k4N8q2R6v9T3m7W5"
+        // Fullwidth, Cyrillic, dotted and dotless i, and a modifier-letter colon.
+        for text in ["\u{FF4B}\u{FF45}\u{FF59}: \(value)", "\u{FF30}\u{FF29}\u{FF2E}: 531862",
+                     "k\u{0435}y: \(value)", "p\u{0456}n: 531862", "P\u{0130}N: 531862", "p\u{0131}n: 531862",
+                     "pin\u{02D0} 531862",
+                     "OTP: 531862", "code: 531862", "code 531862", "seed: \(value)", "signature: \(value)", "client id: \(value)"] {
+            let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["id": 0, "result": text]), as: UTF8.self)
+            #expect(FixtureRecording.redact(line) == #"{"id":0,"result":"[redacted]"}"#, "\(text.unicodeScalars.map { String($0.value, radix: 16) })")
+        }
+        // A word that only contains the letters is prose, a Codex model keeps
+        // its name, and a folder called code is not a label.
+        let prose = "seeded cache, hotpot, client identity, gpt-5-codex, Claude Code in /home/seat/code"
+        #expect(FixtureRecording.redact(#"{"id":0,"result":"\#(prose)"}"#) == #"{"id":0,"result":"\#(prose)"}"#)
+        // Fullwidth prose folds to the plain words it checked, and those are what it keeps.
+        #expect(FixtureRecording.redact(#"{"id":0,"result":"\#u{FF52}\#u{FF45}\#u{FF53}\#u{FF45}\#u{FF54}\#u{FF53} soon"}"#)
+                == #"{"id":0,"result":"resets soon"}"#)
+    }
+
     @Test("Sol proof, criterion 4: a recordings folder that is a link writes nothing and changes nothing outside")
     func aLinkedFolderWritesNothing() throws {
         let clone = try Self.scratch()
