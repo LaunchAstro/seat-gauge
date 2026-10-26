@@ -38,6 +38,29 @@ import Testing
         #expect(reason.contains("state.json"))
     }
 
+    /// `state.json` is read once for all four answers a missing record can get.
+    @Test func aMissingRecordReadsTheStateOnceForEveryAnswer() throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        func read() -> SpendRecord { SpendCSV.read(csv, state: state) }
+
+        // No state at all, and a state with no roll-up: a first run.
+        #expect(read() == .empty)
+        _ = try StateStore(file: state).update { $0.rolledUpAt = nil }
+        #expect(read() == .empty)
+
+        _ = try StateStore(file: state).update { $0.rolledUpAt = now }
+        #expect(read() == .unavailable("spend.csv is missing after a roll-up"))
+
+        // There but not a file that reads, and a file that will not decode.
+        try FileManager.default.removeItem(at: state)
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: false)
+        #expect(read() == .unavailable("spend.csv is missing and state.json could not be read"))
+        try FileManager.default.removeItem(at: state)
+        try Data("{ not json".utf8).write(to: state)
+        #expect(read() == .unavailable("spend.csv is missing and state.json could not be read"))
+    }
+
     @Test func onlyARecordedRollUpLicensesARebuild() async throws {
         let coordinator = try coordinator()
         defer { try? FileManager.default.removeItem(at: folder) }

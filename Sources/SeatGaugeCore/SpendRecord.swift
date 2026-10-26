@@ -54,9 +54,11 @@ extension SpendCSV {
     public static func read(_ file: URL = SpendCSV.defaultFile, state: URL) -> SpendRecord {
         let name = file.lastPathComponent
         guard FileManager.default.fileExists(atPath: file.path) else {
-            if firstRun(state) { return .empty }
-            return rolledUp(state) ? .unavailable("\(name) is missing after a roll-up")
-                : .unavailable("\(name) is missing and \(state.lastPathComponent) could not be read")
+            switch rollUp(state) {
+            case .never: return .empty
+            case .done: return .unavailable("\(name) is missing after a roll-up")
+            case .unknown: return .unavailable("\(name) is missing and \(state.lastPathComponent) could not be read")
+            }
         }
         guard let data = FileManager.default.contents(atPath: file.path),
               let text = String(data: data, encoding: .utf8)
@@ -71,18 +73,19 @@ extension SpendCSV {
         return .partial(parsed, "\(name): \(skipped) line\(skipped == 1 ? "" : "s") could not be read")
     }
 
-    /// Whether `state.json` decodes and records a roll-up.
-    static func rolledUp(_ state: URL) -> Bool {
-        guard let data = FileManager.default.contents(atPath: state.path),
-              let decoded = try? JSONDecoder().decode(AppState.self, from: data) else { return false }
-        return decoded.rolledUpAt != nil
+    /// What `state.json` says about roll-ups, read once: none yet when it is
+    /// missing or has no `rolledUpAt`, unknown when it is there but will not
+    /// read or decode.
+    enum RollUp { case never, done, unknown }
+
+    static func rollUp(_ state: URL) -> RollUp {
+        guard let data = FileManager.default.contents(atPath: state.path) else {
+            return FileManager.default.fileExists(atPath: state.path) ? .unknown : .never
+        }
+        guard let decoded = try? JSONDecoder().decode(AppState.self, from: data) else { return .unknown }
+        return decoded.rolledUpAt == nil ? .never : .done
     }
 
-    static func firstRun(_ state: URL) -> Bool {
-        guard let data = FileManager.default.contents(atPath: state.path) else {
-            return !FileManager.default.fileExists(atPath: state.path)
-        }
-        guard let decoded = try? JSONDecoder().decode(AppState.self, from: data) else { return false }
-        return decoded.rolledUpAt == nil
-    }
+    /// Whether `state.json` decodes and records a roll-up.
+    static func rolledUp(_ state: URL) -> Bool { rollUp(state) == .done }
 }
