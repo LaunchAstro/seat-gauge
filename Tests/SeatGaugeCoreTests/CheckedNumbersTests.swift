@@ -201,6 +201,13 @@ import Testing
         #expect(MachineProbe.parse(CheckedNumbersTests.probe("cpu", line), at: CheckedNumbersTests.now) == nil)
     }
 
+    @Test("Sol proof, criterion 1: an idle figure that is not a plain number of its own is no reading",
+          arguments: ["cpu CPU usage: 0% user, -1e1% idle", "cpu CPU usage: 0% user, 1e100% idle",
+                      "cpu CPU usage: 0% user,x5.0% idle", "cpu 50.0% idle"])
+    func scientificIdle(_ line: String) {
+        #expect(MachineProbe.parse(CheckedNumbersTests.probe("cpu", line), at: CheckedNumbersTests.now) == nil)
+    }
+
     @Test("Sol proof, criterion 1: a disk of under one block is no reading, so its percent cannot be infinite")
     func smallBlocks() {
         #expect(MachineProbe.parse(CheckedNumbersTests.probe("disk", "disk dev 1e-300 0 1000000000"),
