@@ -140,6 +140,21 @@ import SeatGaugeCore
         #expect(terminal.echoes)
     }
 
+    @Test("Sol proof, criterion 1: echo is off before anything invites the paste")
+    func echoIsOffBeforeTheInvitation() throws {
+        let scratch = try SeatLoginTests.scratch(.accepts(Self.code))
+        defer { scratch.remove() }
+        let terminal = try Terminal()
+        let task = try Self.start(scratch, on: terminal)
+        #expect(terminal.read { terminal.said.contains("Open this link") })
+        #expect(!terminal.echoes)
+        terminal.type(Self.code + "\n")
+        Self.finish(task, terminal)
+        let echoed = terminal.said.contains(Self.code)
+        #expect(!echoed)
+        #expect(task.terminationStatus == 0)
+    }
+
     @Test("Sol proof, criterion 2: a sign-in leaves every terminal setting as it found it")
     func everySettingIsPutBack() throws {
         let scratch = try SeatLoginTests.scratch(.accepts(Self.code))
@@ -155,7 +170,10 @@ import SeatGaugeCore
         #expect(terminal.settings == before)
     }
 
-    @Test("Sol proof, criterion 2: a sign-in that fails as the code prompt shows leaves the terminal echoing")
+    /// The deterministic proof of Sol's hide-after-end finding is
+    /// `aHideAfterTheEndDoesNothing`; this runs the CLI end to end and
+    /// guards the outcome, without forcing the interleaving.
+    @Test("a sign-in that fails as the code prompt shows leaves the terminal echoing")
     func aFailureAtThePromptLeavesEcho() throws {
         let scratch = try SeatLoginTests.scratch(.refuses)
         defer { scratch.remove() }
