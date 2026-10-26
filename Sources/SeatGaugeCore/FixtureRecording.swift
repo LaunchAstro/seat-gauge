@@ -31,11 +31,16 @@ public enum FixtureRecording {
     /// home and Mac name, which a parser never needs, made neutral.
     private static let rules: [(pattern: String, keep: String)] = [
         (#"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"#, zeroUUID),
-        // A home folder, macOS or Linux, becomes one neutral home.
-        (#"/(?:Users|home)/[^/"\\\s]+"#, "/home/seat"),
+        // A home folder, macOS or Linux, becomes one neutral home, in any
+        // case and however its slashes are doubled or `.` steps written,
+        // since each still reaches the user's folder. A `..` step is never
+        // followed here: `plainText` refuses it, because it can climb back
+        // back to the home root and into another name that no rule sees.
+        (#"(?i)(?:/+|(?<![\p{L}\p{N}_]))(?:users|home)(?:/+\.(?=/))*/+[^/"\\\s]+"#, "/home/seat"),
         // The Bonjour name of the Mac, which names its user as surely as an
-        // account id does.
-        (#"[A-Za-z0-9-]+\.local\b"#, "seat-mac.local"),
+        // account id does, in any case, with every dotted or underscored
+        // part before it and whatever runs on after `.local`, such as `domain`.
+        (#"(?i)[A-Za-z0-9_.-]+\.local[A-Za-z0-9_-]*"#, "seat-mac.local"),
     ]
 
     private static let compiled: [(NSRegularExpression, String)] = rules.compactMap {
@@ -48,7 +53,12 @@ public enum FixtureRecording {
     /// sentence such as "Not logged in · Please run /login"), with no quote
     /// of either kind, line break, `=`, `@`, backslash or brace in it, no word that names a credential,
     /// and no long run mixing letters and digits, which is a key or an id
-    /// rather than anyone's prose. Its letters and digits are ASCII, because
+    /// rather than anyone's prose. A `%` is kept only where it is not
+    /// percent-encoding (`90% used`): `%2F`, `%40` or `%3A` would spell a
+    /// home path, an email or a label's colon that no other rule sees. A
+    /// `..` beside a slash is refused too, wherever it is in the string, since
+    /// a path can climb out of one folder into another's name; `Loading...`
+    /// has no slash beside it. Its letters and digits are ASCII, because
     /// the CLIs print English and a letter from another script can spell a
     /// credential word that no pattern sees: fullwidth `ｋｅｙ`, Cyrillic
     /// `kеy`, a dotless `pın`. Refusing them closes that whole kind, where a
@@ -68,7 +78,7 @@ public enum FixtureRecording {
     /// missed spelling leaks, while a redacted word (`monkey`, `spin up`)
     /// only costs a recording its wording.
     private static let plainText = try? NSRegularExpression(
-        pattern: #"\A[A-Za-z0-9 .,:;_+\-/()\[\]!?·%]{0,200}\z"#)
+        pattern: #"\A(?!.*%[0-9A-Fa-f]{2})(?!.*(?:\.\./|/\.\.))[A-Za-z0-9 .,:;_+\-/()\[\]!?·%]{0,200}\z"#)
     private static let credential = try? NSRegularExpression(
         pattern: #"(?i)pass(word|phrase|wd)?|secret|token|bearer|basic|auth|credential|cookie|session.?key|api.?key|private.?key|access.?key|keys?(?-i:(?!\p{Ll}))|pin(?:code)?s?(?-i:(?!\p{Ll}))|(?-i:KEY|PIN|OTP)|otps?(?-i:(?!\p{Ll}))|codes?\s*(?:[-:.(0-9]|is\b)|seed(?:phrase)?s?(?-i:(?!\p{Ll}))|signature|mnemonic|client(?:.|[\W_]*)ids?(?-i:(?!\p{Ll}))|sk-|eyJ"#)
     private static let run = try? NSRegularExpression(pattern: #"[\p{L}\p{N}_\-+/.]{24,}"#)
@@ -107,6 +117,10 @@ public enum FixtureRecording {
     /// inside the string. A recording shows the shape; it never needs the
     /// wording of an error that mentions a credential.
     static func scrub(_ text: String) -> String {
+        // Longer than `plainText` ever keeps (its characters are one UTF-16
+        // unit each), so it goes before the rules run: they match in time
+        // that grows with the square of a long run of slashes or name characters.
+        guard text.utf16.count <= 200 else { return "[redacted]" }
         let given = text
         var text = text
         for (expression, keep) in compiled {

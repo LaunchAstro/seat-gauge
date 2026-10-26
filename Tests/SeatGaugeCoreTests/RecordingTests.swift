@@ -179,7 +179,7 @@ import SeatGaugeTestSupport
     func lookAlikesAndOtherLabelsGoWhole() {
         let value = "k4N8q2R6v9T3m7W5"
         // Fullwidth, Cyrillic, dotted and dotless i, and a modifier-letter colon.
-        for text in ["\u{FF4B}\u{FF45}\u{FF59}: \(value)", "\u{FF30}\u{FF29}\u{FF2E}: 531862",
+        for (index, text) in ["\u{FF4B}\u{FF45}\u{FF59}: \(value)", "\u{FF30}\u{FF29}\u{FF2E}: 531862",
                      "k\u{0435}y: \(value)", "p\u{0456}n: 531862", "P\u{0130}N: 531862", "p\u{0131}n: 531862",
                      "pin\u{02D0} 531862",
                      // Fullwidth brackets and a no-break space, refused before #142, stay refused.
@@ -188,11 +188,11 @@ import SeatGaugeTestSupport
                      "Code-531862", "your verification code is 531862",
                      "seed: \(value)", "seedphrase: abandon ability able", "mnemonic: abandon ability able",
                      "signature: \(value)", "client id: \(value)", "client  id: \(value)", "client - id: \(value)",
-                     "client_id: \(value)", "client_ids: \(value)", "client__id: \(value)", "clientId: \(value)"] {
+                     "client_id: \(value)", "client_ids: \(value)", "client__id: \(value)", "clientId: \(value)"].enumerated() {
             let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["id": 0, "result": text]), as: UTF8.self)
-            // A Bool, so a failure names the case by its first scalars and never prints the value.
+            // A Bool, so a failure names the case by its place in the list and never prints any of its value.
             let redacted = FixtureRecording.redact(line) == #"{"id":0,"result":"[redacted]"}"#
-            #expect(redacted, "\(text.unicodeScalars.prefix(4).map { String($0.value, radix: 16) })")
+            #expect(redacted, "case \(index)")
         }
         // A word that only contains the letters is prose, a Codex model keeps
         // its name, and a folder called code is not a label.
@@ -210,15 +210,108 @@ import SeatGaugeTestSupport
         let refused = ["\u{FF02}", "\u{FF3C}", "\u{FF07}", "\u{FF4B}"] + "#$&'*<=>@^`{|}~".map(String.init)
         let homes = refused.flatMap { ["/home/\($0)/ \(value)", "\(users)/a\($0)b/ \(value)"] }
         // A label the home or Mac name rule swallows (#154).
-        for text in homes + ["\(users)/pin: 531862", "token.local \(value)"] {
+        for (index, text) in (homes + ["\(users)/pin: 531862", "token.local \(value)"]).enumerated() {
             let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["id": 0, "result": text]), as: UTF8.self)
-            // A Bool, so a failure names the case by its first scalars and never prints the value.
+            // A Bool, so a failure names the case by its place in the list and never prints any of its value.
             let redacted = FixtureRecording.redact(line) == #"{"id":0,"result":"[redacted]"}"#
-            #expect(redacted, "\(text.unicodeScalars.prefix(8).map { String($0.value, radix: 16) })")
+            #expect(redacted, "case \(index)")
         }
         // A plain home and Mac name are still made neutral and kept.
         #expect(FixtureRecording.redact(#"{"id":0,"result":"\#(users)/jo.smith-2/code on Jos-Mac.local"}"#)
                 == #"{"id":0,"result":"/home/seat/code on seat-mac.local"}"#)
+    }
+
+    /// #158: home folders and Mac names spelt in ways the rules once read
+    /// past, each with what it must become. The first four are the ticket's.
+    static let oddSpellings: [(text: String, kept: String)] = {
+        let users = "/" + "Users", home = "/" + "home"
+        return [
+            ("\(users)/./jsmith/x", "/home/seat/x"),
+            ("\(users)//jsmith/x", "/home/seat/x"),
+            ("/" + "users/jsmith/x", "/home/seat/x"),
+            ("Jos-MacBook-Pro.local" + "domain", "seat-mac.local"),
+            ("\(users)/.//./jsmith/x", "/home/seat/x"),
+            ("\(home.uppercased())/jsmith/x", "/home/seat/x"),
+            ("Jos_Mac.local", "seat-mac.local"),
+            ("jos.mac.local", "seat-mac.local"),
+            ("Jos-Mac.LOCAL", "seat-mac.local"),
+        ]
+    }()
+
+    @Test("#158: a home or Mac name in an odd spelling is made neutral", arguments: oddSpellings.indices)
+    func oddSpellingsKeepNoName(case index: Int) {
+        let (text, kept) = Self.oddSpellings[index]
+        let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["id": 0, "result": text]), as: UTF8.self)
+        // A Bool, so a failure names the case by its index and never prints the name.
+        let neutral = FixtureRecording.redact(line) == #"{"id":0,"result":"\#(kept)"}"#
+        #expect(neutral, "case \(index)")
+    }
+
+    /// #158: percent-encoding spells a home path, an email or a label's
+    /// colon that the plain rule would see written out. The first three are the ticket's.
+    static let percentEncoded = ["%2F" + "Users%2Fjsmith", "jsmith%40example.com", "code%3A531862",
+                                 "%2f" + "users%2fjsmith", "%252F" + "Users%252Fjsmith"]
+
+    @Test("#158: a percent-encoded string goes whole", arguments: percentEncoded.indices)
+    func percentEncodingGoesWhole(case index: Int) {
+        let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["id": 0, "result": Self.percentEncoded[index]]),
+                          as: UTF8.self)
+        let redacted = FixtureRecording.redact(line) == #"{"id":0,"result":"[redacted]"}"#
+        #expect(redacted, "case \(index)")
+    }
+
+    /// #158, from the Opus read of #161: a `..` step climbs out of one folder
+    /// into another, back to a home root or past one, which no rule can follow.
+    static let parentSteps: [String] = {
+        let users = "/" + "Users", home = "/" + "home"
+        return ["\(users)/../jsmith/x", "\(users)/..\(users)/jsmith/x", "\(home)/..\(users)/jsmith/x", "\(users)/..\(home)/jsmith/x",
+                "\(users)/./..\(users)/jsmith", "\(users)/../\(users)/jsmith/x", "\(users)/Shared/../jsmith/x",
+                "\(users)/jsmith/../otheruser/x", "..\(users)/jsmith", "\(users)/jsmith/x/.."]
+    }()
+
+    @Test("#158: a path with a .. step goes whole", arguments: parentSteps.indices)
+    func aParentStepGoesWhole(case index: Int) {
+        let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["id": 0, "result": Self.parentSteps[index]]),
+                          as: UTF8.self)
+        let redacted = FixtureRecording.redact(line) == #"{"id":0,"result":"[redacted]"}"#
+        #expect(redacted, "case \(index)")
+    }
+
+    /// Sol #161 r1: the wider rules took seconds on a long run before the
+    /// length limit refused it. The bound is far above a refusal's
+    /// microseconds and far below the 13 s such a run took at that head.
+    @Test("#158: a long run of slashes or name characters goes at once", arguments: ["/", "_", "a", "."])
+    func aLongRunGoesAtOnce(character: String) {
+        let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["id": 0, "result": String(repeating: character, count: 16_000)]),
+                          as: UTF8.self)
+        let started = ContinuousClock.now
+        let redacted = FixtureRecording.redact(line) == #"{"id":0,"result":"[redacted]"}"#
+        #expect(redacted)
+        #expect(ContinuousClock.now - started < .seconds(2))
+    }
+
+    /// Sol #161 r2: a `..` step inside an error sentence, not only at its
+    /// start or end, kept the name after it.
+    static let parentStepsInProse: [String] = {
+        let users = "/" + "Users"
+        return ["Cannot read ../jsmith/x", "Cannot read ..\(users)/jsmith/x", "Cannot read \(users)/jsmith/x/.. (retry)",
+                "see x/../jsmith", "(../jsmith)", "failed: ../jsmith, retry", "at \(users)/jsmith/x/..: not found"]
+    }()
+
+    @Test("Sol proof, criterion 7: parent steps in error prose go whole", arguments: parentStepsInProse.indices)
+    func parentStepsInErrorProseGoWhole(case index: Int) {
+        let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["id": 0, "result": Self.parentStepsInProse[index]]),
+                          as: UTF8.self)
+        let redacted = FixtureRecording.redact(line) == #"{"id":0,"result":"[redacted]"}"#
+        #expect(redacted, "case \(index)")
+    }
+
+    @Test("#158: a percent sign in prose is kept")
+    func aPercentInProseIsKept() {
+        #expect(FixtureRecording.redact(#"{"id":0,"result":"90% of the weekly limit used"}"#)
+                == #"{"id":0,"result":"90% of the weekly limit used"}"#)
+        // Nor is an ellipsis written as dots a `..` step.
+        #expect(FixtureRecording.redact(#"{"id":0,"result":"Loading... done."}"#) == #"{"id":0,"result":"Loading... done."}"#)
     }
 
     @Test("Sol proof, criterion 4: a recordings folder that is a link writes nothing and changes nothing outside")
