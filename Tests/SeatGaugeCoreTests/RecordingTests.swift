@@ -200,6 +200,27 @@ import SeatGaugeTestSupport
         #expect(FixtureRecording.redact(#"{"id":0,"result":"\#(prose)"}"#) == #"{"id":0,"result":"\#(prose)"}"#)
     }
 
+    @Test("#156, #154: a home or Mac name that hides a refused character or a credential label goes whole")
+    func neutralisedNamesHideNothing() {
+        let value = "k4N8q2R6v9T3m7W5"
+        let users = "/" + "Users"
+        // A home folder named with something the plain rule refuses: the
+        // fullwidth quote, backslash and apostrophe of #156, a fullwidth letter, and every ASCII
+        // character outside the plain set that the home rule swallows.
+        let refused = ["\u{FF02}", "\u{FF3C}", "\u{FF07}", "\u{FF4B}"] + "#$&'*<=>@^`{|}~".map(String.init)
+        let homes = refused.flatMap { ["/home/\($0)/ \(value)", "\(users)/a\($0)b/ \(value)"] }
+        // A label the home or Mac name rule swallows (#154).
+        for text in homes + ["\(users)/pin: 531862", "token.local \(value)"] {
+            let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["id": 0, "result": text]), as: UTF8.self)
+            // A Bool, so a failure names the case by its first scalars and never prints the value.
+            let redacted = FixtureRecording.redact(line) == #"{"id":0,"result":"[redacted]"}"#
+            #expect(redacted, "\(text.unicodeScalars.prefix(8).map { String($0.value, radix: 16) })")
+        }
+        // A plain home and Mac name are still made neutral and kept.
+        #expect(FixtureRecording.redact(#"{"id":0,"result":"\#(users)/jo.smith-2/code on Jos-Mac.local"}"#)
+                == #"{"id":0,"result":"/home/seat/code on seat-mac.local"}"#)
+    }
+
     @Test("Sol proof, criterion 4: a recordings folder that is a link writes nothing and changes nothing outside")
     func aLinkedFolderWritesNothing() throws {
         let clone = try Self.scratch()

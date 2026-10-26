@@ -107,15 +107,23 @@ public enum FixtureRecording {
     /// inside the string. A recording shows the shape; it never needs the
     /// wording of an error that mentions a credential.
     static func scrub(_ text: String) -> String {
+        let given = text
         var text = text
         for (expression, keep) in compiled {
             text = expression.stringByReplacingMatches(
                 in: text, range: NSRange(text.startIndex..., in: text), withTemplate: keep)
         }
         let whole = NSRange(text.startIndex..., in: text)
+        // The text as handed in passes the plain and credential checks too,
+        // because a rule can swallow what they must see: a fullwidth quote,
+        // or a `pin:` before a value, in a home folder's name. Only `run`
+        // waits for the rules, since an id is a long run until made neutral.
         guard let plainText, let credential, let run,
-              plainText.firstMatch(in: text, range: whole) != nil,
-              credential.firstMatch(in: text, range: whole) == nil,
+              [given, text].allSatisfy({ candidate in
+                  let whole = NSRange(candidate.startIndex..., in: candidate)
+                  return plainText.firstMatch(in: candidate, range: whole) != nil
+                      && credential.firstMatch(in: candidate, range: whole) == nil
+              }),
               !run.matches(in: text, range: whole).contains(where: { match in
                   guard let range = Range(match.range, in: text) else { return true }
                   return text[range].contains(where: \.isNumber) && text[range].contains(where: \.isLetter)
