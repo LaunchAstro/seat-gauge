@@ -78,6 +78,30 @@ import SeatGaugeTestSupport
         #expect(try await Self.run(Self.file, home: home) == ["copied"])
         #expect(try String(contentsOf: elsewhere, encoding: .utf8) == "untouched")
         #expect(try Data(contentsOf: folder.appendingPathComponent("machines.json")) == Self.file)
+
+        // A link to a folder: the link is replaced, and nothing lands inside.
+        let elsewhereFolder = home.appendingPathComponent("elsewhere", isDirectory: true)
+        try FileManager.default.createDirectory(at: elsewhereFolder, withIntermediateDirectories: true)
+        try FileManager.default.removeItem(at: folder.appendingPathComponent("machines.json"))
+        try FileManager.default.createSymbolicLink(at: folder.appendingPathComponent("machines.json"),
+                                                   withDestinationURL: elsewhereFolder)
+        #expect(try await Self.run(Self.file, home: home) == ["copied"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: elsewhereFolder.path) == [])
+        let kind = try FileManager.default.attributesOfItem(atPath: folder.appendingPathComponent("machines.json").path)[.type]
+        #expect(kind as? FileAttributeType == .typeRegular)
+        #expect(try Data(contentsOf: folder.appendingPathComponent("machines.json")) == Self.file)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["machines.json"])
+    }
+
+    @Test("a folder where the copy goes is left alone, and nothing lands inside it")
+    func folderInTheWay() async throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let target = home.appendingPathComponent("Library/Application Support/com.launchastro.seatgauge/machines.json")
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        #expect(try await Self.run(Self.file, home: home) == [])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: target.path) == [])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: target.deletingLastPathComponent().path) == ["machines.json"])
     }
 
     @Test("the dev build copies into its own folder there; an identifier that is not ours copies into the app's")
@@ -163,8 +187,19 @@ import SeatGaugeTestSupport
         }
         #expect(done.now == .distantFuture)
         #expect(runner.copies == ["studio.local"])
+
+        // The next read, with that copy still held open, comes back too.
+        let again = ShareClock(.distantPast)
+        let next = Task {
+            _ = await monitor.read()
+            again.now = .distantFuture
+        }
+        for _ in 0 ..< 500 where again.now != .distantFuture { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(again.now == .distantFuture)
+        #expect(runner.probes == ["studio.local", "studio.local"])
         runner.release()
         await reading.value
+        await next.value
     }
 
     @Test("a monitor with no share, as the CLI's one-off read makes, copies nothing")

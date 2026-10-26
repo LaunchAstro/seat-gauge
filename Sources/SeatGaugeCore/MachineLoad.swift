@@ -384,7 +384,8 @@ public struct MachineShare: Sendable {
     /// goes as base64 inside a quoted here-document, so nothing in it is ever
     /// read as shell. It lands in a private temporary file beside the copy,
     /// then one rename replaces the copy, so a reader never sees half a file
-    /// and a link in its place is replaced rather than written through. A
+    /// and a link in its place, to a file or a folder, is replaced rather than
+    /// written through (`mv -h`). A folder of that name is left alone. A
     /// temporary file an earlier copy left, killed between the two, goes
     /// once it is a minute old. An identifier that is not this app's is the
     /// app's own, so nothing outside the folder is ever named.
@@ -396,6 +397,7 @@ public struct MachineShare: Sendable {
             "{",
             #"d="$HOME/Library/Application Support/\#(folder)""#,
             #"if [ -e "$d/seats.json" ]; then echo kept; exit 0; fi"#,
+            #"if [ -d "$d/machines.json" ] && [ ! -L "$d/machines.json" ]; then exit 1; fi"#,
             "umask 077",
             #"mkdir -p "$d" || exit 1"#,
             #"find "$d" -maxdepth 1 -name '.machines.json.*' -mmin +1 -delete 2>/dev/null"#,
@@ -403,7 +405,7 @@ public struct MachineShare: Sendable {
             #"if base64 -D > "$t" <<'\#(marker)'"#,
         ] + data.base64EncodedString(options: .lineLength76Characters).components(separatedBy: "\r\n") + [
             marker,
-            #"then mv -f "$t" "$d/machines.json" && echo copied; fi"#,
+            #"then mv -f -h "$t" "$d/machines.json" && echo copied; fi"#,
             #"rm -f "$t""#,
             "}",
         ]
