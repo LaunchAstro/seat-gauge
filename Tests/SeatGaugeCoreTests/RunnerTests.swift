@@ -118,16 +118,22 @@ import SeatGaugeTestSupport
 
     @Test("codex app-server is told this build's version, not a copy of it")
     func codexClientInfoCarriesTheVersionConstant() async throws {
-        let runner = ScriptedRunner(replies: Self.batches(
-            try Fixture.lines("codex"), waitingFor: ["\"id\":1", nil, "\"id\":2"]))
-        _ = await CodexFetcher(runner: runner, authFile: Self.authFile)
-            .fetch(Self.codex, now: .now, last: nil)
-        let request = try #require(runner.sent.first)
-        let object = try #require(try JSONSerialization.jsonObject(with: Data(request.utf8)) as? [String: Any])
-        let params = try #require(object["params"] as? [String: Any])
-        let info = try #require(params["clientInfo"] as? [String: String])
-        #expect(info["version"] == SeatGaugeVersion.current)
-        #expect(info["name"] == "seat-gauge")
+        func sentVersion(_ fetcher: (ScriptedRunner) -> CodexFetcher) async throws -> String? {
+            let runner = ScriptedRunner(replies: Self.batches(
+                try Fixture.lines("codex"), waitingFor: ["\"id\":1", nil, "\"id\":2"]))
+            _ = await fetcher(runner).fetch(Self.codex, now: .now, last: nil)
+            let request = try #require(runner.sent.first)
+            let object = try #require(try JSONSerialization.jsonObject(with: Data(request.utf8)) as? [String: Any])
+            let params = try #require(object["params"] as? [String: Any])
+            let info = try #require(params["clientInfo"] as? [String: String])
+            #expect(info["name"] == "seat-gauge")
+            return info["version"]
+        }
+        // Whatever the fetcher holds as its version is what goes out, so no
+        // literal sits in the request.
+        #expect(try await sentVersion { CodexFetcher(runner: $0, authFile: Self.authFile, version: "9.9.9") } == "9.9.9")
+        // And the version it holds unless told otherwise is the constant.
+        #expect(try await sentVersion { CodexFetcher(runner: $0, authFile: Self.authFile) } == SeatGaugeVersion.current)
     }
 
     // MARK: - Recording a fixture

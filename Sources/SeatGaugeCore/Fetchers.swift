@@ -168,10 +168,15 @@ public struct CodexFetcher: SeatFetching {
     /// Where the server runs, so the rollout it may leave is the gauge's own.
     let primer: URL
     let parent: [String: String]
+    /// What the server is told this client is. A parameter so a test can tell
+    /// the constant from a copy of it.
+    let version: String
 
     public init(runner: any ProcessRunning = RealProcessRunner(), timeout: Duration = .seconds(60),
                 authFile: URL = CodexPlanFile.defaultFile, primer: URL = AppPaths.codexPrimer,
-                parent: [String: String] = ProcessInfo.processInfo.environment) {
+                parent: [String: String] = ProcessInfo.processInfo.environment,
+                version: String = SeatGaugeVersion.current) {
+        self.version = version
         self.runner = runner
         self.timeout = timeout
         self.authFile = authFile
@@ -183,8 +188,9 @@ public struct CodexFetcher: SeatFetching {
     /// hooks or plugins, so a poll starts nothing the gauge did not ask for.
     static let arguments = ["codex", "app-server", "-c", "check_for_update_on_startup=false",
                             "--disable", "hooks", "--disable", "plugins"]
-    // The version is this build's own, so a bump in `VERSION` reaches the server too.
-    static let initialize = #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"seat-gauge","title":"Seat Gauge","version":"\#(SeatGaugeVersion.current)"}}}"#
+    var initialize: String {
+        #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"seat-gauge","title":"Seat Gauge","version":"\#(version)"}}}"#
+    }
     static let initialized = #"{"jsonrpc":"2.0","method":"initialized"}"#
     static let limits = #"{"jsonrpc":"2.0","id":2,"method":"account/rateLimits/read","params":{"excludeResetCreditDetails":true}}"#
 
@@ -201,7 +207,7 @@ public struct CodexFetcher: SeatFetching {
             let session = try runner.launch(spec)
             defer { session.terminate() }
             var lines = session.stdoutLines.makeAsyncIterator()
-            try session.send(Self.initialize)
+            try session.send(initialize)
             try session.send(Self.initialized)
             try session.send(Self.limits)
             try await Fetch.read(&lines, into: &kept) { object in
