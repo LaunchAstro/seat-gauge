@@ -20,7 +20,7 @@ import Testing
         func line(_ name: String, _ amount: Decimal, total: Bool = false) -> SpendSeries {
             SpendSeries(name: name, points: [SpendPoint(day: day, amount: amount)], isTotal: total)
         }
-        let ordered = SpendTab.byFigure([line("codex", 5), line("hey", 9), line("total", 14, total: true)])
-        #expect(ordered.map(\.name) == ["total", "hey", "codex"])
+        let ordered = SpendTab.byFigure([line("codex", 5), line("personal", 9), line("total", 14, total: true)])
+        #expect(ordered.map(\.name) == ["total", "personal", "codex"])
     }
 }

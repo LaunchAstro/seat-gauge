@@ -172,7 +172,7 @@ import SeatGaugeCore
         #expect(steps.allSatisfy { $0 != nil })
         #expect(steps.compactMap { $0 } == steps.compactMap { $0 }.sorted())
         #expect(written.contains("~/.seat-gauge/profiles"))
-        for team in ["claude-seat", "claude-seats", ".token", "hey", "nathan", "houston", "herdr", "/opt/homebrew"] {
+        for team in ["claude-seat", "claude-seats", ".token", "personal", "work-seat", "herdr", "/opt/homebrew"] {
             #expect(!written.contains(team), "\(team) in the template")
         }
     }
