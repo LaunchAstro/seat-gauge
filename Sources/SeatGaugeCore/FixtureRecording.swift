@@ -32,9 +32,11 @@ public enum FixtureRecording {
     private static let rules: [(pattern: String, keep: String)] = [
         (#"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"#, zeroUUID),
         // A home folder, macOS or Linux, becomes one neutral home, in any
-        // case and however its slashes are doubled or its `.` and `..`
-        // steps are written, since each still reaches the user's folder.
-        (#"(?i)(?:/+|(?<![\p{L}\p{N}_]))(?:users|home)(?:/+\.{1,2}(?=/))*/+[^/"\\\s]+"#, "/home/seat"),
+        // case and however its slashes are doubled or `.` steps written,
+        // since each still reaches the user's folder. A `..` step is never
+        // followed here: `plainText` refuses it, because it can climb back
+        // back to the home root and into another name that no rule sees.
+        (#"(?i)(?:/+|(?<![\p{L}\p{N}_]))(?:users|home)(?:/+\.(?=/))*/+[^/"\\\s]+"#, "/home/seat"),
         // The Bonjour name of the Mac, which names its user as surely as an
         // account id does, in any case, with every dotted or underscored
         // part before it and whatever runs on after `.local`, such as `domain`.
@@ -53,7 +55,9 @@ public enum FixtureRecording {
     /// and no long run mixing letters and digits, which is a key or an id
     /// rather than anyone's prose. A `%` is kept only where it is not
     /// percent-encoding (`90% used`): `%2F`, `%40` or `%3A` would spell a
-    /// home path, an email or a label's colon that no other rule sees. Its letters and digits are ASCII, because
+    /// home path, an email or a label's colon that no other rule sees. A
+    /// path's `..` step is refused too, since a path can climb out of one
+    /// folder into another's name; `Loading...` is not a step. Its letters and digits are ASCII, because
     /// the CLIs print English and a letter from another script can spell a
     /// credential word that no pattern sees: fullwidth `ｋｅｙ`, Cyrillic
     /// `kеy`, a dotless `pın`. Refusing them closes that whole kind, where a
@@ -73,7 +77,7 @@ public enum FixtureRecording {
     /// missed spelling leaks, while a redacted word (`monkey`, `spin up`)
     /// only costs a recording its wording.
     private static let plainText = try? NSRegularExpression(
-        pattern: #"\A(?!.*%[0-9A-Fa-f]{2})[A-Za-z0-9 .,:;_+\-/()\[\]!?·%]{0,200}\z"#)
+        pattern: #"\A(?!.*%[0-9A-Fa-f]{2})(?!(?:.*/)?\.\.(?:/|\z))[A-Za-z0-9 .,:;_+\-/()\[\]!?·%]{0,200}\z"#)
     private static let credential = try? NSRegularExpression(
         pattern: #"(?i)pass(word|phrase|wd)?|secret|token|bearer|basic|auth|credential|cookie|session.?key|api.?key|private.?key|access.?key|keys?(?-i:(?!\p{Ll}))|pin(?:code)?s?(?-i:(?!\p{Ll}))|(?-i:KEY|PIN|OTP)|otps?(?-i:(?!\p{Ll}))|codes?\s*(?:[-:.(0-9]|is\b)|seed(?:phrase)?s?(?-i:(?!\p{Ll}))|signature|mnemonic|client(?:.|[\W_]*)ids?(?-i:(?!\p{Ll}))|sk-|eyJ"#)
     private static let run = try? NSRegularExpression(pattern: #"[\p{L}\p{N}_\-+/.]{24,}"#)
@@ -112,6 +116,10 @@ public enum FixtureRecording {
     /// inside the string. A recording shows the shape; it never needs the
     /// wording of an error that mentions a credential.
     static func scrub(_ text: String) -> String {
+        // Longer than `plainText` ever keeps (its characters are one UTF-16
+        // unit each), so it goes before the rules run: they match in time
+        // that grows with the square of a long run of slashes or name characters.
+        guard text.utf16.count <= 200 else { return "[redacted]" }
         let given = text
         var text = text
         for (expression, keep) in compiled {

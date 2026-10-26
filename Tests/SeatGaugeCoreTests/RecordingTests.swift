@@ -230,7 +230,6 @@ import SeatGaugeTestSupport
             ("\(users)//jsmith/x", "/home/seat/x"),
             ("/" + "users/jsmith/x", "/home/seat/x"),
             ("Jos-MacBook-Pro.local" + "domain", "seat-mac.local"),
-            ("\(users)/../jsmith/x", "/home/seat/x"),
             ("\(users)/.//./jsmith/x", "/home/seat/x"),
             ("\(home.uppercased())/jsmith/x", "/home/seat/x"),
             ("Jos_Mac.local", "seat-mac.local"),
@@ -261,10 +260,42 @@ import SeatGaugeTestSupport
         #expect(redacted, "case \(index)")
     }
 
+    /// #158, from the Opus read of #161: a `..` step climbs out of one folder
+    /// into another, back to a home root or past one, which no rule can follow.
+    static let parentSteps: [String] = {
+        let users = "/" + "Users", home = "/" + "home"
+        return ["\(users)/../jsmith/x", "\(users)/..\(users)/jsmith/x", "\(home)/..\(users)/jsmith/x", "\(users)/..\(home)/jsmith/x",
+                "\(users)/./..\(users)/jsmith", "\(users)/../\(users)/jsmith/x", "\(users)/Shared/../jsmith/x",
+                "\(users)/jsmith/../otheruser/x", "..\(users)/jsmith", "\(users)/jsmith/x/.."]
+    }()
+
+    @Test("#158: a path with a .. step goes whole", arguments: parentSteps.indices)
+    func aParentStepGoesWhole(case index: Int) {
+        let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["id": 0, "result": Self.parentSteps[index]]),
+                          as: UTF8.self)
+        let redacted = FixtureRecording.redact(line) == #"{"id":0,"result":"[redacted]"}"#
+        #expect(redacted, "case \(index)")
+    }
+
+    /// Sol #161 r1: the wider rules took seconds on a long run before the
+    /// length limit refused it. The bound is far above a refusal's
+    /// microseconds and far below the 13 s such a run took at that head.
+    @Test("#158: a long run of slashes or name characters goes at once", arguments: ["/", "_", "a", "."])
+    func aLongRunGoesAtOnce(character: String) {
+        let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["id": 0, "result": String(repeating: character, count: 16_000)]),
+                          as: UTF8.self)
+        let started = ContinuousClock.now
+        let redacted = FixtureRecording.redact(line) == #"{"id":0,"result":"[redacted]"}"#
+        #expect(redacted)
+        #expect(ContinuousClock.now - started < .seconds(2))
+    }
+
     @Test("#158: a percent sign in prose is kept")
     func aPercentInProseIsKept() {
         #expect(FixtureRecording.redact(#"{"id":0,"result":"90% of the weekly limit used"}"#)
                 == #"{"id":0,"result":"90% of the weekly limit used"}"#)
+        // Nor is an ellipsis written as dots a `..` step.
+        #expect(FixtureRecording.redact(#"{"id":0,"result":"Loading... done."}"#) == #"{"id":0,"result":"Loading... done."}"#)
     }
 
     @Test("Sol proof, criterion 4: a recordings folder that is a link writes nothing and changes nothing outside")
