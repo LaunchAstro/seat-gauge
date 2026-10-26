@@ -258,3 +258,12 @@ public actor SessionLogMonitor {
         return log
     }
 }
+
+public enum SessionRetention {
+    public static let closedFor: TimeInterval = 7 * 86_400
+    public static let closedPerMachine = 1_000
+    public static let fileRows = 4_000
+    public static let fileBytes = 3_000_000
+
+    static func kept<T>(_ items: [T], row: (T) -> SessionRow, now: Date) -> [T] { items }
+}
