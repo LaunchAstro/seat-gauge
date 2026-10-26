@@ -7,14 +7,16 @@ public struct ProcessSpec: Sendable, Equatable {
     public let environment: [String: String]
     public let currentDirectory: URL?
     public let timeout: Duration
+    public let outputLimit: Int
 
     public init(executable: URL, arguments: [String], environment: [String: String],
-                currentDirectory: URL? = nil, timeout: Duration = .seconds(60)) {
+                currentDirectory: URL? = nil, timeout: Duration = .seconds(60), outputLimit: Int = 16 << 20) {
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
         self.currentDirectory = currentDirectory
         self.timeout = timeout
+        self.outputLimit = outputLimit
     }
 }
 
