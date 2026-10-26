@@ -1,12 +1,13 @@
 Seat Gauge
-Copyright (c) 2026 LaunchAstro
+Copyright (c) 2026 LaunchAstro and contributors
 
 From the first release after version 0.1.0, the source code is under the GNU
 Affero General Public License, version 3 only (AGPL-3.0-only), in LICENSE.
 
 Version 0.1.0 and earlier, and contributions made to Seat Gauge before that
-change, were released under the MIT licence. Anyone who received that code
-keeps the right to use it under the MIT licence, whose text is at the end of this file.
+change, were released under the MIT licence. That code remains available
+under the MIT licence to anyone who obtains a copy. The MIT text is at the end
+of this file.
 
 Claude and Anthropic are trademarks of Anthropic. ChatGPT, Codex and OpenAI
 are trademarks of OpenAI. Seat Gauge is an independent project, not made or
@@ -26,7 +27,7 @@ The MIT licence text for version 0.1.0 and earlier, kept unchanged:
 
 MIT License
 
-Copyright (c) 2026 LaunchAstro
+Copyright (c) 2026 LaunchAstro and contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
