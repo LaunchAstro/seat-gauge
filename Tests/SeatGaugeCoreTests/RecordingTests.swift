@@ -290,6 +290,22 @@ import SeatGaugeTestSupport
         #expect(ContinuousClock.now - started < .seconds(2))
     }
 
+    /// Sol #161 r2: a `..` step inside an error sentence, not only at its
+    /// start or end, kept the name after it.
+    static let parentStepsInProse: [String] = {
+        let users = "/" + "Users"
+        return ["Cannot read ../jsmith/x", "Cannot read ..\(users)/jsmith/x", "Cannot read \(users)/jsmith/x/.. (retry)",
+                "see x/../jsmith", "(../jsmith)", "failed: ../jsmith, retry", "at \(users)/jsmith/x/..: not found"]
+    }()
+
+    @Test("Sol proof, criterion 7: parent steps in error prose go whole", arguments: parentStepsInProse.indices)
+    func parentStepsInErrorProseGoWhole(case index: Int) {
+        let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["id": 0, "result": Self.parentStepsInProse[index]]),
+                          as: UTF8.self)
+        let redacted = FixtureRecording.redact(line) == #"{"id":0,"result":"[redacted]"}"#
+        #expect(redacted, "case \(index)")
+    }
+
     @Test("#158: a percent sign in prose is kept")
     func aPercentInProseIsKept() {
         #expect(FixtureRecording.redact(#"{"id":0,"result":"90% of the weekly limit used"}"#)

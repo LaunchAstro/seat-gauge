@@ -56,8 +56,9 @@ public enum FixtureRecording {
     /// rather than anyone's prose. A `%` is kept only where it is not
     /// percent-encoding (`90% used`): `%2F`, `%40` or `%3A` would spell a
     /// home path, an email or a label's colon that no other rule sees. A
-    /// path's `..` step is refused too, since a path can climb out of one
-    /// folder into another's name; `Loading...` is not a step. Its letters and digits are ASCII, because
+    /// `..` beside a slash is refused too, wherever it is in the string, since
+    /// a path can climb out of one folder into another's name; `Loading...`
+    /// has no slash beside it. Its letters and digits are ASCII, because
     /// the CLIs print English and a letter from another script can spell a
     /// credential word that no pattern sees: fullwidth `ｋｅｙ`, Cyrillic
     /// `kеy`, a dotless `pın`. Refusing them closes that whole kind, where a
@@ -77,7 +78,7 @@ public enum FixtureRecording {
     /// missed spelling leaks, while a redacted word (`monkey`, `spin up`)
     /// only costs a recording its wording.
     private static let plainText = try? NSRegularExpression(
-        pattern: #"\A(?!.*%[0-9A-Fa-f]{2})(?!(?:.*/)?\.\.(?:/|\z))[A-Za-z0-9 .,:;_+\-/()\[\]!?·%]{0,200}\z"#)
+        pattern: #"\A(?!.*%[0-9A-Fa-f]{2})(?!.*(?:\.\./|/\.\.))[A-Za-z0-9 .,:;_+\-/()\[\]!?·%]{0,200}\z"#)
     private static let credential = try? NSRegularExpression(
         pattern: #"(?i)pass(word|phrase|wd)?|secret|token|bearer|basic|auth|credential|cookie|session.?key|api.?key|private.?key|access.?key|keys?(?-i:(?!\p{Ll}))|pin(?:code)?s?(?-i:(?!\p{Ll}))|(?-i:KEY|PIN|OTP)|otps?(?-i:(?!\p{Ll}))|codes?\s*(?:[-:.(0-9]|is\b)|seed(?:phrase)?s?(?-i:(?!\p{Ll}))|signature|mnemonic|client(?:.|[\W_]*)ids?(?-i:(?!\p{Ll}))|sk-|eyJ"#)
     private static let run = try? NSRegularExpression(pattern: #"[\p{L}\p{N}_\-+/.]{24,}"#)
