@@ -12,6 +12,14 @@ public struct SessionRow: Codable, Equatable, Sendable, Identifiable {
     public var section: String?
     public var seat: String?
     public var branch: String?
+    /// The GitHub `owner/name` of the folder the session works in, as its
+    /// `origin` remote spells it (issue #121). Nil when there is none: no
+    /// repository, no `origin`, another host or a read that did not answer.
+    public var repository: String?
+    /// Whether the probe that wrote the row reads repositories: `log.json`
+    /// writes `repository` as null when it found none, and leaves the key
+    /// out on a row from an older probe, which never looked.
+    public var repositoryRead = false
     public var startedAt: Date?
     public var closedAt: Date?
     public var status: String
@@ -23,8 +31,57 @@ public struct SessionRow: Codable, Equatable, Sendable, Identifiable {
     public var id: String { machine + ":" + sessionId }
 
     enum CodingKeys: String, CodingKey {
-        case machine, sessionId = "session_id", workspace, pane, tool, model, effort, repo, section, seat, branch
+        case machine, sessionId = "session_id", workspace, pane, tool, model, effort, repo, section, seat, branch, repository
         case startedAt = "started_at", closedAt = "closed_at", status, asOf = "as_of", stale, tokens, models, usd
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        machine = try values.decode(String.self, forKey: .machine)
+        sessionId = try values.decode(String.self, forKey: .sessionId)
+        workspace = try values.decode(String.self, forKey: .workspace)
+        pane = try values.decode(String.self, forKey: .pane)
+        tool = try values.decode(String.self, forKey: .tool)
+        model = try values.decodeIfPresent(String.self, forKey: .model)
+        effort = try values.decodeIfPresent(String.self, forKey: .effort)
+        repo = try values.decodeIfPresent(String.self, forKey: .repo)
+        section = try values.decodeIfPresent(String.self, forKey: .section)
+        seat = try values.decodeIfPresent(String.self, forKey: .seat)
+        branch = try values.decodeIfPresent(String.self, forKey: .branch)
+        repository = try values.decodeIfPresent(String.self, forKey: .repository)
+        repositoryRead = values.contains(.repository)
+        startedAt = try values.decodeIfPresent(Date.self, forKey: .startedAt)
+        closedAt = try values.decodeIfPresent(Date.self, forKey: .closedAt)
+        status = try values.decode(String.self, forKey: .status)
+        asOf = try values.decode(Date.self, forKey: .asOf)
+        stale = try values.decode(Bool.self, forKey: .stale)
+        tokens = try values.decodeIfPresent(TokenCounts.self, forKey: .tokens)
+        models = try values.decode([String: TokenCounts].self, forKey: .models)
+        usd = try values.decodeIfPresent(Decimal.self, forKey: .usd)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(machine, forKey: .machine)
+        try values.encode(sessionId, forKey: .sessionId)
+        try values.encode(workspace, forKey: .workspace)
+        try values.encode(pane, forKey: .pane)
+        try values.encode(tool, forKey: .tool)
+        try values.encodeIfPresent(model, forKey: .model)
+        try values.encodeIfPresent(effort, forKey: .effort)
+        try values.encodeIfPresent(repo, forKey: .repo)
+        try values.encodeIfPresent(section, forKey: .section)
+        try values.encodeIfPresent(seat, forKey: .seat)
+        try values.encodeIfPresent(branch, forKey: .branch)
+        if repositoryRead { try values.encode(repository, forKey: .repository) }
+        try values.encodeIfPresent(startedAt, forKey: .startedAt)
+        try values.encodeIfPresent(closedAt, forKey: .closedAt)
+        try values.encode(status, forKey: .status)
+        try values.encode(asOf, forKey: .asOf)
+        try values.encode(stale, forKey: .stale)
+        try values.encodeIfPresent(tokens, forKey: .tokens)
+        try values.encode(models, forKey: .models)
+        try values.encodeIfPresent(usd, forKey: .usd)
     }
 
     public init(machine: String = "", sessionId: String, workspace: String, pane: String,

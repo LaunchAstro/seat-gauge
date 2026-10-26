@@ -44,7 +44,8 @@ import Testing
         let again = FolderAccessRunner(home: root, blocked: false)
         let third = try await SessionProbe(runner: again, directory: directory, home: root)
             .run(now: start.addingTimeInterval(60))
-        #expect(again.gitTimeouts.count == 2)
+        // A branch and a remote read for each of the two folders.
+        #expect(again.gitTimeouts.count == 4)
         #expect(third.problems.isEmpty)
     }
 
