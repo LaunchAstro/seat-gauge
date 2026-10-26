@@ -167,6 +167,12 @@ struct SessionLedger {
             try? FileManager.default.removeItem(at: fresh)
             throw ProcessFailure("log: the compacted ledger could not replace the old one")
         }
+        // Version 0.1.0 kept a ledger over 64 MB beside the new one at its
+        // first compaction; what left the ledger leaves that copy too.
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        where name.hasPrefix("observations-before-compaction-") && name.hasSuffix(".jsonl") {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+        }
     }
 }
 

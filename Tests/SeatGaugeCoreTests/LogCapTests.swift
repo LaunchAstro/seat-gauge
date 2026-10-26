@@ -98,7 +98,7 @@ import Testing
         // Every open row on every machine is there.
         #expect(log.sessions.filter { $0.closedAt == nil }.count == 40 * 20)
         #expect(log.sessions.filter { $0.closedAt != nil }.count > 0)
-        // A second monitor on the same config keeps the same rows.
+        // A second read on the same config keeps the same rows.
         let again = await SessionLogMonitor(prober: MachineProber(runner: Answer(line: answer), environment: [:]),
                                             file: file, config: { Config(seats: [], pollMinutes: 5, machines: machines) }).read()
         #expect(Set(again.sessions.map(\.id)) == Set(log.sessions.map(\.id)))
@@ -166,6 +166,20 @@ import Testing
         #expect(log.sessions.count == 0)
         #expect(try ledger.rows().isEmpty)
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.hasPrefix("observations") } == ["observations.jsonl"])
+    }
+
+    @Test("a copy an older probe kept at compaction is deleted at the next, and nothing else in the folder")
+    func anOlderProbesCopyIsDeleted() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let ledger = SessionLedger(directory: root)
+        try ledger.append([SessionObservation(row: closed(0), pid: 1, processStart: "start", paths: [])])
+        let names = ["observations-before-compaction-2026-10-20T010203Z.jsonl", "observations-before-compaction-notes.txt", "keep.jsonl"]
+        for name in names { try Data("x".utf8).write(to: root.appendingPathComponent(name)) }
+        try ledger.compactIfLong(try ledger.rows(), lines: 1, dropping: true)
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: root.path))
+            == ["observations.jsonl", "observations-before-compaction-notes.txt", "keep.jsonl"])
     }
 
     @Test("a probe on a small share drops what does not fit from its ledger and checkpoint at the end of the pass")
