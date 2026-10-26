@@ -131,6 +131,21 @@ import Testing
         #expect(log.sessions.count == 0)
     }
 
+    @Test("Sol proof, criterion 2: problem entries obey the file byte cap")
+    func problemsStayInsideTheReader() async throws {
+        let machines = (0..<2_000).map { Machine(id: String(repeating: "m", count: 2_048) + "\($0)", label: "Host", ssh: "host\($0)") }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let log = await SessionLogMonitor(prober: MachineProber(runner: Answer(lines: { _ in [] }), environment: [:]),
+                                          file: file, config: { Config(seats: [], pollMinutes: 5, machines: machines) }).read()
+        #expect(log.sessions.count == 0)
+        #expect(!log.problems.isEmpty)
+        #expect(try Data(contentsOf: file).count <= 4_000_000)
+        // A problem's text is cut short too, whoever wrote it.
+        let long = SessionRetention.bounded(["m1": String(repeating: "x", count: 10_000)])
+        #expect(long["m1"]?.count == SessionRetention.problemCharacters)
+    }
+
     @Test("an expired session in a ledger written before compaction is deleted, with no copy kept")
     func anExpiredSessionLeavesNoArchive() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

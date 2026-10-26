@@ -354,7 +354,8 @@ public actor SessionLogMonitor {
             }
         }
         let log = SessionLogFile(updated: now, sessions: machines.flatMap { rows[$0.id] ?? [] }
-            .sorted { ($0.startedAt ?? .distantPast, $0.id) > ($1.startedAt ?? .distantPast, $1.id) }, problems: problems)
+            .sorted { ($0.startedAt ?? .distantPast, $0.id) > ($1.startedAt ?? .distantPast, $1.id) },
+            problems: SessionRetention.bounded(problems))
         do {
             try PrivateFile.write(SessionLogFile.encoder().encode(log), to: file, makingFolder: true)
         } catch { PollLog.system("log: snapshot could not be written") }
@@ -379,6 +380,11 @@ public enum SessionRetention {
     /// (issue #38), which leaves room for open sessions, never dropped.
     public static let fileRows = 2_000
     public static let fileBytes = 2_000_000
+    /// The most `problems` takes beside the rows, and the most of each
+    /// machine's text it keeps, so a remote's answer or a long machine ID
+    /// cannot carry the file past a reader either.
+    public static let problemBytes = 200_000
+    public static let problemCharacters = 1_000
 
     /// One machine's share of `log.json`: its open sessions and the newest
     /// closed ones that fit beside them.
@@ -428,6 +434,20 @@ public enum SessionRetention {
             }
         }
         return recent.filter { !dropped.contains(row($0).sessionId) }
+    }
+
+    /// `problems` with each text cut to `problemCharacters`, and machines in
+    /// ID order while they fit `problemBytes`; one that does not is left out.
+    static func bounded(_ problems: [String: String]) -> [String: String] {
+        var kept: [String: String] = [:]
+        var bytes = 0
+        for id in problems.keys.sorted() {
+            let text = String(problems[id]!.prefix(problemCharacters))
+            let cost = [id, text].reduce(2) { $0 + ((try? SessionLogFile.encoder().encode($1))?.count ?? $1.utf8.count * 6 + 2) }
+            guard bytes + cost <= problemBytes else { continue }
+            kept[id] = text; bytes += cost
+        }
+        return kept
     }
 
     /// What a row takes in `log.json`, measured without the two fields the
