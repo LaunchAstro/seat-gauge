@@ -41,7 +41,10 @@ enum TranscriptLines {
         var bytes = 0
         var ended = false
         while bytes < budget || !rest.isEmpty {
-            guard let chunk = try handle.read(upToCount: Self.chunk), !chunk.isEmpty else { ended = true; break }
+            // FileHandle hands back autoreleased buffers, which would
+            // otherwise live until the caller's pool drains: the whole file.
+            guard let chunk = try autoreleasepool(invoking: { try handle.read(upToCount: Self.chunk) }),
+                  !chunk.isEmpty else { ended = true; break }
             bytes += chunk.count
             var fresh = chunk[...]
             if stop.skipping {
@@ -69,7 +72,7 @@ enum TranscriptLines {
                 rest.append(contentsOf: fresh[...end])
                 let run = rest
                 stop.offset += UInt64(run.count)
-                try lines(run, stop.offset)
+                try autoreleasepool { try lines(run, stop.offset) }
                 rest = Data(fresh[fresh.index(after: end)...])
                 // Past the budget the line in hand is done; what follows it
                 // waits for the next pass.
