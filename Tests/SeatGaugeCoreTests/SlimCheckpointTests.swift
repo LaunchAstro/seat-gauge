@@ -175,7 +175,7 @@ import Testing
         }
     }
 
-    @Test("a resumed file whose usage fields change inside it keeps its events, and its totals stay exact")
+    @Test("a resumed file whose usage fields change inside it keeps no events, and its totals stay exact")
     func unevenResumeStaysExact() throws {
         let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
         let first = root.appendingPathComponent("rollout-a.jsonl")
@@ -198,8 +198,7 @@ import Testing
             }
             #expect(!shown.stale)
             #expect(shown.tokens == spend)
-            #expect(checkpoint.files[second.path]?.events?.count == 2)
-            #expect(checkpoint.files[first.path]?.events == nil)
+            #expect(!String(decoding: try JSONEncoder().encode(checkpoint), as: UTF8.self).contains("\"events\""))
         }
     }
 
@@ -222,6 +221,43 @@ import Testing
         let moved = probe.refreshed(row("claude"), paths: files.map(\.path), checkpoint: &checkpoint, rates: .bundled)
         #expect(moved.tokens?.input == 101)
         #expect(moved.tokens?.responses == 2)
+    }
+
+    @Test("Sol proof, criterion 1: an uneven Codex transcript's checkpoint keeps no per-event history")
+    func unevenCheckpointHasNoEvents() throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("rollout-a.jsonl")
+        try Data((Self.rollout("main", [(1, 100, nil)])
+            + #"{"timestamp":"2026-10-15T02:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":170,"cached_input_tokens":5,"output_tokens":10,"total_tokens":180}}}}"#
+            + "\n").utf8).write(to: file)
+        var checkpoint = SessionCheckpoint()
+        _ = SessionProbe(directory: root, home: root).refreshed(row("codex"), paths: [file.path], checkpoint: &checkpoint, rates: .bundled)
+        let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(checkpoint)) as? [String: Any])
+        let stored = try #require((object["files"] as? [String: [String: Any]])?[file.path])
+        #expect(stored["events"] == nil)
+        #expect(stored["uneven"] as? Bool == true)
+    }
+
+    @Test("Sol proof, criterion 3: transcripts cut to nothing in place count nothing, a rescan included")
+    func truncatedInPlaceCountsNothing() throws {
+        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let first = root.appendingPathComponent("a.jsonl")
+        let second = root.appendingPathComponent("b.jsonl")
+        try Data(claude("shared", input: 100).utf8).write(to: first)
+        try Data((claude("shared", input: 100) + claude("own", input: 20)).utf8).write(to: second)
+        let probe = SessionProbe(directory: root, home: root)
+        var checkpoint = SessionCheckpoint()
+        _ = probe.refreshed(row("claude"), paths: [first.path, second.path], checkpoint: &checkpoint, rates: .bundled)
+        for file in [first, second] { try FileHandle(forWritingTo: file).truncate(atOffset: 0) }
+        for _ in 0 ..< 2 {
+            let shown = probe.refreshed(row("claude"), paths: [first.path, second.path], checkpoint: &checkpoint, rates: .bundled)
+            #expect(shown.tokens?.input == 0)
+            #expect(shown.tokens?.responses == 0)
+            #expect(shown.models.isEmpty)
+            #expect(shown.usd == nil)
+            #expect(!shown.stale)
+            checkpoint = try JSONDecoder().decode(SessionCheckpoint.self, from: JSONEncoder().encode(checkpoint))
+        }
     }
 
     @Test("Sol proof, criterion 2: an old checkpoint whose resumed file gains a usage field migrates with its totals")

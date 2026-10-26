@@ -353,7 +353,7 @@ public struct SessionProbe: Sendable {
                 ($0.tokens.firstToken ?? .distantFuture, URL(fileURLWithPath: $0.path).lastPathComponent, $0.path)
                     < ($1.tokens.firstToken ?? .distantFuture, URL(fileURLWithPath: $1.path).lastPathComponent, $1.path)
             }) {
-                let step = file.tokens.added(after: entry)
+                guard let step = file.tokens.added(after: entry, url: URL(fileURLWithPath: file.path)) else { complete = false; break }
                 for (model, counts) in step.models { models[model, default: TokenCounts()] += counts }
                 entry = step.baseline
             }

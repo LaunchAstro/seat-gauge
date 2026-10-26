@@ -249,7 +249,7 @@ struct SessionCheckpoint {
     private mutating func rescan(deferringTo paths: Set<String>) {
         for (path, tokens) in files where !tokens.deferredTo.isDisjoint(with: paths) {
             var tokens = tokens
-            tokens.offset = 0; tokens.skipping = nil; tokens.deferredTo = []; tokens.complete = false
+            tokens.rescan = true; tokens.deferredTo = []; tokens.complete = false
             files[path] = tokens
             rescanned.insert(path)
         }
