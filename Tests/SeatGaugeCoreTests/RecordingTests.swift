@@ -183,11 +183,12 @@ import SeatGaugeTestSupport
                      "k\u{0435}y: \(value)", "p\u{0456}n: 531862", "P\u{0130}N: 531862", "p\u{0131}n: 531862",
                      "pin\u{02D0} 531862",
                      // Fullwidth brackets and a no-break space, refused before #142, stay refused.
-                     "\u{FF3B}\(value)\u{FF3D}", "resets\u{00A0}soon",
+                     "\u{FF3B}\(value)\u{FF3D}", "resets\u{00A0}soon", "Zx9Qw8Er7Ty6\u{2026}Ui5Op4As3Df2",
                      "OTP: 531862", "code: 531862", "code 531862", "Code - 531862", "code (531862)", "code. 531862",
                      "Code-531862", "your verification code is 531862",
                      "seed: \(value)", "seedphrase: abandon ability able", "mnemonic: abandon ability able",
-                     "signature: \(value)", "client id: \(value)", "client  id: \(value)", "client - id: \(value)"] {
+                     "signature: \(value)", "client id: \(value)", "client  id: \(value)", "client - id: \(value)",
+                     "client_id: \(value)", "client_ids: \(value)", "client__id: \(value)", "clientId: \(value)"] {
             let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["id": 0, "result": text]), as: UTF8.self)
             // A Bool, so a failure names the case by its first scalars and never prints the value.
             let redacted = FixtureRecording.redact(line) == #"{"id":0,"result":"[redacted]"}"#
