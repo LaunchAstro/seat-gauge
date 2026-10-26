@@ -141,6 +141,20 @@ import SeatGaugeTestSupport
                 == #"{"result":"Not logged in · Please run /login","type":"result"}"#)
     }
 
+    @Test("Sol proof, #116: a key label spaced twice, a bare key or keys label and a PIN go whole")
+    func spacedAndBareKeyLabelsGoWhole() {
+        let value = "k4N8q2R6v9T3m7W5"
+        for text in ["API  key: \(value)", "private  key: \(value)", "key: \(value)", "PIN: 531862",
+                     "keys: \(value)", "signing key \(value)", "pin code 531862",
+                     "key_id \(value)", "KEY1 \(value)", "pin_code 531862", "PINs 531862"] {
+            #expect(FixtureRecording.redact(#"{"id":0,"result":"\#(text)"}"#) == #"{"id":0,"result":"[redacted]"}"#,
+                    "\(text.prefix(5))")
+        }
+        // Words that only contain the letters are prose, and stay.
+        #expect(FixtureRecording.redact(#"{"id":0,"result":"Keychain locked, spinning up"}"#)
+                == #"{"id":0,"result":"Keychain locked, spinning up"}"#)
+    }
+
     @Test("Sol proof, criterion 4: a recordings folder that is a link writes nothing and changes nothing outside")
     func aLinkedFolderWritesNothing() throws {
         let clone = try Self.scratch()
