@@ -53,7 +53,8 @@ public enum FixtureRecording {
     /// credential word that no pattern sees: fullwidth `ｋｅｙ`, Cyrillic
     /// `kеy`, a dotless `pın`. Refusing them closes that whole kind, where a
     /// table of look-alikes, or a fold that maps some of them back to ASCII,
-    /// always misses one. A `key` or `pin`, in any case, counts
+    /// always misses one. A `…` is refused too: it would split a run that
+    /// `run` must see whole, as `...` does not. A `key` or `pin`, in any case, counts
     /// wherever it ends, however it is spaced or joined: `API  key`, a bare
     /// `key:`, `key_id`, `keyId`, `signingkEy`, `userPIN`, `MyPin`,
     /// `pinNumber`. Only a lower-case letter straight after it, as in
@@ -67,9 +68,9 @@ public enum FixtureRecording {
     /// missed spelling leaks, while a redacted word (`monkey`, `spin up`)
     /// only costs a recording its wording.
     private static let plainText = try? NSRegularExpression(
-        pattern: #"\A[A-Za-z0-9 .,:;_+\-/()\[\]!?·…%]{0,200}\z"#)
+        pattern: #"\A[A-Za-z0-9 .,:;_+\-/()\[\]!?·%]{0,200}\z"#)
     private static let credential = try? NSRegularExpression(
-        pattern: #"(?i)pass(word|phrase|wd)?|secret|token|bearer|basic|auth|credential|cookie|session.?key|api.?key|private.?key|access.?key|keys?(?-i:(?!\p{Ll}))|pin(?:code)?s?(?-i:(?!\p{Ll}))|(?-i:KEY|PIN|OTP)|otps?(?-i:(?!\p{Ll}))|codes?\s*(?:[-:.(0-9]|is\b)|seed(?:phrase)?s?(?-i:(?!\p{Ll}))|signature|mnemonic|client\W*ids?(?-i:(?!\p{Ll}))|sk-|eyJ"#)
+        pattern: #"(?i)pass(word|phrase|wd)?|secret|token|bearer|basic|auth|credential|cookie|session.?key|api.?key|private.?key|access.?key|keys?(?-i:(?!\p{Ll}))|pin(?:code)?s?(?-i:(?!\p{Ll}))|(?-i:KEY|PIN|OTP)|otps?(?-i:(?!\p{Ll}))|codes?\s*(?:[-:.(0-9]|is\b)|seed(?:phrase)?s?(?-i:(?!\p{Ll}))|signature|mnemonic|client(?:.|[\W_]*)ids?(?-i:(?!\p{Ll}))|sk-|eyJ"#)
     private static let run = try? NSRegularExpression(pattern: #"[\p{L}\p{N}_\-+/.]{24,}"#)
 
     /// One recorded stdout line with only what the parsers read left in it.
