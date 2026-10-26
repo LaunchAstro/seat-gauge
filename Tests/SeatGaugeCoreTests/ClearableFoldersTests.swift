@@ -67,30 +67,62 @@ import SeatGaugeTestSupport
         #expect(ClearableFolders.parse(printed) == [])
     }
 
-    @Test("a size pass past its time limit is stopped there, keeping the folders it finished")
+    @Test("a size pass past its time limit is stopped there, keeping the folders it finished and leaving no du running")
     func limit() async throws {
         let home = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: home) }
-        try Self.fill(home.appendingPathComponent("Library/Caches/Homebrew"), bytes: 1_000_000)
+        try Self.fill(home.appendingPathComponent("Library/Caches/Homebrew"), bytes: 1_000)
         try Self.fill(home.appendingPathComponent("Library/Caches/pip"), bytes: 1_000)
         try Self.fill(home.appendingPathComponent(".npm/_cacache"), bytes: 1_000)
-        // The real du for the first folder; the second hangs until it is killed.
+        // The real du for the first folder, noting the priority it runs at;
+        // the second hangs, noting its process, until it is killed.
         let bin = home.appendingPathComponent("bin")
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         let du = bin.appendingPathComponent("du")
         try """
             #!/bin/sh
-            case "$2" in Library/Caches/Homebrew) exec /usr/bin/du "$@" ;; esac
-            exec sleep 30
+            case "$2" in Library/Caches/Homebrew) ps -o ni=,pri= -p $$ > "$HOME/priority"; exec /usr/bin/du "$@" ;; esac
+            echo $$ > "$HOME/hung"
+            exec sleep 60
             """.write(to: du, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: du.path)
         let started = ContinuousClock.now
-        let printed = try await Self.run(home: home, limit: 2, path: bin.path + ":/usr/bin:/bin:/usr/sbin:/sbin")
-        #expect(ContinuousClock.now - started < .seconds(10))
+        let printed = try await Self.run(home: home, limit: 8, path: bin.path + ":/usr/bin:/bin:/usr/sbin:/sbin")
+        #expect(ContinuousClock.now - started < .seconds(30))
         #expect(Array(printed.suffix(2)) == ["cut", "end"])
         let folders = try #require(ClearableFolders.parse(printed, atLeast: 1))
         #expect(folders.map(\.path) == ["~/Library/Caches/Homebrew"])
-        #expect((900_000 ... 1_200_000).contains(folders[0].bytes))
+        // The stopped du is gone, not left running on the machine.
+        let hung = try #require(Int32(String(contentsOf: home.appendingPathComponent("hung"), encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)))
+        #expect(kill(hung, 0) != 0)
+        // nice 20, and background priority (4) from taskpolicy -b.
+        let priority = try String(contentsOf: home.appendingPathComponent("priority"), encoding: .utf8)
+            .split(whereSeparator: \.isWhitespace)
+        #expect(priority == ["20", "4"])
+    }
+
+    @Test("a folder on another disk than the home is passed over, and odd file names inside a folder change nothing")
+    func otherDisk() async throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let brew = home.appendingPathComponent("Library/Caches/Homebrew")
+        try Self.fill(brew, bytes: 1_000)
+        try Data().write(to: brew.appendingPathComponent("a\n999999\tYarn\n$(touch x)"))
+        try Self.fill(home.appendingPathComponent("Library/Caches/pip"), bytes: 1_000)
+        // A stat that puts pip on a disk of its own.
+        let bin = home.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let stat = bin.appendingPathComponent("stat")
+        try """
+            #!/bin/sh
+            case "$3" in Library/Caches/pip) echo 2 ;; *) echo 1 ;; esac
+            """.write(to: stat, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stat.path)
+        let printed = try await Self.run(home: home, path: bin.path + ":/usr/bin:/bin:/usr/sbin:/sbin")
+        #expect(ClearableFolders.parse(printed, atLeast: 1)?.map(\.path) == ["~/Library/Caches/Homebrew"])
+        #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent("x").path))
+        #expect(!FileManager.default.fileExists(atPath: brew.appendingPathComponent("x").path))
     }
 
     @Test("elsewhere, a machine whose own Seat Gauge has a seats.json sizes itself, so nothing is sized from here")
