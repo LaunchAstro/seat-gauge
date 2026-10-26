@@ -45,15 +45,15 @@ public enum FixtureRecording {
 
     /// What a kept string may be: the short plain words, dates and numbers
     /// the parsers read (a type, a kind, a reset time, a model, an error
-    /// sentence such as "Not logged in · Please run /login"), with no quote,
-    /// `=`, `@`, backslash or brace in it, no word that names a credential,
+    /// sentence such as "Not logged in · Please run /login"), with no quote
+    /// of either kind, line break, `=`, `@`, backslash or brace in it, no word that names a credential,
     /// and no long run mixing letters and digits, which is a key or an id
     /// rather than anyone's prose.
     private static let plainText = try? NSRegularExpression(
-        pattern: #"^[\p{L}\p{N} .,:;_+\-/()\[\]'!?·…%]{0,200}$"#)
+        pattern: #"\A[\p{L}\p{N} .,:;_+\-/()\[\]!?·…%]{0,200}\z"#)
     private static let credential = try? NSRegularExpression(
         pattern: #"(?i)pass(word|phrase|wd)?|secret|token|bearer|basic|auth|credential|cookie|session.?key|api.?key|private.?key|access.?key|sk-|eyJ"#)
-    private static let run = try? NSRegularExpression(pattern: #"[A-Za-z0-9_\-+/.]{24,}"#)
+    private static let run = try? NSRegularExpression(pattern: #"[\p{L}\p{N}_\-+/.]{24,}"#)
 
     /// One recorded stdout line with only what the parsers read left in it.
     /// A line that is not JSON is the CLI's own prose, which no parser reads,
