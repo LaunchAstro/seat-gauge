@@ -146,13 +146,16 @@ import SeatGaugeTestSupport
         let value = "k4N8q2R6v9T3m7W5"
         for text in ["API  key: \(value)", "private  key: \(value)", "key: \(value)", "PIN: 531862",
                      "keys: \(value)", "signing key \(value)", "pin code 531862",
-                     "key_id \(value)", "KEY1 \(value)", "pin_code 531862", "PINs 531862"] {
+                     "key_id \(value)", "KEY1 \(value)", "pin_code 531862", "PINs 531862",
+                     // Opus read: a key or pin joined to the word beside it, camelCase or capitals.
+                     "keyId: \(value)", "signingKeyId: \(value)", "keyMaterial: \(value)", "KeyHash: \(value)",
+                     "userPIN: 531862", "MyPin: 531862", "SIMPIN 531862", "pinNumber: 531862", "PINnumber 531862"] {
             #expect(FixtureRecording.redact(#"{"id":0,"result":"\#(text)"}"#) == #"{"id":0,"result":"[redacted]"}"#,
                     "\(text.prefix(5))")
         }
         // Words that only contain the letters are prose, and stay.
-        #expect(FixtureRecording.redact(#"{"id":0,"result":"Keychain locked, spinning up"}"#)
-                == #"{"id":0,"result":"Keychain locked, spinning up"}"#)
+        let prose = "Keychain locked, keyboard pinned, spinning up, Pinterest opinion"
+        #expect(FixtureRecording.redact(#"{"id":0,"result":"\#(prose)"}"#) == #"{"id":0,"result":"\#(prose)"}"#)
     }
 
     @Test("Sol proof, criterion 4: a recordings folder that is a link writes nothing and changes nothing outside")
