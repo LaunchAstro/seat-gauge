@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Licence.** Seat Gauge is under the GNU Affero General Public License, version 3 only (AGPL-3.0-only), from the next release. Version 0.1.0 and earlier were released under the MIT licence and stay available under it for anyone who received them; the MIT text is kept in `NOTICE`. Contributions are accepted under AGPL-3.0-only. The fonts stay under the SIL Open Font License, and provider marks stay excluded.
+
 ## 0.1.0 - 26 October 2026
 
 The first public release. Built from source with `make install`; there is no prebuilt download.

@@ -80,6 +80,13 @@ push.
 - Never commit a token, an OAuth credential, an account email or a real home
   path, including in fixtures. Refer to seats by name.
 
+## Licence
+
+Seat Gauge is under AGPL-3.0-only from the release after 0.1.0 (see `LICENSE`
+and `NOTICE`). A contribution is accepted under AGPL-3.0-only. Code that
+reached 0.1.0 or earlier stays available under the MIT licence for anyone who
+received it.
+
 ## Style
 
 - Swift 6 language mode. `SeatGaugeCore` stays Foundation-only so it can be

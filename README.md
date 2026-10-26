@@ -188,6 +188,6 @@ If you also trace agent sessions with a tool such as Langfuse, an open source tr
 
 ## Licence
 
-MIT, see `LICENSE`. The bundled fonts (Funnel Display, Funnel Sans, Chivo Mono) are under the SIL Open Font License, in `Resources/Fonts/OFL.txt`.
+From the release after 0.1.0, the code is under the GNU Affero General Public License, version 3 only (AGPL-3.0-only), in `LICENSE`. Version 0.1.0 and earlier were released under the MIT licence and stay available under it for anyone who received them; its text is in `NOTICE`. The bundled fonts (Funnel Display, Funnel Sans, Chivo Mono) are under the SIL Open Font License, in `Resources/Fonts/OFL.txt`.
 
-Claude and Anthropic are trademarks of Anthropic. ChatGPT, Codex and OpenAI are trademarks of OpenAI. Seat Gauge is not made or endorsed by either company. The app shows each provider's own favicon, fetched from the provider's site at runtime, only to say which service a seat belongs to. No provider mark ships in this repository, and none is covered by the MIT licence. See `NOTICE`.
+Claude and Anthropic are trademarks of Anthropic. ChatGPT, Codex and OpenAI are trademarks of OpenAI. Seat Gauge is not made or endorsed by either company. The app shows each provider's own favicon, fetched from the provider's site at runtime, only to say which service a seat belongs to. No provider mark ships in this repository, and none is covered by either licence. See `NOTICE`.
