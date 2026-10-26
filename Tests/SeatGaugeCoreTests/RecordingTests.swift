@@ -175,6 +175,52 @@ import SeatGaugeTestSupport
         }
     }
 
+    @Test("#142: a key or pin spelt in look-alike letters, and an OTP, code, seed, signature or client id label, go whole")
+    func lookAlikesAndOtherLabelsGoWhole() {
+        let value = "k4N8q2R6v9T3m7W5"
+        // Fullwidth, Cyrillic, dotted and dotless i, and a modifier-letter colon.
+        for text in ["\u{FF4B}\u{FF45}\u{FF59}: \(value)", "\u{FF30}\u{FF29}\u{FF2E}: 531862",
+                     "k\u{0435}y: \(value)", "p\u{0456}n: 531862", "P\u{0130}N: 531862", "p\u{0131}n: 531862",
+                     "pin\u{02D0} 531862",
+                     // Fullwidth brackets and a no-break space, refused before #142, stay refused.
+                     "\u{FF3B}\(value)\u{FF3D}", "resets\u{00A0}soon", "Zx9Qw8Er7Ty6\u{2026}Ui5Op4As3Df2",
+                     "OTP: 531862", "code: 531862", "code 531862", "Code - 531862", "code (531862)", "code. 531862",
+                     "Code-531862", "your verification code is 531862",
+                     "seed: \(value)", "seedphrase: abandon ability able", "mnemonic: abandon ability able",
+                     "signature: \(value)", "client id: \(value)", "client  id: \(value)", "client - id: \(value)",
+                     "client_id: \(value)", "client_ids: \(value)", "client__id: \(value)", "clientId: \(value)"] {
+            let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["id": 0, "result": text]), as: UTF8.self)
+            // A Bool, so a failure names the case by its first scalars and never prints the value.
+            let redacted = FixtureRecording.redact(line) == #"{"id":0,"result":"[redacted]"}"#
+            #expect(redacted, "\(text.unicodeScalars.prefix(4).map { String($0.value, radix: 16) })")
+        }
+        // A word that only contains the letters is prose, a Codex model keeps
+        // its name, and a folder called code is not a label.
+        let prose = "seeded cache, hotpot, client identity, gpt-5.1-codex-max, Claude Code in /home/seat/code"
+        #expect(FixtureRecording.redact(#"{"id":0,"result":"\#(prose)"}"#) == #"{"id":0,"result":"\#(prose)"}"#)
+    }
+
+    @Test("#156, #154: a home or Mac name that hides a refused character or a credential label goes whole")
+    func neutralisedNamesHideNothing() {
+        let value = "k4N8q2R6v9T3m7W5"
+        let users = "/" + "Users"
+        // A home folder named with something the plain rule refuses: the
+        // fullwidth quote, backslash and apostrophe of #156, a fullwidth letter, and every ASCII
+        // character outside the plain set that the home rule swallows.
+        let refused = ["\u{FF02}", "\u{FF3C}", "\u{FF07}", "\u{FF4B}"] + "#$&'*<=>@^`{|}~".map(String.init)
+        let homes = refused.flatMap { ["/home/\($0)/ \(value)", "\(users)/a\($0)b/ \(value)"] }
+        // A label the home or Mac name rule swallows (#154).
+        for text in homes + ["\(users)/pin: 531862", "token.local \(value)"] {
+            let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["id": 0, "result": text]), as: UTF8.self)
+            // A Bool, so a failure names the case by its first scalars and never prints the value.
+            let redacted = FixtureRecording.redact(line) == #"{"id":0,"result":"[redacted]"}"#
+            #expect(redacted, "\(text.unicodeScalars.prefix(8).map { String($0.value, radix: 16) })")
+        }
+        // A plain home and Mac name are still made neutral and kept.
+        #expect(FixtureRecording.redact(#"{"id":0,"result":"\#(users)/jo.smith-2/code on Jos-Mac.local"}"#)
+                == #"{"id":0,"result":"/home/seat/code on seat-mac.local"}"#)
+    }
+
     @Test("Sol proof, criterion 4: a recordings folder that is a link writes nothing and changes nothing outside")
     func aLinkedFolderWritesNothing() throws {
         let clone = try Self.scratch()
