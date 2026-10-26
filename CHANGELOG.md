@@ -10,7 +10,7 @@ The first public release. Built from source with `make install`; there is no pre
 - **Load tab.** CPU, memory, disk and agents working for this Mac and any other Mac reached over ssh, with a free, busy or full verdict.
 - **Log tab.** One row per agent session run under herdr, with its seat, model and token totals, on each configured machine.
 - **Files for agents.** `headroom.json`, `machines.json` and `log.json` hold what the window shows, free to read. `skills/seat-gauge/` is a ready-made agent skill that reads them.
-- **`seatgauge-cli`.** The same core without the window: read, watch, spend, record, login and machines.
+- **`seatgauge-cli`.** The same core without the window: read, watch, spend, record, login, machines and `--version`.
 - **Launch at login** from `/Applications`, which you can turn off in the right-click menu or Settings, plus appearance and text size settings.
 
 Needs macOS 14 or later to run, and macOS 15.6 or later with the Command Line Tools for Swift 6.2 to build.

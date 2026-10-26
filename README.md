@@ -120,7 +120,7 @@ With none of the three the card shows no plan. It never guesses "free". `seatgau
 
 ## The command line
 
-`seatgauge-cli` runs the same core without the window:
+`seatgauge-cli` runs the same core without the window, and `seatgauge-cli --version` prints its version:
 
 ```sh
 seatgauge-cli read            # read every seat once and print it

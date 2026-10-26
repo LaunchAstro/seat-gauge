@@ -4,7 +4,7 @@
 
 Please report a security problem privately, through this repository's Security tab: choose "Report a vulnerability". This uses GitHub's private vulnerability reporting, so only you and the maintainers see the report. Don't open a public issue, pull request or discussion for it.
 
-Say what you found, the commit you built (`git rev-parse --short HEAD` in your clone), your macOS version, and the steps that show it. Leave out real tokens, emails, account ids and transcripts; a made-up value in the right shape is enough.
+Say what you found, the version (`seatgauge-cli --version`) and the commit you built (`git rev-parse --short HEAD` in your clone), your macOS version, and the steps that show it. Leave out real tokens, emails, account ids and transcripts; a made-up value in the right shape is enough.
 
 We aim to reply within a week. There is no bug bounty.
 
