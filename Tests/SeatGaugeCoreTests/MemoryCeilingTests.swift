@@ -69,6 +69,32 @@ import Testing
         #expect(reading.skipped == 1)
     }
 
+    static func allocated() -> Int {
+        var statistics = malloc_statistics_t()
+        malloc_zone_statistics(nil, &statistics)
+        return Int(statistics.size_in_use)
+    }
+
+    @Test("Sol proof, criterion 1: transcript chunks release memory during a file read")
+    func chunksAreReleased() throws {
+        let root = try Self.scratch(); defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("session.jsonl")
+        let line = Data(("{\"type\":\"user\",\"text\":\"" + String(repeating: "x", count: 1000) + "\"}\n").utf8)
+        FileManager.default.createFile(atPath: file.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: file)
+        for _ in 0 ..< 48 { try handle.write(contentsOf: Data((0 ..< 1024).flatMap { _ in line })) }
+        try handle.close()
+        // Inside one pool, as a caller's own would be: what the read leaves
+        // live is what it would hold until that pool drains.
+        autoreleasepool {
+            let before = Self.allocated()
+            let reading = ClaudeCollector.read(file: file, primer: root.appendingPathComponent("primer"))
+            let growth = Self.allocated() - before
+            #expect(reading.responses.isEmpty)
+            #expect(growth < 2 * TranscriptLines.longestLine, "\(growth) bytes still live after a 48 MB read")
+        }
+    }
+
     // MARK: - The Log's incremental read
 
     @Test("a torn line past the ceiling is passed by within one pass, and never kept in the checkpoint")
