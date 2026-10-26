@@ -196,31 +196,58 @@ import Testing
             ["observations.jsonl", "observations-before-compaction-notes.txt", "keep.jsonl"]))
     }
 
-    @Test("a probe on a small share drops what does not fit from its ledger and checkpoint at the end of the pass")
-    func probeDropsBeyondItsShare() async throws {
+    @Test("a probe prints its share, but its ledger and checkpoint drop only what the whole file's budget leaves out")
+    func probeDropsBeyondTheWholeBudget() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let directory = root.appendingPathComponent("private")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let count = SessionRetention.fileRows + 2
         let path = root.appendingPathComponent("rollout-old.jsonl").path
         let start = Date()
-        try SessionLedger(directory: directory).append((0..<12).map { index in
-            var row = SessionRow(sessionId: "closed-\(index)", workspace: "PROJECT-Log-work", pane: "w1:p1", tool: "codex",
-                                 status: "closed", asOf: start)
-            row.closedAt = start.addingTimeInterval(-Double(index) * 60)
-            return SessionObservation(row: row, pid: 100 + index, processStart: "start", paths: index == 11 ? [path] : [])
-        })
-        var state = SessionCheckpoint()
-        state.files[path] = SessionTokens(); state.owners[path] = "closed-11"
-        try JSONEncoder().encode(state).write(to: directory.appendingPathComponent("offsets.json"))
+        try Self.seed(closed: count, in: directory, at: start, path: (count - 1, path))
         let keep = try #require(SessionRetention.Budget(rows: 10, bytes: SessionRetention.fileBytes))
-        let log = try await SessionProbe(runner: Answer(lines: { $0 == ["pane", "list"] ? [#"{"result":{"panes":[]}}"#]
-            : $0 == ["workspace", "list"] ? [#"{"result":{"workspaces":[]}}"#] : [] }), directory: directory, home: root, keep: keep).run(now: start)
+        let log = try await SessionProbe(runner: Self.noPanes, directory: directory, home: root, keep: keep).run(now: start)
         #expect(Set(log.sessions.map(\.sessionId)) == Set((0..<10).map { "closed-\($0)" }))
-        #expect(Set(try SessionLedger(directory: directory).rows().keys) == Set((0..<10).map { "closed-\($0)" }))
+        #expect(Set(try SessionLedger(directory: directory).rows().keys) == Set((0..<SessionRetention.fileRows).map { "closed-\($0)" }))
         let checkpoint = try JSONDecoder().decode(SessionCheckpoint.self, from: Data(contentsOf: directory.appendingPathComponent("offsets.json")))
         #expect(checkpoint.files[path] == nil)
     }
+
+    @Test("#131: a caller with a smaller share deletes nothing a caller with a larger one would show")
+    func smallerShareDeletesNothing() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("private")
+        let path = root.appendingPathComponent("rollout-old.jsonl").path
+        let start = Date()
+        try Self.seed(closed: 30, in: directory, at: start, path: (29, path))
+        let small = try #require(SessionRetention.Budget(rows: 10, bytes: SessionRetention.fileBytes))
+        let first = try await SessionProbe(runner: Self.noPanes, directory: directory, home: root, keep: small).run(now: start)
+        #expect(first.sessions.count == 10)
+        let second = try await SessionProbe(runner: Self.noPanes, directory: directory, home: root, keep: .share(machines: 1))
+            .run(now: start.addingTimeInterval(30))
+        #expect(Set(second.sessions.map(\.sessionId)) == Set((0..<30).map { "closed-\($0)" }))
+        let checkpoint = try JSONDecoder().decode(SessionCheckpoint.self, from: Data(contentsOf: directory.appendingPathComponent("offsets.json")))
+        #expect(checkpoint.files[path] != nil)
+    }
+
+    /// `count` closed sessions a minute apart, newest first, and a checkpoint
+    /// entry for one transcript, owned by session `path.index`.
+    static func seed(closed count: Int, in directory: URL, at start: Date, path: (index: Int, path: String)) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try SessionLedger(directory: directory).append((0..<count).map { index in
+            var row = SessionRow(sessionId: "closed-\(index)", workspace: "PROJECT-Log-work", pane: "w1:p1", tool: "codex",
+                                 status: "closed", asOf: start)
+            row.closedAt = start.addingTimeInterval(-Double(index) * 30)
+            return SessionObservation(row: row, pid: 100 + index, processStart: "start", paths: index == path.index ? [path.path] : [])
+        })
+        var state = SessionCheckpoint()
+        state.files[path.path] = SessionTokens(); state.owners[path.path] = "closed-\(path.index)"
+        try JSONEncoder().encode(state).write(to: directory.appendingPathComponent("offsets.json"))
+    }
+
+    fileprivate static let noPanes = Answer(lines: { $0 == ["pane", "list"] ? [#"{"result":{"panes":[]}}"#]
+        : $0 == ["workspace", "list"] ? [#"{"result":{"workspaces":[]}}"#] : [] })
 }
 
 private final class Sent: @unchecked Sendable {

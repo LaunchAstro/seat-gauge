@@ -22,14 +22,14 @@ import Testing
         try JSONDecoder().decode(SessionCheckpoint.self, from: Data(contentsOf: directory.appendingPathComponent("offsets.json")))
     }
 
-    /// Seeds `count` closed sessions, one a minute before `now`, the oldest
+    /// Seeds `count` closed sessions, 30 seconds apart before `now`, the oldest
     /// holding `path` in the ledger and checkpoint.
     private func seed(_ directory: URL, count: Int, now: Date, path: String) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let ledger = SessionLedger(directory: directory)
         let oldest = count - 1
         try ledger.append((0..<count).map { index in
-            SessionObservation(row: closed("closed-\(index)", at: now.addingTimeInterval(-Double(index + 1) * 60)),
+            SessionObservation(row: closed("closed-\(index)", at: now.addingTimeInterval(-Double(index + 1) * 30)),
                                pid: 1_000 + index, processStart: "start", paths: index == oldest ? [path] : [])
         })
         var state = SessionCheckpoint()
@@ -43,7 +43,9 @@ import Testing
         let directory = root.appendingPathComponent("private")
         let now = Date(timeIntervalSince1970: 1_790_000_000)
         let path = root.appendingPathComponent("rollout-oldest.jsonl").path
-        let keep = try #require(SessionRetention.Budget(rows: 50, bytes: SessionRetention.fileBytes))
+        // The ledger's cap is the whole file's budget, whatever the share
+        // (issue #131), so the proof runs at that budget.
+        let keep = SessionRetention.Budget.share(machines: 1)
         try seed(directory, count: keep.rows, now: now, path: path)
         // One more session, open, whose pane has gone: this pass closes it,
         // which puts the machine one over its cap.

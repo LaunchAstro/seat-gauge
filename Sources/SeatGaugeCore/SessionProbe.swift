@@ -96,7 +96,8 @@ public struct SessionProbe: Sendable {
         await settleUnseen(in: &pass, rates: rates)
         summarizeShown(in: &pass, rates: rates)
         try commit(&pass, to: ledger)
-        return SessionLogFile(updated: now, sessions: pass.observations.values.map(\.row).filter { $0.status != "superseded" },
+        let shown = SessionRetention.kept(pass.observations.values.map(\.row), row: { $0 }, now: now, budget: keep)
+        return SessionLogFile(updated: now, sessions: shown.filter { $0.status != "superseded" },
                               problems: pass.gitHeld ? ["git": Self.folderAccessProblem] : [:])
     }
 
@@ -105,7 +106,7 @@ public struct SessionProbe: Sendable {
     /// The ledger and checkpoint as the last pass left them. A session
     /// `log.json` no longer shows leaves the pass.
     func begin(_ stored: SessionLedger.Stored, now: Date) -> ProbePass {
-        var pass = ProbePass(now: now, keep: keep, stored: stored, observations: [:], checkpoint: SessionCheckpoint())
+        var pass = ProbePass(now: now, stored: stored, observations: [:], checkpoint: SessionCheckpoint())
         let observations = pass.staying(stored.rows)
         var checkpoint = (try? Data(contentsOf: checkpointFile))
             .flatMap { try? JSONDecoder().decode(SessionCheckpoint.self, from: $0) } ?? SessionCheckpoint()
@@ -472,7 +473,6 @@ public struct SessionProbe: Sendable {
 /// it leaves the machine.
 struct ProbePass {
     let now: Date
-    let keep: SessionRetention.Budget
     let stored: SessionLedger.Stored
     var observations: [String: SessionObservation]
     var checkpoint: SessionCheckpoint
@@ -486,9 +486,13 @@ struct ProbePass {
     var changes: [SessionObservation] = []
     var gitHeld = false
 
-    /// `rows` less any session `SessionRetention` retires.
+    /// `rows` less any session `SessionRetention` retires from the whole
+    /// file's budget, the most any caller's share can be. A caller's share
+    /// trims only what the probe prints, so a second app with more machines,
+    /// and so a smaller share, deletes nothing another caller would show
+    /// (issue #131).
     func staying(_ rows: [String: SessionObservation]) -> [String: SessionObservation] {
-        SessionRetention.kept(Array(rows), row: { $0.value.row }, now: now, budget: keep)
+        SessionRetention.kept(Array(rows), row: { $0.value.row }, now: now, budget: .share(machines: 1))
             .reduce(into: [String: SessionObservation]()) { $0[$1.key] = $1.value }
     }
 }
