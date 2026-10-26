@@ -62,6 +62,38 @@ import Testing
         #expect(far.reason.contains("CLI helper"))
     }
 
+    /// Most strangers have no herdr. The local line then says so, because the
+    /// helper ships inside the app and is not what is missing.
+    @Test func aMacWithoutHerdrSaysHerdrIsMissingNotTheHelper() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        // The probe ran and printed nothing, as it does when herdr is not there.
+        let silent = AnswerRunner(line: "")
+
+        let bare = await MachineProber(runner: silent, environment: [:], home: home).readLog(.here)
+        guard case let .failure(missing) = bare else { Issue.record("an empty answer read as a log"); return }
+        #expect(missing.reason.contains("herdr was not found"))
+        #expect(missing.reason.contains("~/.local/bin/herdr"))
+        #expect(!missing.reason.contains("CLI helper"))
+        #expect(!missing.reason.contains(home.path))
+
+        // With herdr in place, the same silence is not herdr's fault.
+        let herdr = home.appendingPathComponent(".local/bin/herdr")
+        try FileManager.default.createDirectory(at: herdr.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("#!/bin/sh\n".utf8).write(to: herdr)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: herdr.path)
+        let present = await MachineProber(runner: silent, environment: [:], home: home).readLog(.here)
+        guard case let .failure(helper) = present else { Issue.record("an empty answer read as a log"); return }
+        #expect(helper.reason.contains("CLI helper"))
+
+        // A far machine's herdr is not looked for here: its line stays the helper's.
+        let studio = Machine(id: "studio", label: "Studio", ssh: "studio")
+        let bareHome = home.appendingPathComponent("elsewhere")
+        let remote = await MachineProber(runner: silent, environment: [:], home: bareHome).readLog(studio)
+        guard case let .failure(far) = remote else { Issue.record("an empty answer read as a log"); return }
+        #expect(far.reason.contains("CLI helper"))
+    }
+
     @Test func aProblemTheProbeReportsReachesTheLogTab() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

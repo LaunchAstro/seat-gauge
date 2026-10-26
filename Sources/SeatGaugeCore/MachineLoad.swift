@@ -292,11 +292,16 @@ public struct MachineProber: Sendable {
     let environment: [String: String]
     public static let timeout: Duration = .seconds(20)
 
+    /// This Mac's home, where the Log probe looks for herdr.
+    let home: URL
+
     public init(runner: any ProcessRunning,
                 environment: [String: String] = ChildEnvironment.make(
-                    from: ProcessInfo.processInfo.environment, keeping: ["SSH_AUTH_SOCK"])) {
+                    from: ProcessInfo.processInfo.environment, keeping: ["SSH_AUTH_SOCK"]),
+                home: URL = URL(fileURLWithPath: NSHomeDirectory())) {
         self.runner = runner
         self.environment = environment
+        self.home = home
     }
 
     /// The command for one machine. Batch mode, so a missing key fails at
