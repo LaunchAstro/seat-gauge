@@ -34,6 +34,12 @@ import Testing
         #expect(rows[0]["shared"]?.workspace == "PROJECT-Work")
     }
 
+    @Test func aPaneWithNoTabIDReadsAsBefore() async throws {
+        let rows = try await TabScene.run([.init(tabIDs: false)])
+        #expect(rows[0]["shared"]?.workspace == "PROJECT-Work")
+        #expect(rows[0]["solo"]?.workspace == "PROJECT-Log-work")
+    }
+
     @Test func aRenamedTabRelabelsItsSession() async throws {
         let rows = try await TabScene.run([.init(), .init(sharedTab: "PROJECT-Review-work")])
         #expect(rows[1]["shared"]?.workspace == "PROJECT-Review-work")
@@ -46,6 +52,8 @@ import Testing
 private struct TabScene: Sendable {
     var sharedTab = "PROJECT-Refine-work"
     var tabs = true
+    /// Whether `pane list` names each pane's tab, as herdr 0.9.5 does.
+    var tabIDs = true
 
     static func run(_ scenes: [TabScene]) async throws -> [[String: SessionRow]] {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -74,12 +82,13 @@ private struct TabRunner: ProcessRunning {
         }
         switch args {
         case ["pane", "list"]:
-            let panes: [[String: Any]] = [
+            var panes: [[String: Any]] = [
                 ["pane_id": "w1:p1", "workspace_id": "w1", "tab_id": "w1:t2", "agent_status": "working", "cwd": "/work/one",
                  "agent_session": ["kind": "id", "value": "shared"]],
                 ["pane_id": "w2:p1", "workspace_id": "w2", "tab_id": "w2:t1", "agent_status": "working", "cwd": "/work/two",
                  "agent_session": ["kind": "id", "value": "solo"]],
             ]
+            if !scene.tabIDs { panes = panes.map { $0.filter { $0.key != "tab_id" } } }
             return TabSession([json(["result": ["type": "pane_list", "panes": panes]])])
         case ["workspace", "list"]:
             return TabSession([json(["result": ["workspaces": [["workspace_id": "w1", "label": "PROJECT-Work"],
