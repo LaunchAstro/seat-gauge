@@ -147,7 +147,7 @@ import SeatGaugeTestSupport
         let users = "/" + "Users"
         let raw = [
             "{\"accountId\":\"6f1b2d0e-1111-2222-3333-444455556666\",\"email\":\"\(address)\"}",
-            "{\"type\":\"result\",\"result\":\"session 9a7c4e21-aaaa-bbbb-cccc-ddddeeeeffff for \(address) in \(users)/someone/code\"}",
+            "{\"type\":\"result\",\"result\":\"session 9a7c4e21-aaaa-bbbb-cccc-ddddeeeeffff in \(users)/someone/code\",\"subtype\":\"for \(address)\"}",
             "{\"access_token\":\"sk-seat-aaaa\",\"refresh_token\":\"sk-seat-bbbb\"}",
         ]
         let clean = raw.map(FixtureRecording.redact)
@@ -158,6 +158,8 @@ import SeatGaugeTestSupport
         #expect(clean[1].contains("00000000-0000-0000-0000-000000000000"))
         #expect(clean[1].contains("/home/seat/code"))
         #expect(clean[1].contains("\"type\":\"result\""))
+        // A kept string with an address in it goes whole.
+        #expect(clean[1].contains("\"subtype\":\"[redacted]\""))
 
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("seat-gauge-record-\(UUID().uuidString)")
