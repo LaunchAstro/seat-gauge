@@ -184,15 +184,17 @@ extension RateCard {
 }
 
 /// What a row is keyed on: the four columns that make one cell of the CSV.
-/// Cells sort in the record's order: seat, day, hour, model.
+/// Cells sort in the record's order: seat, day, hour, model. The seat and
+/// model are held as `spend.csv` can write them (`SpendCSV.column`), so two
+/// models that would be written alike are one cell before they are counted.
 public struct SpendCell: Hashable, Sendable, Comparable {
     public let seat, day, hour, model: String
 
     public init(seat: String, day: String, hour: String, model: String) {
-        self.seat = seat
+        self.seat = SpendCSV.column(seat, first: true)
         self.day = day
         self.hour = hour
-        self.model = model
+        self.model = SpendCSV.column(model, first: false)
     }
 
     public static func < (a: SpendCell, b: SpendCell) -> Bool {
@@ -202,7 +204,8 @@ public struct SpendCell: Hashable, Sendable, Comparable {
 
 /// One line of `spend.csv`. `seat` is the profile directory
 /// name, `day` and `hour` are local, and `usd` is blank for a model the rate
-/// card does not carry.
+/// card does not carry. Every way of making one, decoding included, holds its
+/// seat and model as the record can write them (`SpendCSV.column`).
 public struct SpendRow: Equatable, Sendable, Codable {
 
     public let seat, day, hour, model: String
@@ -212,10 +215,10 @@ public struct SpendRow: Equatable, Sendable, Codable {
 
     public init(seat: String, day: String, hour: String, model: String,
                 counts: TokenCounts, usd: Decimal?, sealed: Bool) {
-        self.seat = seat
+        self.seat = SpendCSV.column(seat, first: true)
         self.day = day
         self.hour = hour
-        self.model = model
+        self.model = SpendCSV.column(model, first: false)
         responses = counts.responses
         input = counts.input
         output = counts.output
@@ -230,6 +233,20 @@ public struct SpendRow: Equatable, Sendable, Codable {
     public init(cell: SpendCell, counts: TokenCounts, usd: Decimal?, sealed: Bool) {
         self.init(seat: cell.seat, day: cell.day, hour: cell.hour, model: cell.model,
                   counts: counts, usd: usd, sealed: sealed)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(seat: try c.decode(String.self, forKey: .seat), day: try c.decode(String.self, forKey: .day),
+                  hour: try c.decode(String.self, forKey: .hour), model: try c.decode(String.self, forKey: .model),
+                  counts: TokenCounts(responses: try c.decode(Int.self, forKey: .responses),
+                                      input: try c.decode(Int.self, forKey: .input),
+                                      output: try c.decode(Int.self, forKey: .output),
+                                      thinking: try c.decode(Int.self, forKey: .thinking),
+                                      cacheRead: try c.decode(Int.self, forKey: .cacheRead),
+                                      cacheWrite5m: try c.decode(Int.self, forKey: .cacheWrite5m),
+                                      cacheWrite1h: try c.decode(Int.self, forKey: .cacheWrite1h)),
+                  usd: try c.decodeIfPresent(Decimal.self, forKey: .usd), sealed: try c.decode(Bool.self, forKey: .sealed))
     }
 
     public var counts: TokenCounts {

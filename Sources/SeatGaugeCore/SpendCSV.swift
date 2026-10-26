@@ -5,13 +5,30 @@ import Foundation
 /// mtime, so the file outlives its own evidence and rewriting it wholesale
 /// would throw away everything older than the walk can still see.
 public enum SpendCSV {
-    /// The columns, in order. No field can hold a comma: a seat is a
-    /// seat id or `default`, a day and an hour are digits, and a model id is the
-    /// transport's own, which has never carried one.
+    /// The columns, in order. A day and an hour are digits and a seat is a
+    /// plain seat id, `default` or `codex`, but a model is whatever a
+    /// transcript says, so the text columns pass through `column` first.
     public static let header =
         "seat,day,hour,model,responses,input,output,thinking,cache_read,cache_write_5m,cache_write_1h,usd,sealed"
 
     public static var defaultFile: URL { AppPaths.support.appendingPathComponent("spend.csv") }
+
+    /// A seat or model as the record can write it: a comma or a line break is
+    /// a space, and a space is put next to a mark that would join the comma
+    /// beside it into one `Character`, which `rows` would not split. Text, not
+    /// quoting, because a line of any other shape could already be in an
+    /// older file (a model with a line break in it wrote whole lines), and
+    /// the reader must read every older line as it always has. A row read
+    /// from the record comes through unchanged, since its line was split at
+    /// these very commas, so no kept row is rewritten. `first` is the seat,
+    /// which starts the line and has no comma before it.
+    static func column(_ text: String, first: Bool) -> String {
+        var out = text.contains(where: { $0 == "," || $0 == "\n" })
+            ? String(text.map { $0 == "," || $0 == "\n" ? " " : $0 }) : text
+        if !first, ("," + out).first != "," { out = " " + out }
+        if (out + ",").last != "," { out += " " }
+        return out
+    }
 
     // MARK: - The file
 
