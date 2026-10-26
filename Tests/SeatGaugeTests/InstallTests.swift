@@ -48,13 +48,15 @@ import SeatGaugeCore
     /// rename that moves the installed copy aside, `swapFails` the rename that
     /// puts the new copy in place, and `raced` has another install put its
     /// copy at the destination straight after the old one is moved aside.
+    /// `swapped` puts another app at the destination after it was checked and
+    /// before it is moved aside, from the stub `pkill`, which runs between.
     @discardableResult
     static func install(indexing: String = "Indexing enabled.", busy: String? = nil, signed: Bool = true,
                         bundle: Bool = true, helper: Bool = true, other: Bool = false, gone: Bool = false,
                         iCloud: Bool = false, cli: Planted = .nothing,
                         onPath: Bool = true, folder: Folder = .usable, prior: Prior = .nothing,
                         copyFails: Bool = false, asideFails: Bool = false, swapFails: Bool = false,
-                        raced: Bool = false) throws -> Ran {
+                        raced: Bool = false, swapped: Swapped = .nothing) throws -> Ran {
         let base = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("seat-gauge-install-\(UUID().uuidString)", isDirectory: true)
         let applications = base.appendingPathComponent("Applications", isDirectory: true)
@@ -139,7 +141,17 @@ import SeatGaugeCore
         let found = other ? planted.path : applications.appendingPathComponent("Seat Gauge.app").path
         let deleted = base.appendingPathComponent("deleted/Seat Gauge.app").path
         try stub("mdfind", "printf '%s\\n' '\(found)'" + (gone ? "; printf '%s\\n' '\(deleted)'" : ""))
-        try stub("pkill", "printf '%s\\n' \"$@\" > '\(base.appendingPathComponent("pkill-args").path)'")
+        let swap: String
+        switch swapped {
+        case .nothing: swap = ""
+        case .foreign, .ours:
+            let id = swapped == .ours ? "com.launchastro.seatgauge" : "com.example.other"
+            swap = """
+                ; rm -rf '\(dest.path)'; mkdir -p '\(dest.path)/Contents'; printf swapped > '\(dest.path)/marker-swapped'
+                printf '<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>\(id)</string></dict></plist>' > '\(dest.path)/Contents/Info.plist'
+                """
+        }
+        try stub("pkill", "printf '%s\\n' \"$@\" > '\(base.appendingPathComponent("pkill-args").path)'" + swap)
         try stub("open", "exit 0")
         // The retries' pauses, so a case does not wait them out.
         try stub("sleep", "exit 0")
@@ -187,6 +199,7 @@ import SeatGaugeCore
 
     enum Planted { case nothing, file, link(String), ours }
     enum Prior { case nothing, ours, foreign, bare, link }
+    enum Swapped { case nothing, foreign, ours }
 
     /// A staging folder the script left in the applications root.
     static func staged(_ ran: Ran) -> [String] {
@@ -409,6 +422,20 @@ import SeatGaugeCore
         #expect(Self.exists(stage.appendingPathComponent("old/Seat Gauge.app/marker")))
         #expect(!Self.exists(stage.appendingPathComponent("Seat Gauge.app")))
         #expect(ran.out.contains(stage.appendingPathComponent("old/Seat Gauge.app").path), "\(ran.out)")
+    }
+
+    @Test("proof: an app put at the destination after the check is never deleted: it is left aside, and said where (#114)",
+          arguments: [(Prior.ours, Swapped.foreign), (.ours, .ours), (.nothing, .foreign)])
+    func aSwappedInAppIsLeftAside(prior: Prior, swapped: Swapped) throws {
+        let ran = try Self.install(prior: prior, swapped: swapped)
+        defer { try? FileManager.default.removeItem(at: ran.applications.deletingLastPathComponent()) }
+        #expect(ran.status == 0, "\(ran.out)")
+        #expect(Self.exists(ran.installed.appendingPathComponent("Contents/MacOS/SeatGauge")))
+        let staged = Self.staged(ran)
+        #expect(staged.count == 1)
+        let aside = ran.applications.appendingPathComponent(staged.first ?? "").appendingPathComponent("old/Seat Gauge.app")
+        #expect(Self.exists(aside.appendingPathComponent("marker-swapped")))
+        #expect(ran.out.contains("left at \(aside.path)"), "\(ran.out)")
     }
 
     @Test("proof: only the installed copy is quit, never a make run build or a path the pattern only looks like")
