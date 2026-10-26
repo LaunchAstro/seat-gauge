@@ -217,8 +217,12 @@ public actor SessionLogMonitor {
     let notify: @Sendable (SessionLogFile) -> Void
     private var rows: [String: [SessionRow]] = [:]
     /// The newest second whose closed rows the file cap has dropped, handed
-    /// to every probe so each drops them from its own store too.
+    /// to every probe so each drops them from its own store too. It is kept
+    /// in `cutOffFile`, so a monitor made afresh, as each `seatgauge-cli log`
+    /// is, still hands it on.
     private var closedThrough: Date?
+    nonisolated var cutOffFile: URL { Self.cutOff(beside: file) }
+    static func cutOff(beside file: URL) -> URL { file.deletingLastPathComponent().appendingPathComponent("log-closed-through") }
 
     public init(prober: MachineProber, file: URL = SessionLogFile.file,
                 config: @escaping @Sendable () async -> Config,
@@ -228,6 +232,9 @@ public actor SessionLogMonitor {
            let saved = try? SessionLogFile.decoder().decode(SessionLogFile.self, from: data) {
             rows = Dictionary(grouping: saved.sessions, by: \.machine)
         }
+        closedThrough = (try? String(contentsOf: Self.cutOff(beside: file), encoding: .utf8))
+            .flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            .map { Date(timeIntervalSince1970: Double($0)) }
     }
 
     public func run() async {
@@ -266,7 +273,16 @@ public actor SessionLogMonitor {
         }
         let (log, dropped) = SessionRetention.bounded(SessionLogFile(updated: now, sessions: machines.flatMap { rows[$0.id] ?? [] }
             .sorted { ($0.startedAt ?? .distantPast, $0.id) > ($1.startedAt ?? .distantPast, $1.id) }, problems: problems))
-        if let dropped { closedThrough = max(closedThrough ?? dropped, dropped) }
+        // Kept before the snapshot is written, so the file never hides a row
+        // that the next round's probes are not told to drop.
+        if let dropped, dropped > closedThrough ?? .distantPast {
+            closedThrough = dropped
+            do {
+                try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data("\(Int(SessionRetention.second(dropped)))\n".utf8).write(to: cutOffFile, options: .atomic)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: cutOffFile.path)
+            } catch { PollLog.system("log: the closed-row cut-off could not be written") }
+        }
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try SessionLogFile.encoder().encode(log).write(to: file, options: .atomic)
