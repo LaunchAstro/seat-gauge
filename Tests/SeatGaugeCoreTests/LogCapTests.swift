@@ -168,18 +168,32 @@ import Testing
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.hasPrefix("observations") } == ["observations.jsonl"])
     }
 
-    @Test("a copy an older probe kept at compaction is deleted at the next, and nothing else in the folder")
-    func anOlderProbesCopyIsDeleted() throws {
+    @Test("Sol proof, criterion 1: a copy an older probe kept is deleted on every pass, compacting or not, and nothing else in the folder")
+    func anOlderProbesCopyIsDeleted() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let ledger = SessionLedger(directory: root)
-        try ledger.append([SessionObservation(row: closed(0), pid: 1, processStart: "start", paths: [])])
-        let names = ["observations-before-compaction-2026-10-20T010203Z.jsonl", "observations-before-compaction-notes.txt", "keep.jsonl"]
-        for name in names { try Data("x".utf8).write(to: root.appendingPathComponent(name)) }
-        try ledger.compactIfLong(try ledger.rows(), lines: 1, dropping: true)
-        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: root.path))
-            == ["observations.jsonl", "observations-before-compaction-notes.txt", "keep.jsonl"])
+        let directory = root.appendingPathComponent("private")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let start = Date()
+        let ledger = SessionLedger(directory: directory)
+        FileManager.default.createFile(atPath: ledger.file.path, contents: Data(), attributes: [.posixPermissions: 0o600])
+        var expired = closed(0, at: start)
+        expired.closedAt = start.addingTimeInterval(-8 * 86_400)
+        let copy = "observations-before-compaction-2026-10-20T010203Z.jsonl"
+        try (JSONEncoder().encode(SessionObservation(row: expired, pid: 1, processStart: "start", paths: [])) + Data([0x0A]))
+            .write(to: directory.appendingPathComponent(copy))
+        for name in ["observations-before-compaction-notes.txt", "keep.jsonl"] {
+            try Data("x".utf8).write(to: directory.appendingPathComponent(name))
+        }
+        let probe = SessionProbe(runner: Answer(lines: { $0 == ["pane", "list"] ? [#"{"result":{"panes":[]}}"#]
+            : [#"{"result":{"workspaces":[]}}"#] }), directory: directory, home: root)
+        for now in [start, start.addingTimeInterval(86_400)] {
+            #expect(try await probe.run(now: now).sessions.count == 0)
+            #expect(try ledger.rows().count == 0)
+            #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent(copy).path))
+        }
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: directory.path)).isSuperset(of:
+            ["observations.jsonl", "observations-before-compaction-notes.txt", "keep.jsonl"]))
     }
 
     @Test("a probe on a small share drops what does not fit from its ledger and checkpoint at the end of the pass")

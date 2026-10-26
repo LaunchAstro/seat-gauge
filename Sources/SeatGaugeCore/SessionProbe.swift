@@ -335,6 +335,7 @@ public struct SessionProbe: Sendable {
                                      dropping: !leaving.isEmpty)
         }
         catch { PollLog.system("log: the pane ledger could not be compacted") }
+        ledger.removeOlderCopies()
         try JSONEncoder().encode(pass.checkpoint).write(to: checkpointFile, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: checkpointFile.path)
     }
