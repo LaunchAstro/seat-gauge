@@ -60,7 +60,7 @@ import SeatGaugeCore
         ]
         for (name, data) in lists {
             do {
-                _ = try ConfigLoader.decode(data, tokenDirectory: tokens)
+                _ = try ConfigLoader.decode(data)
                 Issue.record("a profile-less claude seat \(name) was read")
             } catch let problem as ConfigProblem {
                 #expect(problem.reason.contains(#""work""#), "\(name): \(problem.reason)")
@@ -69,7 +69,7 @@ import SeatGaugeCore
             }
         }
         let token = #"{ "id": "personal", "label": "Personal", "kind": "claude", "profile": "~/profiles/personal", "token": "~/personal.token" }"#
-        let config = try ConfigLoader.decode(Self.seats(Self.work, token, Self.codex), tokenDirectory: tokens)
+        let config = try ConfigLoader.decode(Self.seats(Self.work, token, Self.codex))
         #expect(config.seats.map(\.id.rawValue) == ["work", "personal", "codex"])
         #expect(config.seats[1].tokenFile?.lastPathComponent == "personal.token")
     }
@@ -100,7 +100,7 @@ import SeatGaugeCore
         #expect(written.contains("//"))
         #expect(written.contains("},\n") || written.contains(",\n  ]") || written.contains(",\n}"))
 
-        let config = try ConfigLoader.decode(Data(written.utf8), tokenDirectory: tokens, home: home)
+        let config = try ConfigLoader.decode(Data(written.utf8), home: home)
         #expect(config.pollMinutes == 5)
         #expect(config.seats.map(\.id) == declared.map(\.id))
         #expect(config.seats.map(\.id.rawValue) == ["personal", "work", "codex"])

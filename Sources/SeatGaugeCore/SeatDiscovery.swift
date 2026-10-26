@@ -78,10 +78,7 @@ public struct SeatDiscovery: Sendable {
     /// digit, and not a name spend history keeps. Anything else is left for
     /// the user to add by hand, so an odd name never reaches the file.
     static func isID(_ name: String) -> Bool {
-        let allowed = Set("abcdefghijklmnopqrstuvwxyz0123456789-_")
-        guard let first = name.first, first.isASCII, first.isLetter || first.isNumber,
-              name.allSatisfy(allowed.contains) else { return false }
-        return !SpendAttribution.keptNames.contains(name)
+        ConfigLoader.isPlainID(name) && !SpendAttribution.keptNames.contains(name)
     }
 
     static func isLink(_ url: URL) -> Bool {

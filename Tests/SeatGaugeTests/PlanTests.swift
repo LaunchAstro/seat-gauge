@@ -232,14 +232,14 @@ import SeatGaugeTestSupport
             try? FileManager.default.removeItem(at: home)
         }
         try Self.write(Self.dummy, named: "personal.token", into: tokens)
-        try Self.write(Self.dummy, named: "team.token", into: tokens)
+        let teamToken = try Self.write(Self.dummy, named: "team.token", into: tokens)
         let profile = home.appendingPathComponent("profiles/personal", isDirectory: true)
         let config = try ConfigLoader.decode(Data("""
             { "seats": [
                 { "id": "personal", "label": "Personal", "kind": "claude", "profile": "\(profile.path)", "login": "own" },
-                { "id": "team", "label": "Team", "kind": "claude", "profile": "/tmp/seat-gauge-plan-team" },
+                { "id": "team", "label": "Team", "kind": "claude", "profile": "/tmp/seat-gauge-plan-team", "token": "\(teamToken.path)" },
             ] }
-            """.utf8), tokenDirectory: tokens)
+            """.utf8))
         #expect(config.seats[0].tokenFile == nil)
         #expect(config.seats[1].tokenFile?.lastPathComponent == "team.token")
 
@@ -267,7 +267,7 @@ import SeatGaugeTestSupport
         for bad in [#""login": "borrowed""#, #""login": "own", "token": "/tmp/x.token""#] {
             let text = #"{ "seats": [ { "id": "personal", "label": "Personal", "kind": "claude", "profile": "/tmp/p", "# + bad + " } ] }"
             #expect(throws: ConfigProblem.self) {
-                try ConfigLoader.decode(Data(text.utf8), tokenDirectory: tokens)
+                try ConfigLoader.decode(Data(text.utf8))
             }
         }
     }

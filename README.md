@@ -83,7 +83,7 @@ First launch fills it from what is on the Mac, found by name alone with no login
 }
 ```
 
-Every Claude seat needs its own `profile` directory, so no card reads whatever `~/.claude` happens to be signed into. The app refuses a Claude seat without one and gives the reason in the title bar. It also refuses a profile that resolves to `~` or `~/.claude`, two seats on one directory, and a Claude seat named `default` or `codex` (spend history keeps those two names). Any other path works, and the Spend tab files the seat's spend under its id.
+Every Claude seat needs its own `profile` directory, so no card reads whatever `~/.claude` happens to be signed into. The app refuses a Claude seat without one and gives the reason in the title bar. It also refuses a profile that resolves to `~` or `~/.claude`, two seats on one directory, and a Claude seat named `default` or `codex` (spend history keeps those two names). Any other path works, and the Spend tab files the seat's spend under its id. Every seat's `id` is a plain id, the rule first launch uses: a lowercase letter or digit, then lowercase letters, digits, `-` or `_`. The app refuses any other id, since the id names files and fills a column of `spend.csv`.
 
 ### Signing a Claude seat in
 
@@ -95,7 +95,7 @@ seatgauge-cli login claude
 
 This runs `claude auth login` under the seat's own profile. If the profile is not there yet, it creates it, readable by you alone. It prints a link. Open it in any browser, sign in to the account this seat is for, and paste the code the page shows. `claude auth status` then says whether the seat is signed in. The app's Sign in runs this same command. `--email <address>` fills the address in on the sign-in page. The code goes to `claude` and nowhere else, so it is never saved or logged. The command refuses a Codex seat, a token seat, an unknown id, or a profile that is `~`, `~/.claude` or another seat's, before anything runs.
 
-Token seats are optional, and nobody needs one to get started. If a seat should sign in with an OAuth token instead, leave `login` out and give `token` the path of a file that holds the token, such as `"token": "~/tokens/work.token"`. The app hands it only to that seat's `claude`. A token seat shows 5h and 7d only, because no token reports Fable or the exact plan.
+Token seats are optional, and nobody needs one to get started. If a seat should sign in with an OAuth token instead, leave `login` out and give `token` the path of a file that holds the token, such as `"token": "~/tokens/work.token"`. The app hands it only to that seat's `claude`. A seat with neither `login` nor `token` reads its own profile, as `"login": "own"` does: no token file is ever picked up by the seat's name. A token seat shows 5h and 7d only, because no token reports Fable or the exact plan.
 
 ### Opening a seat from its card
 

@@ -82,7 +82,7 @@ import SeatGaugeCore
         /// The seeded text decoded as the app will decode it, against this
         /// machine's home and token directory.
         func decode(_ text: String) throws -> Config {
-            try ConfigLoader.decode(Data(text.utf8), tokenDirectory: tokens, home: home)
+            try ConfigLoader.decode(Data(text.utf8), home: home)
         }
     }
 
@@ -331,7 +331,7 @@ import SeatGaugeCore
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
         let written = ConfigLoader(file: machine.seats,
                                    machine: SeatDiscovery(home: home, codexLogin: machine.codexLogin)).seed()
-        let config = try ConfigLoader.decode(Data(written.utf8), tokenDirectory: machine.tokens, home: home)
+        let config = try ConfigLoader.decode(Data(written.utf8), home: home)
         #expect(config.seats.compactMap(Self.profile) == [Self.resolved(work)])
     }
 

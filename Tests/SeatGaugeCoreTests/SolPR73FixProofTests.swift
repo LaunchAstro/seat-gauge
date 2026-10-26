@@ -12,7 +12,10 @@ import SeatGaugeCore
             "id": id, "label": "Work", "kind": "claude",
             "profile": scratch.profile("work").path, "login": "own"
         ]]])
-        let seats = try ConfigLoader.decode(bytes, home: scratch.home).seats
+        // seats.json now refuses an id that is not a plain id, so this one
+        // comes from a seat list built another way, which sign-in still serves.
+        #expect(throws: ConfigProblem.self) { try ConfigLoader.decode(bytes, home: scratch.home) }
+        let seats = [SeatLoginTests.seat(id, profile: scratch.profile("work"))]
         let signed = try SeatLoginTests.signIn(id, seats: seats, scratch: scratch,
                                                code: "fake-code", said: SeatLoginTests.Said())
         #expect(signed.plan == "pro")

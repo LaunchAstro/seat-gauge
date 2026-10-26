@@ -28,7 +28,7 @@ import SeatGaugeCore
         func problem(_ seats: [String]) -> String? {
             let text = "{ \"seats\": [\(seats.joined(separator: ", "))] }"
             do {
-                _ = try ConfigLoader.decode(Data(text.utf8), tokenDirectory: home.appendingPathComponent("tokens"), home: home)
+                _ = try ConfigLoader.decode(Data(text.utf8), home: home)
                 return nil
             } catch { return (error as? ConfigProblem)?.reason ?? "\(error)" }
         }

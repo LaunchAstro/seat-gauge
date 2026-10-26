@@ -39,7 +39,10 @@ extension SolPR73ProofTests {
             "id": id, "label": "Work", "kind": "claude",
             "profile": scratch.profile("work").path, "login": "own"
         ]]])
-        let seats = try ConfigLoader.decode(bytes, home: scratch.home).seats
+        // seats.json now refuses an id that is not a plain id, so this one
+        // comes from a seat list built another way, which sign-in still serves.
+        #expect(throws: ConfigProblem.self) { try ConfigLoader.decode(bytes, home: scratch.home) }
+        let seats = [SeatLoginTests.seat(id, profile: scratch.profile("work"))]
         // The app's previous direct path accepts this configured seat and
         // completes its login against a fake Claude, without a real account.
         let signed = try SeatLoginTests.signIn(id, seats: seats, scratch: scratch,

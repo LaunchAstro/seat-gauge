@@ -184,7 +184,7 @@ import SeatGaugeCore
               "pollMinutes": 5,
             }
             """
-        let config = try ConfigLoader.decode(Data(text.utf8), tokenDirectory: folder)
+        let config = try ConfigLoader.decode(Data(text.utf8))
 
         // Every seat that is fine is still there, in order, and so is the one
         // whose plan was not a string: the field is ignored, not the seat.
@@ -196,8 +196,7 @@ import SeatGaugeCore
         // The file the first launch writes carries both keys, so the user
         // is told they exist without the app inventing a value for either.
         let found = SeatDiscovery.Found(id: "work", kind: .claude(profile: folder.appendingPathComponent("work")))
-        let seeded = try ConfigLoader.decode(Data(ConfigLoader.seeded(with: [found]).utf8),
-                                             tokenDirectory: folder)
+        let seeded = try ConfigLoader.decode(Data(ConfigLoader.seeded(with: [found]).utf8))
         #expect(seeded.seats.isEmpty == false)
         #expect(seeded.seats.allSatisfy { $0.account == nil && $0.plan == nil })
         #expect(ConfigLoader.template.contains("account"))
