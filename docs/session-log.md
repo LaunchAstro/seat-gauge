@@ -2,6 +2,14 @@
 
 The Log tab publishes `log.json` in the app's Application Support folder, beside `machines.json` and `headroom.json`. It polls the configured machines every 30 seconds. `seatgauge-cli log` runs one round and prints the same snapshot.
 
+## Requirements
+
+The Log tab sees only agents that run inside herdr, a terminal workspace manager that runs agent sessions in named workspaces and panes and answers questions about them on the command line. Each machine the tab reads needs herdr at `~/.local/bin/herdr`; the probe looks nowhere else. On a Mac without it, the tab lists no sessions and shows that machine's line as "the Log probe did not answer; install this version's CLI helper on the machine", although the helper is not what is missing. The other tabs do not need herdr.
+
+The repo, section and seat columns come from the workspace's name, which must read `<repo>-<section>-<seat>`, such as `seat-gauge-Log-work`. Any other name still logs the session, with those three fields empty; the tab shows them as "unlabelled repo", "no section" and "no seat".
+
+## Rows
+
 Each row is keyed by `machine` and `session_id`. It carries workspace and pane, tool, model and effort, repo, section, seat, branch, `started_at`, `closed_at`, status, `as_of`, `stale`, token counts, counts by model, and list-price USD. Workspace labels split from the right as `<repo>-<section>-<seat>`. A label without three parts leaves those fields empty. A model with no known price leaves the price empty.
 
 Start means the first time the probe saw the session working. `done` means a finished turn. Close means the pane disappeared or its agent process exited. A failed machine read keeps its rows, with `stale` set, and says why under `problems`, keyed by machine. A read that answered can still name something it could not read there, such as a folder macOS held. Consumers also compare `as_of` with their clock and reject figures older than 90 seconds, including when the app has quit.
