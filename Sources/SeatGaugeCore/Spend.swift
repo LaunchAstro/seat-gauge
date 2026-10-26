@@ -93,10 +93,33 @@ public struct Rate: Equatable, Sendable, Codable {
 public struct RateCard: Equatable, Sendable, Codable {
     public let version: String
     public let models: [String: Rate]
+    /// `models` under the name `spend.csv` writes each one by
+    /// (`SpendCSV.column`), which is the name every row is priced by, at
+    /// roll-up and again in each view that reprices it, so the two agree. A
+    /// name two entries fold to with different rates is left out: the record
+    /// holds their tokens as one model, and one model's rate is never charged
+    /// for another's.
+    let named: [String: Rate]
+
+    enum CodingKeys: String, CodingKey { case version, models }
 
     public init(version: String, models: [String: Rate]) {
         self.version = version
         self.models = models
+        var named: [String: Rate] = [:]
+        var clashing: Set<String> = []
+        for (model, rate) in models {
+            let name = SpendCSV.column(model, first: false)
+            if let other = named[name], other != rate { clashing.insert(name) }
+            named[name] = rate
+        }
+        self.named = named.filter { !clashing.contains($0.key) }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(version: try c.decode(String.self, forKey: .version),
+                  models: try c.decode([String: Rate].self, forKey: .models))
     }
 
     /// The bundled list prices, per million tokens; Fable's two ids are priced apart. Haiku and the
@@ -126,7 +149,7 @@ public struct RateCard: Equatable, Sendable, Codable {
 
     public static var defaultFile: URL { AppPaths.support.appendingPathComponent("rates.json") }
 
-    public func rate(for model: String) -> Rate? { models[model] }
+    public func rate(for model: String) -> Rate? { named[SpendCSV.column(model, first: false)] }
 
     /// Nil where the card has no rate: an unpriced bucket, not a free one.
     public func usd(model: String, counts: TokenCounts) -> Decimal? {
