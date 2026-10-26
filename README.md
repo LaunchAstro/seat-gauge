@@ -172,12 +172,12 @@ Nothing is installed on the other Mac. The gauge keeps one ssh connection to it 
 
 ### Folders worth clearing
 
-Every 15 minutes the app sizes a fixed list of folders on each machine that answers: caches and build output that their own tool makes again when it is needed. It runs `du` there at background priority (`taskpolicy -b` and `nice -n 20`, so it waits behind everything else for the CPU and the disk), on one disk, stopped after 60 seconds, and never on the 5-second read. Seat Gauge only names them: it never deletes anything. A folder under 0.1 GB, a link, or one that is not there is left out.
+Every 15 minutes the app sizes a fixed list of folders on each machine that answers: caches and build output that their own tool makes again when it is needed. It runs one `du` per folder there at background priority (`taskpolicy -b` and `nice -n 20`, so it waits behind everything else for the CPU and the disk), never on the 5-second read. The whole pass stops at 60 seconds and keeps the folders it finished. Seat Gauge only names them: it never deletes anything. A folder under 0.1 GB, one that is not there, a link, one under a link, or one on another disk than the home is left out, since clearing it would free nothing there. A machine that runs its own Seat Gauge (it has its own `seats.json`) sizes itself, so this app leaves its `clearable` `null`; read that machine's own file.
 
 | Folder (from the home) | How to clear it |
 | --- | --- |
 | `Library/Developer/Xcode/DerivedData`, `Library/Developer/CoreSimulator/Caches` | delete what is inside |
-| `Library/Caches/Homebrew` | `brew cleanup --prune=all` |
+| `Library/Caches/Homebrew` | delete what is inside (Homebrew's downloads only) |
 | `Library/Caches/pip`, `.cache/pip` | `pip cache purge` |
 | `.cache/uv` | `uv cache clean` |
 | `.npm/_cacache` | `npm cache clean --force` |
@@ -190,7 +190,7 @@ Every 15 minutes the app sizes a fixed list of folders on each machine that answ
 | `.cargo/registry` | delete `registry/cache` and `registry/src` |
 | `.gradle/caches` | delete what is inside while no Gradle build runs |
 | `.cache/huggingface` | `hf cache delete`, for models no project uses |
-| `Library/Containers/com.docker.docker/Data/vms` | `docker builder prune` and `docker image prune -a`; never delete the folder, which holds Docker's volumes too |
+| `Library/Containers/com.docker.docker/Data/vms` | `docker builder prune`, then `docker image prune` (without `-a`, which also removes images no registry has); never delete the folder, which holds Docker's volumes too |
 
 A lane's working copy is not on the list: whether one is left over depends on which lanes are still running, which Seat Gauge cannot know.
 

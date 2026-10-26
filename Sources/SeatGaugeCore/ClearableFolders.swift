@@ -51,7 +51,7 @@ public enum ClearableFolders {
     public static let candidates: [Candidate] = [
         Candidate(path: "Library/Developer/Xcode/DerivedData", clear: "delete what is inside; Xcode builds it again"),
         Candidate(path: "Library/Developer/CoreSimulator/Caches", clear: "delete what is inside"),
-        Candidate(path: "Library/Caches/Homebrew", clear: "brew cleanup --prune=all"),
+        Candidate(path: "Library/Caches/Homebrew", clear: "delete what is inside; it holds Homebrew's downloads only"),
         Candidate(path: "Library/Caches/pip", clear: "pip cache purge"),
         Candidate(path: ".cache/pip", clear: "pip cache purge"),
         Candidate(path: ".cache/uv", clear: "uv cache clean"),
@@ -70,7 +70,7 @@ public enum ClearableFolders {
         Candidate(path: ".gradle/caches", clear: "delete what is inside while no Gradle build runs"),
         Candidate(path: ".cache/huggingface", clear: "hf cache delete, for models no project uses"),
         Candidate(path: "Library/Containers/com.docker.docker/Data/vms",
-                  clear: "docker builder prune and docker image prune -a; never delete the folder, it holds Docker's volumes"),
+                  clear: "docker builder prune, then docker image prune (without -a, which also removes images no registry has); never delete the folder, it holds Docker's volumes"),
     ]
 
     /// How often a machine is sized. Sizing big folders takes seconds of disk
@@ -81,35 +81,47 @@ public enum ClearableFolders {
     /// Under a tenth of a gigabyte is not worth naming.
     public static let smallest: Int64 = 100_000_000
 
-    /// The lines `sh -s` runs, here or at the far end of ssh: `du` over each
-    /// listed folder that is there and is not a link, at background priority
-    /// (`taskpolicy -b` lowers its CPU and disk, `nice` its CPU), never
-    /// crossing to another disk, stopped at `limit` seconds by a watch that
-    /// wakes once a second. Folders it finished before then are still
-    /// printed. It reads sizes only: nothing in it can change a file.
-    public static func script(limit: Int = limit) -> [String] {
-        [
+    /// The lines `sh -s` runs, here or at the far end of ssh. One `du` per
+    /// listed folder, so each size is printed as soon as it is known: `du`
+    /// holds its lines until it exits, so one `du` stopped over many folders
+    /// would lose them all. Each runs at background priority (`taskpolicy -b`
+    /// by its full path lowers its CPU and disk, `nice` its CPU) on one disk.
+    /// A folder is passed over when it is a link, sits under one, or is on
+    /// another disk than the home, since clearing it would free nothing
+    /// there. The whole pass stops at `limit` seconds, the `du` then running
+    /// killed by a watch that wakes once a second, and says `cut`. Elsewhere
+    /// (`remote`), a machine whose own Seat Gauge has a `seats.json` sizes
+    /// itself, so it says `own` and sizes nothing. It reads sizes only:
+    /// nothing in it can change a file.
+    public static func script(limit: Int = limit, remote: Bool = false) -> [String] {
+        (remote ? [#"if [ -e "$HOME/Library/Application Support/\#(AppPaths.bundleID)/seats.json" ]; then echo own; exit 0; fi"#] : []) + [
             #"cd "$HOME" || exit 1"#,
-            "set --",
+            "home=$(pwd -P); disk=$(stat -f %d .)",
+            "b=; [ -x /usr/sbin/taskpolicy ] && b='/usr/sbin/taskpolicy -b'",
+            "end=$(( $(date +%s) + \(max(1, limit)) ))",
             "for d in " + candidates.map { "'\($0.path)'" }.joined(separator: " ") + "; do",
-            #"  [ -d "$d" ] && [ ! -L "$d" ] && set -- "$@" "$d""#,
-            "done",
-            "if [ $# -gt 0 ]; then",
-            "  b=; command -v taskpolicy >/dev/null 2>&1 && b='taskpolicy -b'",
-            #"  $b nice -n 20 du -skx "$@" 2>/dev/null &"#,
+            #"  [ -d "$d" ] && [ ! -L "$d" ] || continue"#,
+            #"  [ "$(cd -P "$d" 2>/dev/null && pwd -P)" = "$home/$d" ] || continue"#,
+            #"  [ "$(stat -f %d "$d")" = "$disk" ] || continue"#,
+            "  left=$(( end - $(date +%s) ))",
+            "  if [ $left -le 0 ]; then echo cut; break; fi",
+            #"  $b nice -n 20 du -skx "$d" 2>/dev/null &"#,
             "  p=$!",
-            "  ( i=0; while [ $i -lt \(max(1, limit)) ] && kill -0 $p 2>/dev/null; do sleep 1; i=$((i+1)); done; kill $p 2>/dev/null ) >/dev/null 2>&1 &",
-            "  wait $p",
-            "fi",
+            "  ( i=0; while [ $i -lt $left ] && kill -0 $p 2>/dev/null; do sleep 1; i=$((i+1)); done; kill $p 2>/dev/null ) >/dev/null 2>&1 &",
+            "  wait $p; r=$?",
+            "  if [ $r -gt 128 ]; then echo cut; break; fi",
+            "done",
             "echo end",
         ]
     }
 
     /// Nil unless the answer ends, so a pass cut off on the way changes
-    /// nothing. Only a listed folder, by its exact path, is read; anything
-    /// else in the answer is passed over. Largest first.
+    /// nothing; nil too for a machine that sizes itself (`own`). A pass that
+    /// reached its time limit keeps the folders it finished. Only a listed
+    /// folder, by its exact path, is read; anything else in the answer is
+    /// passed over. Largest first.
     public static func parse(_ lines: [String], atLeast: Int64 = smallest) -> [ClearableFolder]? {
-        guard lines.last == "end" else { return nil }
+        guard lines.last == "end", !lines.contains("own") else { return nil }
         var folders: [ClearableFolder] = []
         for line in lines.dropLast() {
             let parts = line.split(separator: "\t", maxSplits: 1)
@@ -149,7 +161,7 @@ public struct ClearableSizer: Sendable {
         var lines: [String] = []
         do {
             let session = try runner.launch(Self.spec(machine, environment: environment))
-            for line in ClearableFolders.script() { try session.send(line) }
+            for line in ClearableFolders.script(remote: machine.ssh != nil) { try session.send(line) }
             session.closeInput()
             for try await line in session.stdoutLines { lines.append(line) }
         } catch {

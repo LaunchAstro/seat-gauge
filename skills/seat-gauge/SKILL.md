@@ -34,7 +34,7 @@ jq -r '"updated \(.updated)", (.machines[] | "\(.id) room=\(.room // "-") why=\(
 - CPU and RAM are 30-second averages; `trend` says whether they are rising, steady or falling.
 - `room`: `free` takes more agents, `busy` takes a few, `full` takes none until it eases. `why` names the cause.
 - Load per core above 1 means work is queueing; 3 is the build method's ceiling.
-- Disk under 25 GB free, or `disk_10m` falling by gigabytes: time to clear caches and old build output. `disk.clearable` names the biggest ones on that machine, largest first, with `clear`, the safe way to clear each; use that, never `rm -rf` on the path. Sized every 15 minutes (`disk.clearable_at`); `null` means not sized yet.
+- Disk under 25 GB free, or `disk_10m` falling by gigabytes: time to clear caches and old build output. `disk.clearable` names the biggest ones on that machine, largest first, with `clear`, the safe way to clear each. Follow `clear`: where it says delete what is inside, delete the folder's contents, never the folder itself or anything outside it. Sized every 15 minutes (`disk.clearable_at`); `null` means not sized yet.
 - `stale=true` or a `problem`: the machine could not be read; do not send it work blind.
 - `blocked` agents are waiting on a person.
 - On another machine the app lists, the same path holds a copy, refreshed once a minute after a read. `updated` over two minutes old (or over twice a minute plus `machineSeconds`, if that is set long): the copies have stopped; check this machine alone and say so. No file there: that machine is not on the app's list, or never answered it.

@@ -20,12 +20,12 @@ import SeatGaugeTestSupport
 
     /// Runs the size script in a real `/bin/sh -s` with `home` as its home,
     /// as ssh runs it at the far end, and returns what it printed.
-    static func run(home: URL, limit: Int = ClearableFolders.limit, path: String = "/usr/bin:/bin:/usr/sbin:/sbin")
-        async throws -> [String] {
+    static func run(home: URL, limit: Int = ClearableFolders.limit, remote: Bool = false,
+                    path: String = "/usr/bin:/bin:/usr/sbin:/sbin") async throws -> [String] {
         let session = try RealProcessRunner().launch(ProcessSpec(
             executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-s"],
             environment: ["HOME": home.path, "PATH": path], timeout: .seconds(30)))
-        for line in ClearableFolders.script(limit: limit) { try session.send(line) }
+        for line in ClearableFolders.script(limit: limit, remote: remote) { try session.send(line) }
         session.closeInput()
         var printed: [String] = []
         for try await line in session.stdoutLines { printed.append(line) }
@@ -40,16 +40,20 @@ import SeatGaugeTestSupport
         try Self.fill(home.appendingPathComponent(".npm/_cacache"), bytes: 1_000_000)
         // Not on the list, so never sized or named.
         try Self.fill(home.appendingPathComponent("Documents/work"), bytes: 5_000_000)
-        // A listed name that is a link is passed over: it may point anywhere.
+        // A listed name that is a link, or sits under one, is passed over:
+        // it may point anywhere, another disk included.
         try FileManager.default.createDirectory(at: home.appendingPathComponent(".cache"), withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: home.appendingPathComponent(".cache/uv"),
                                                    withDestinationURL: home.appendingPathComponent("Documents"))
+        try Self.fill(home.appendingPathComponent("elsewhere/registry"), bytes: 4_000_000)
+        try FileManager.default.createSymbolicLink(at: home.appendingPathComponent(".cargo"),
+                                                   withDestinationURL: home.appendingPathComponent("elsewhere"))
         let printed = try await Self.run(home: home)
         #expect(printed.last == "end")
         let folders = try #require(ClearableFolders.parse(printed, atLeast: 1))
         #expect(folders.map(\.path) == ["~/Library/Caches/Homebrew", "~/.npm/_cacache"])
         #expect((2_900_000 ... 3_200_000).contains(folders[0].bytes))
-        #expect(folders[0].clear == "brew cleanup --prune=all")
+        #expect(folders[0].clear == "delete what is inside; it holds Homebrew's downloads only")
         // Nothing was removed.
         #expect(FileManager.default.fileExists(atPath: home.appendingPathComponent("Library/Caches/Homebrew/blob").path))
     }
@@ -67,18 +71,41 @@ import SeatGaugeTestSupport
     func limit() async throws {
         let home = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: home) }
-        try Self.fill(home.appendingPathComponent("Library/Caches/Homebrew"), bytes: 1_000)
-        // A du that answers for one folder, then hangs.
+        try Self.fill(home.appendingPathComponent("Library/Caches/Homebrew"), bytes: 1_000_000)
+        try Self.fill(home.appendingPathComponent("Library/Caches/pip"), bytes: 1_000)
+        try Self.fill(home.appendingPathComponent(".npm/_cacache"), bytes: 1_000)
+        // The real du for the first folder; the second hangs until it is killed.
         let bin = home.appendingPathComponent("bin")
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         let du = bin.appendingPathComponent("du")
-        try "#!/bin/sh\nprintf '2048\\tLibrary/Caches/Homebrew\\n'\nexec sleep 30\n".write(to: du, atomically: true, encoding: .utf8)
+        try """
+            #!/bin/sh
+            case "$2" in Library/Caches/Homebrew) exec /usr/bin/du "$@" ;; esac
+            exec sleep 30
+            """.write(to: du, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: du.path)
         let started = ContinuousClock.now
-        let printed = try await Self.run(home: home, limit: 1, path: bin.path + ":/usr/bin:/bin:/usr/sbin:/sbin")
+        let printed = try await Self.run(home: home, limit: 2, path: bin.path + ":/usr/bin:/bin:/usr/sbin:/sbin")
         #expect(ContinuousClock.now - started < .seconds(10))
-        #expect(printed.last == "end")
-        #expect(ClearableFolders.parse(printed, atLeast: 1)?.map(\.path) == ["~/Library/Caches/Homebrew"])
+        #expect(Array(printed.suffix(2)) == ["cut", "end"])
+        let folders = try #require(ClearableFolders.parse(printed, atLeast: 1))
+        #expect(folders.map(\.path) == ["~/Library/Caches/Homebrew"])
+        #expect((900_000 ... 1_200_000).contains(folders[0].bytes))
+    }
+
+    @Test("elsewhere, a machine whose own Seat Gauge has a seats.json sizes itself, so nothing is sized from here")
+    func own() async throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        try Self.fill(home.appendingPathComponent("Library/Caches/Homebrew"), bytes: 1_000_000)
+        let folder = home.appendingPathComponent("Library/Application Support/com.launchastro.seatgauge")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: folder.appendingPathComponent("seats.json"))
+        let there = try await Self.run(home: home, remote: true)
+        #expect(there == ["own"])
+        #expect(ClearableFolders.parse(there) == nil)
+        // This Mac is always sized: its seats.json is this app's own.
+        #expect(ClearableFolders.parse(try await Self.run(home: home), atLeast: 1)?.count == 1)
     }
 
     @Test("du runs at background priority, lowest nice, on one disk, and the script deletes nothing")
