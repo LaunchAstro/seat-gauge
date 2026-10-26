@@ -83,7 +83,9 @@ import Testing
         await #expect(throws: (any Error).self) { _ = try await probe.run(now: now.addingTimeInterval(30)) }
     }
 
-    @Test func realBackupThresholdPreservesEveryByteAndPrivateMode() throws {
+    // The copy this test once proved byte for byte is gone: a session that
+    // leaves is deleted, not archived (issue #94, D2).
+    @Test func realBackupThresholdKeepsNoCopyAndPrivateMode() throws {
         let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
         let ledger = SessionLedger(directory: root)
         let row = SessionRow(sessionId: "main", workspace: String(repeating: "x", count: 32 << 10),
@@ -101,18 +103,11 @@ import Testing
         #expect(stored.lines == count)
         #expect(stored.rows == ["main": observation])
         try ledger.compactIfLong(stored.rows, lines: stored.lines)
-        let kept = try #require(FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
-            .first { $0.lastPathComponent.hasPrefix("observations-before-compaction-") })
-        let reader = try FileHandle(forReadingFrom: kept)
-        defer { try? reader.close() }
-        for _ in 0..<count { #expect(try reader.read(upToCount: line.count) == line) }
-        #expect(try reader.read(upToCount: 1)?.isEmpty != false)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["observations.jsonl"])
         #expect(try ledger.read().lines == 1)
         #expect(try ledger.rows() == stored.rows)
-        for file in [ledger.file, kept] {
-            let mode = try #require(FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int)
-            #expect(mode & 0o777 == 0o600)
-        }
+        let mode = try #require(FileManager.default.attributesOfItem(atPath: ledger.file.path)[.posixPermissions] as? Int)
+        #expect(mode & 0o777 == 0o600)
     }
 
     @Test func failedCompactionLeavesLedgerAndPassIntact() async throws {

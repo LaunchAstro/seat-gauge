@@ -22,9 +22,9 @@ import Testing
         """.utf8)
     }
 
-    private let week: TimeInterval = 7 * 86_400
+    private let day: TimeInterval = 86_400
 
-    @Test func aClosedSessionLeavesTheLogTheLedgerAndThePassAWeekAfterItClosed() async throws {
+    @Test func aClosedSessionLeavesTheLogTheLedgerAndThePassADayAfterItClosed() async throws {
         let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("rollout-main.jsonl")
         try rollout("main").write(to: file)
@@ -37,11 +37,11 @@ import Testing
         let closed = try await gone.run(now: start.addingTimeInterval(30))
         let closedAt = try #require(closed.sessions.first?.closedAt)
 
-        let lastDay = try await gone.run(now: closedAt.addingTimeInterval(week - 60))
+        let lastDay = try await gone.run(now: closedAt.addingTimeInterval(day - 60))
         #expect(lastDay.sessions.map(\.sessionId) == ["main"])
         #expect(lastDay.sessions.first?.tokens?.input == 100)
 
-        let after = try await gone.run(now: closedAt.addingTimeInterval(week))
+        let after = try await gone.run(now: closedAt.addingTimeInterval(day))
         #expect(after.sessions.isEmpty)
         #expect(try ledger.rows().isEmpty)
         #expect(!String(decoding: try Data(contentsOf: ledger.file), as: UTF8.self).contains("\"main\""))
@@ -52,11 +52,11 @@ import Testing
         #expect(try checkpoint().files[file.path] == nil)
         #expect(try checkpoint().owners[file.path] == nil)
         // The next pass does not read its transcript again.
-        _ = try await gone.run(now: closedAt.addingTimeInterval(week + 30))
+        _ = try await gone.run(now: closedAt.addingTimeInterval(day + 30))
         #expect(try checkpoint().files.isEmpty)
     }
 
-    @Test func eachMachineKeepsItsNewestThousandClosedSessionsAndEveryOpenOne() {
+    @Test func eachMachineKeepsItsNewestClosedSessionsWithinItsShareAndEveryOpenOne() {
         let now = Date(timeIntervalSince1970: 1_790_000_000)
         var rows: [SessionRow] = []
         for index in 0..<1_005 {
@@ -67,17 +67,19 @@ import Testing
         }
         var old = SessionRow(sessionId: "old", workspace: "PROJECT-Log-work", pane: "w1:p1",
                              tool: "codex", status: "closed", asOf: now)
-        old.closedAt = now.addingTimeInterval(-week)
+        old.closedAt = now.addingTimeInterval(-day)
         rows.append(old)
         for index in 0..<3 {
             // An open session is kept however long ago it was last seen.
             rows.append(SessionRow(sessionId: "open-\(index)", workspace: "PROJECT-Log-work", pane: "w1:p\(index)",
                                    tool: "codex", status: "working", asOf: now.addingTimeInterval(-30 * 86_400)))
         }
-        let kept = Set(SessionRetention.kept(rows.shuffled(), row: { $0 }, now: now).map(\.sessionId))
-        #expect(kept.count == 1_003)
-        #expect(kept.isSuperset(of: ["open-0", "open-1", "open-2", "closed-0", "closed-999"]))
-        #expect(!kept.contains("closed-1000"))
+        // Two machines: 1,000 rows each, open ones included.
+        let budget = SessionRetention.Budget.share(machines: 2)
+        let kept = Set(SessionRetention.kept(rows.shuffled(), row: { $0 }, now: now, budget: budget).map(\.sessionId))
+        #expect(kept.count == 1_000)
+        #expect(kept.isSuperset(of: ["open-0", "open-1", "open-2", "closed-0", "closed-996"]))
+        #expect(!kept.contains("closed-997"))
         #expect(!kept.contains("old"))
     }
 
@@ -91,13 +93,14 @@ import Testing
             row.closedAt = now.addingTimeInterval(-Double(index) * 60)
             rows.append(row)
         }
-        var stale = SessionRow(sessionId: "eight-days", workspace: "PROJECT-Log-work", pane: "w1:p1",
+        var stale = SessionRow(sessionId: "two-days", workspace: "PROJECT-Log-work", pane: "w1:p1",
                                tool: "codex", status: "closed", asOf: now)
-        stale.closedAt = now.addingTimeInterval(-8 * 86_400)
+        stale.closedAt = now.addingTimeInterval(-2 * 86_400)
         rows.append(stale)
         rows.append(SessionRow(sessionId: "open", workspace: "PROJECT-Log-work", pane: "w1:p2",
                                tool: "codex", status: "working", asOf: now))
-        // An older probe on the far machines sends every closed session it has.
+        // An older probe on the far machines sends every closed session it
+        // has from the last seven days.
         let answer = String(decoding: try SessionLogFile.encoder().encode(SessionLogFile(updated: now, sessions: rows)),
                             as: UTF8.self)
         let machines = (1...4).map { Machine(id: "m\($0)", label: "M\($0)", ssh: "m\($0)") }
@@ -110,10 +113,11 @@ import Testing
         #expect(log.sessions.count < 5_000)
         #expect(try Data(contentsOf: file).count < 4_000_000)
         #expect(log.sessions.filter { $0.sessionId == "open" }.count == 4)
-        #expect(!log.sessions.contains { $0.sessionId == "eight-days" })
+        #expect(!log.sessions.contains { $0.sessionId == "two-days" })
+        // Each machine's share is 500 rows, the open one among them.
         for machine in machines {
             let closed = Set(log.sessions.filter { $0.machine == machine.id && $0.closedAt != nil }.map(\.sessionId))
-            #expect(closed == Set((0..<SessionRetention.closedPerMachine).map { "closed-\($0)" }))
+            #expect(closed == Set((0..<499).map { "closed-\($0)" }))
         }
     }
 }
