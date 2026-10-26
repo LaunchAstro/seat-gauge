@@ -40,13 +40,17 @@ enum CardDetailMetrics {
     }
 
     /// The least the face needs under its header: the status and controls
-    /// rows, the three gaps and the plot at its floor.
+    /// rows, the three gaps and the plot at its floor. Only the layout tests
+    /// call it, to prove the hover face never needs more height than a
+    /// one-line card gives it.
     static func minimumBody(_ factor: CGFloat) -> CGFloat {
         [Base.headerToStatus, Base.statusToPlot, Base.plotToControls].map { gap($0, factor) }.reduce(0, +)
             + plotFloor + lineHeight * 2
     }
 
-    /// The line width at the narrowest card, which the plot spans.
+    /// The line width at the narrowest card, which the plot spans. Only the
+    /// layout tests read it, to prove every history bar can still be picked
+    /// at the narrowest card.
     static var minimumPlotWidth: CGFloat {
         CardMetrics.minimumWidth - (CardMetrics.horizontalPadding + PanelLayout.boxInset) * 2
     }

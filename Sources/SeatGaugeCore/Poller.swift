@@ -29,7 +29,8 @@ public enum PollLog {
 
 /// The power assertion each poll runs inside, so App Nap does not throttle a
 /// panel that is never the foreground app. It counts its own
-/// begins and ends, which is what a case reads.
+/// begins and ends. Only the tests read the counts, to prove every poll
+/// that asserts the activity also ends it, so the Mac can still sleep.
 public final class PollActivity: @unchecked Sendable {
     private let lock = NSLock()
     private var tokens: [any NSObjectProtocol] = []
@@ -185,7 +186,9 @@ public actor Poller<C: Clock, T: Clock> where C.Duration == Duration, T.Duration
     /// Asks for every configured seat to be read, token seats included.
     public func syncAll() { ask.all = true; sleeper?.cancel() }
 
-    /// A scheduled poll: every seat that polls itself.
+    /// A scheduled poll: every seat that polls itself. Only the tests call it,
+    /// to run one poll without the loop's sleep through the same `poll(_:)`
+    /// the loop uses.
     @discardableResult
     public func poll() async -> Snapshot { await poll(PollAsk(scheduled: true)) }
 

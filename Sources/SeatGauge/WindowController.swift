@@ -398,7 +398,9 @@ final class WindowController {
     }
 
     /// The content heights the window can be dragged over: factor 1 up to
-    /// the top of the range or the screen, whichever is lower.
+    /// the top of the range or the screen, whichever is lower. Only the layout
+    /// tests call it: it is how they read the drag range without opening the
+    /// window's private state, to prove a chosen height stays inside it.
     func heightBounds() -> ClosedRange<CGFloat> {
         panelHeight.range(width: window.contentLayoutRect.width, room: room) ?? 0...0
     }

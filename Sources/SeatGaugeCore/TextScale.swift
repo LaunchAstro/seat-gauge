@@ -28,6 +28,8 @@ public struct TextScale: Equatable, Sendable {
     /// default, which is one up.
     public static let normal = TextScale(step: 1)
     public static let `default` = TextScale(step: 2)
+    /// The two ends of the ladder. Only the tests use them, to prove a layout
+    /// rule holds at both extremes rather than at whatever step is current.
     public static let smallest = TextScale(step: steps.lowerBound)
     public static let largest = TextScale(step: steps.upperBound)
 
