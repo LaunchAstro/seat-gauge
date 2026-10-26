@@ -70,7 +70,8 @@ rm -rf "$APP"
 mkdir -p dist
 # Before the bundle exists, not after it: Spotlight indexes a new bundle as
 # soon as it is written, and a marker that arrives later does not take the
-# entry back. The installed copy should be the only one Spotlight finds.
+# entry back. Recent macOS can index the bundle all the same, which is why
+# install.sh passes over this copy by its path.
 touch dist/.metadata_never_index
 ditto --norsrc --noextattr --noacl "$BUNDLE" "$APP"
 printf 'built %s\n' "$APP"

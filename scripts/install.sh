@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Put the built app in /Applications, replacing only the copy this script
-# installed there, and link `seatgauge-cli` into `~/.local/bin`.
+# Put the built app in /Applications, replacing only a copy of Seat Gauge
+# there, and link `seatgauge-cli` into `~/.local/bin`.
 #
 # One copy matters: `SMAppService` registers the bundle it is running from, and
 # a second copy with the same bundle identifier can take the login item over.
@@ -12,6 +12,10 @@
 # bundle in `dist/` with Finder and file provider attributes a strict signature
 # check refuses. So the bundle is copied without them to a scratch folder,
 # checked there, and that clean copy is the one installed.
+#
+# The new copy is staged and checked beside the old one before anything is
+# quit or removed, then swapped in by renames on the same volume. A copy that
+# fails partway, such as on a full disk, leaves the old app where it was.
 #
 # The CLI is a link to the copy inside the installed app, so it updates with
 # the app and needs no sudo. A link of exactly that shape is the only thing at
@@ -39,6 +43,13 @@ refuse() { printf 'install: %s\n' "$1" >&2; exit 1; }
   refuse "$APP is not there. Run make install, which builds it first. Nothing has been removed."
 [ -f "$APP/$HELPER" ] ||
   refuse "$APP has no seatgauge-cli in it. Run make install, which builds both. Nothing has been removed."
+# Only a copy of this app is ever replaced: an unrelated app of the same name,
+# or a link, is the user's to move.
+if [ -e "$DEST" ] || [ -L "$DEST" ]; then
+  [ ! -L "$DEST" ] && [ -d "$DEST" ] &&
+    [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$DEST/Contents/Info.plist" 2>/dev/null)" = "$ID" ] ||
+    refuse "$DEST is there and is not Seat Gauge ($ID), so this script will not replace it. Move it away, then install again. Nothing has been removed."
+fi
 if [ -e "$LINK" ] || [ -L "$LINK" ]; then
   [ -L "$LINK" ] && [ "$(readlink "$LINK")" = "$DEST/$HELPER" ] ||
     refuse "$LINK is already there, and this script did not put it there. Move it away, then install again. Nothing has been removed."
@@ -53,13 +64,21 @@ while [ ! -e "$up" ] && [ ! -L "$up" ]; do up="$(dirname "$up")"; done
 # answers with silence rather than with an error. That silence would read as
 # no other copy, so it is a refusal. Recent macOS reports / as read-only, and
 # that index still answers mdfind, so it counts as on. The status has to be
-# exactly one of those two lines; anything else refuses.
-status="$(mdutil -s / 2>/dev/null |
-  sed -e '/^\/:$/d' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' || true)"
-case "$status" in
-  'Indexing enabled.' | 'Index is read-only.') ;;
-  *) refuse "Spotlight indexing is off on /, so other copies of the app cannot be found." ;;
-esac
+# exactly one of those two lines; anything else refuses. Straight after a
+# build, while Spotlight is busy with the new files, mdutil can answer
+# something else for a moment, so the status is asked a few times, a second
+# apart, before an answer that stays wrong is a refusal.
+indexed=""
+for _ in 1 2 3 4 5; do
+  status="$(mdutil -s / 2>/dev/null |
+    sed -e '/^\/:$/d' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' || true)"
+  case "$status" in
+    'Indexing enabled.' | 'Index is read-only.') indexed=1; break ;;
+  esac
+  sleep 1
+done
+[ -n "$indexed" ] ||
+  refuse "Spotlight indexing is off on /, so other copies of the app cannot be found."
 
 SOURCE="$(cd "$(dirname "$APP")" && pwd)/$(basename "$APP")"
 others=""
@@ -67,6 +86,8 @@ while IFS= read -r copy; do
   [ -n "$copy" ] || continue
   # The copy being installed from and the one being replaced are expected.
   [ "$copy" = "$SOURCE" ] || [ "$copy" = "$DEST" ] && continue
+  # The index can still list a copy that has since been deleted.
+  [ -e "$copy" ] || continue
   others="$others  $copy"$'\n'
 done <<COPIES
 $(mdfind "kMDItemCFBundleIdentifier == $ID" 2>/dev/null || true)
@@ -83,12 +104,42 @@ ditto --norsrc --noextattr --noacl "$APP" "$CLEAN"
 codesign --verify --strict "$CLEAN" >/dev/null 2>&1 ||
   refuse "$APP is not signed, so it would not hold a login item. Nothing has been removed."
 
-printf 'install: quitting any running copy\n'
-pkill -x SeatGauge || true
-
-rm -rf "$DEST"
+# Staged on the same volume, so the swap below is two renames. The new copy
+# sits at the same depth it will be installed at, and `old` holds the copy
+# being replaced until the new one is in. Every exit removes the folder,
+# unless the old copy could not be put back: then only the new copy goes, so
+# the old one is all that is left and no second copy blocks the next install.
 mkdir -p "$APPLICATIONS"
-ditto "$CLEAN" "$DEST"
+stage="$(mktemp -d "$APPLICATIONS/.seat-gauge-install.XXXXXX")"
+NEW="$stage/Seat Gauge.app"
+OLD="$stage/old/Seat Gauge.app"
+trap 'rm -rf "$scratch"; if [ -e "$OLD" ]; then rm -rf "$NEW"; else rm -rf "$stage"; fi' EXIT
+ditto "$CLEAN" "$NEW" ||
+  refuse "the new copy could not be written in $APPLICATIONS. Nothing has been removed."
+codesign --verify --strict "$NEW" >/dev/null 2>&1 ||
+  refuse "the new copy in $APPLICATIONS does not pass its signature check. Nothing has been removed."
+
+# Only the installed copy is quit. A `make run` build has its own path and
+# keeps running.
+printf 'install: quitting the installed copy\n'
+pattern="$(printf '%s' "$DEST/Contents/MacOS/SeatGauge" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
+pkill -f "^$pattern( |$)" || true
+
+# A bare rename(2): where mv would move into a folder that is already there,
+# such as a copy another install put in place meanwhile, this fails instead.
+put() { perl -e 'rename($ARGV[0], $ARGV[1]) or exit 1' "$1" "$2"; }
+if [ -e "$DEST" ]; then
+  mkdir "$stage/old"
+  put "$DEST" "$OLD" ||
+    refuse "the installed copy could not be moved aside. It is where it was."
+fi
+if ! put "$NEW" "$DEST"; then
+  [ -e "$OLD" ] || refuse "the new copy could not be put in place, and there was no copy before it."
+  put "$OLD" "$DEST" ||
+    refuse "the new copy could not be put in place, and the copy before it is at $OLD. Move it back to $APPLICATIONS."
+  refuse "the new copy could not be put in place. The copy before it is back in $APPLICATIONS."
+fi
+rm -rf "$stage"
 # dist/ is emptied of the copy it was built from, so Spotlight finds one copy.
 rm -rf "$APP"
 
