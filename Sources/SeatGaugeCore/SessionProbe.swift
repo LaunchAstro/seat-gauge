@@ -8,6 +8,8 @@ public struct SessionProbe: Sendable {
     let home: URL
     let profiles: [SpendProfile]
     let byteBudget: Int
+    /// This machine's share of `log.json`, as the app passes it.
+    let keep: SessionRetention.Budget
 
     /// How often an open session that changed in nothing else is written
     /// again, so a row that later goes stale says roughly when it was last
@@ -29,8 +31,33 @@ public struct SessionProbe: Sendable {
 
     public init(runner: any ProcessRunning = RealProcessRunner(),
                 directory: URL = AppPaths.support.appendingPathComponent("log-private"),
-                home: URL = URL(fileURLWithPath: NSHomeDirectory()), profiles: [SpendProfile] = [], byteBudget: Int = 32 << 20) {
+                home: URL = URL(fileURLWithPath: NSHomeDirectory()), profiles: [SpendProfile] = [], byteBudget: Int = 32 << 20,
+                keep: SessionRetention.Budget = .share(machines: 1)) {
         self.runner = runner; self.directory = directory; self.home = home; self.profiles = profiles; self.byteBudget = byteBudget
+        self.keep = keep
+    }
+
+    /// `log-probe`'s arguments: the private folder, and this machine's share
+    /// of `log.json` as two whole numbers the budget accepts. A value it
+    /// refuses leaves the default, and a flag it does not know is passed
+    /// over, so a newer app can talk to an older probe and the other way round.
+    public static func arguments(_ arguments: [String]) -> (directory: URL?, keep: SessionRetention.Budget) {
+        var directory: URL?
+        var rows: Int?
+        var bytes: Int?
+        var index = 0
+        while index < arguments.count {
+            let value = index + 1 < arguments.count ? arguments[index + 1] : nil
+            switch arguments[index] {
+            case "--directory" where value != nil: directory = URL(fileURLWithPath: value!); index += 2
+            case "--keep-rows" where value != nil: rows = Int(value!); index += 2
+            case "--keep-bytes" where value != nil: bytes = Int(value!); index += 2
+            default: index += 1
+            }
+        }
+        let standard = SessionRetention.Budget.share(machines: 1)
+        let keep = rows.flatMap { rows in bytes.flatMap { SessionRetention.Budget(rows: rows, bytes: $0) } } ?? standard
+        return (directory, keep)
     }
 
     func command(_ executable: String, _ arguments: [String], timeout: Duration = .seconds(8)) async throws -> [String] {
@@ -78,7 +105,7 @@ public struct SessionProbe: Sendable {
     /// The ledger and checkpoint as the last pass left them. A session
     /// `log.json` no longer shows leaves the pass.
     func begin(_ stored: SessionLedger.Stored, now: Date) -> ProbePass {
-        var pass = ProbePass(now: now, stored: stored, observations: [:], checkpoint: SessionCheckpoint())
+        var pass = ProbePass(now: now, keep: keep, stored: stored, observations: [:], checkpoint: SessionCheckpoint())
         let observations = pass.staying(stored.rows)
         var checkpoint = (try? Data(contentsOf: checkpointFile))
             .flatMap { try? JSONDecoder().decode(SessionCheckpoint.self, from: $0) } ?? SessionCheckpoint()
@@ -444,6 +471,7 @@ public struct SessionProbe: Sendable {
 /// it leaves the machine.
 struct ProbePass {
     let now: Date
+    let keep: SessionRetention.Budget
     let stored: SessionLedger.Stored
     var observations: [String: SessionObservation]
     var checkpoint: SessionCheckpoint
@@ -459,7 +487,7 @@ struct ProbePass {
 
     /// `rows` less any session `SessionRetention` retires.
     func staying(_ rows: [String: SessionObservation]) -> [String: SessionObservation] {
-        SessionRetention.kept(Array(rows), row: { $0.value.row }, now: now)
+        SessionRetention.kept(Array(rows), row: { $0.value.row }, now: now, budget: keep)
             .reduce(into: [String: SessionObservation]()) { $0[$1.key] = $1.value }
     }
 }
@@ -467,7 +495,8 @@ struct ProbePass {
 extension MachineProber {
     static func quote(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
 
-    public func readLog(_ machine: Machine) async -> Result<SessionLogFile, ProcessFailure> {
+    public func readLog(_ machine: Machine, budget: SessionRetention.Budget = .share(machines: 1))
+        async -> Result<SessionLogFile, ProcessFailure> {
         var spec = Self.spec(machine, environment: environment)
         spec = ProcessSpec(executable: spec.executable, arguments: spec.arguments, environment: spec.environment,
                            timeout: .seconds(90))
@@ -479,7 +508,7 @@ extension MachineProber {
                     ? "\"$HOME/.local/bin/seatgauge-cli\"" : "\"$HOME/.local/libexec/seatgauge-log-probe\""
             let state = machine.ssh == nil
                 ? " --directory " + Self.quote(AppPaths.support.appendingPathComponent("log-private").path) : ""
-            try child.send("\(helper) log-probe\(state)")
+            try child.send("\(helper) log-probe\(state) --keep-rows \(budget.rows) --keep-bytes \(budget.bytes)")
             child.closeInput()
             var lines: [String] = []
             for try await line in child.stdoutLines { lines.append(line) }

@@ -16,7 +16,11 @@ Start means the first time the probe saw the session working. `done` means a fin
 
 ## How long a row stays
 
-An open session stays as long as it is open. A closed session stays for 7 days after its `closed_at`, then leaves `log.json`. Each machine also keeps at most its 1,000 newest closed sessions, so a burst of short ones cannot outgrow the file within the week. Open rows are never dropped. The app applies the same rule to rows from a remote machine that still runs an older probe, and to the rows it keeps for a machine that did not answer. At the 350 to 550 bytes a row takes, `log.json` from up to four machines stays under a reader that caps it at 5,000 rows and 4,000,000 bytes; a cap on the whole file for any number of machines is issue #94.
+An open session stays as long as it is open. A closed session stays for 24 hours after its `closed_at`, then leaves `log.json`; nothing is summarised or archived.
+
+The whole file has a budget of 2,000 rows and 2,000,000 bytes, half of what a reader accepts (5,000 rows and 4,000,000 bytes), shared evenly by the machines in `seats.json`: with four machines, each keeps 500 rows and 500,000 bytes. A machine's share holds all its open sessions, which are never dropped, then its newest closed sessions, newest first, up to the first that does not fit. A row's bytes are measured as `log.json` writes it, without the `machine` and `stale` fields the app adds, so the probe and the app measure it alike. The other half of what a reader accepts covers those two fields and any open sessions past a share.
+
+Each round the app sends every machine's probe its share as `log-probe --keep-rows <rows> --keep-bytes <bytes>`. The probe takes only whole numbers from 1 to the whole file's budget and passes over any flag it does not know; with no share, or one it refuses, it keeps the whole file's budget. The app applies the same rule to the rows it gets back, which changes nothing for a probe of this version and bounds a probe from an older one, and to the rows it keeps for a machine that did not answer. The share comes from the machine count alone, so a second app or `seatgauge-cli log` on the same config, a restart or a failed write cannot move it.
 
 A session that leaves `log.json` also leaves the machine's private ledger and checkpoint, and no pass reads its transcripts again. A session resumed after that shows as a new row, with the whole transcript counted.
 

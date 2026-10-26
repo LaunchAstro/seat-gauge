@@ -43,18 +43,19 @@ import Testing
         let directory = root.appendingPathComponent("private")
         let now = Date(timeIntervalSince1970: 1_790_000_000)
         let path = root.appendingPathComponent("rollout-oldest.jsonl").path
-        try seed(directory, count: SessionRetention.closedPerMachine, now: now, path: path)
+        let keep = try #require(SessionRetention.Budget(rows: 50, bytes: SessionRetention.fileBytes))
+        try seed(directory, count: keep.rows, now: now, path: path)
         // One more session, open, whose pane has gone: this pass closes it,
         // which puts the machine one over its cap.
         let open = SessionRow(sessionId: "open", workspace: "PROJECT-Log-work", pane: "w9:p9",
                               tool: "codex", status: "working", asOf: now)
         try SessionLedger(directory: directory).append([SessionObservation(row: open, pid: 9, processStart: "start", paths: [])])
-        let probe = SessionProbe(runner: EmptyPanes(), directory: directory, home: root)
+        let probe = SessionProbe(runner: EmptyPanes(), directory: directory, home: root, keep: keep)
         let log = try await probe.run(now: now)
-        let oldest = "closed-\(SessionRetention.closedPerMachine - 1)"
+        let oldest = "closed-\(keep.rows - 1)"
         #expect(log.sessions.first { $0.sessionId == "open" }?.closedAt == now)
         #expect(!log.sessions.contains { $0.sessionId == oldest })
-        #expect(log.sessions.count == SessionRetention.closedPerMachine)
+        #expect(log.sessions.count == keep.rows)
         #expect(try SessionLedger(directory: directory).rows()[oldest] == nil)
         #expect(try checkpoint(directory).files[path] == nil)
         #expect(try checkpoint(directory).owners[path] == nil)

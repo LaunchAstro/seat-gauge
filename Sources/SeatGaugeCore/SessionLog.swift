@@ -338,7 +338,8 @@ public actor SessionLogMonitor {
     @discardableResult public func read() async -> SessionLogFile {
         let machines = await config().machines
         let prober = self.prober
-        let results = await Machine.each(machines) { await prober.readLog($0) }
+        let budget = SessionRetention.Budget.share(machines: machines.count)
+        let results = await Machine.each(machines) { await prober.readLog($0, budget: budget) }
         var problems: [String: String] = [:]
         let now = Date()
         for machine in machines {
@@ -348,16 +349,16 @@ public actor SessionLogMonitor {
                 // such as a folder macOS held; it shows under the machine.
                 let said = log.problems.keys.sorted().compactMap { log.problems[$0] }
                 if !said.isEmpty { problems[machine.id] = said.joined(separator: "; ") }
-                // An older probe keeps every closed session, so the rule is
-                // applied here too.
-                rows[machine.id] = SessionRetention.kept(log.sessions, row: { $0 }, now: now).map { row in
+                // An older probe keeps more than this machine's share, so
+                // the rule is applied here too.
+                rows[machine.id] = SessionRetention.kept(log.sessions, row: { $0 }, now: now, budget: budget).map { row in
                     var row = row; row.machine = machine.id
                     row.stale = row.stale || now.timeIntervalSince(row.asOf) > 90
                     return row
                 }
             case let .failure(error):
                 problems[machine.id] = error.reason
-                rows[machine.id] = SessionRetention.kept(rows[machine.id] ?? [], row: { $0 }, now: now)
+                rows[machine.id] = SessionRetention.kept(rows[machine.id] ?? [], row: { $0 }, now: now, budget: budget)
                     .map { var row = $0; row.stale = true; return row }
             case .none: break
             }
@@ -372,27 +373,72 @@ public actor SessionLogMonitor {
     }
 }
 
-/// How long a closed session stays, read from its `closed_at`, so a reader of
-/// `log.json` can tell when a row will go. The probe drops a session from its
-/// ledger, checkpoint and pass on the same rule that drops it from `log.json`,
-/// so nothing is kept or re-read that nobody is shown (issue #70).
+/// How long a closed session stays, read from its `closed_at`, and how many
+/// a machine keeps, so `log.json` stays inside what a reader accepts for any
+/// number of machines (issue #94). The probe drops a session from its
+/// ledger, checkpoint and pass on the same rule that drops it from
+/// `log.json`, so nothing is kept or re-read that nobody is shown (issue
+/// #70). The rule reads only the rows and the configured machine count, so
+/// two monitors, a restart or a failed write cannot move it.
 public enum SessionRetention {
-    /// A working week. At the rate seen on the owner's Mac, about 64 sessions
-    /// a day, that is some 450 closed rows per machine.
-    public static let closedFor: TimeInterval = 7 * 86_400
-    /// A burst of short sessions cannot outgrow the file within the week.
-    /// At the 350 to 550 bytes a row takes, four machines stay under the
-    /// 5,000 rows and 4,000,000 bytes a reader may cap `log.json` at (issue
-    /// #38).
-    public static let closedPerMachine = 1_000
+    /// A day. Nothing reads a closed session after that (owner, 26 October
+    /// 2026).
+    public static let closedFor: TimeInterval = 86_400
+    /// The whole file's budget, shared evenly by the configured machines.
+    /// It is half of what a reader accepts, 5,000 rows and 4,000,000 bytes
+    /// (issue #38), which leaves room for open sessions, never dropped, and
+    /// for the machine name and stale flag the app adds to each row.
+    public static let fileRows = 2_000
+    public static let fileBytes = 2_000_000
 
-    /// Every open session, and the newest `closedPerMachine` that closed
-    /// within `closedFor` of `now`. `items` are one machine's.
-    static func kept<T>(_ items: [T], row: (T) -> SessionRow, now: Date) -> [T] {
+    /// One machine's share of `log.json`: its open sessions and the newest
+    /// closed ones that fit beside them.
+    public struct Budget: Equatable, Sendable {
+        public let rows: Int
+        public let bytes: Int
+
+        /// Nil outside 1 to the whole file's budget, which is all the probe
+        /// takes from the command line.
+        public init?(rows: Int, bytes: Int) {
+            guard (1 ... SessionRetention.fileRows).contains(rows), (1 ... SessionRetention.fileBytes).contains(bytes) else { return nil }
+            self.rows = rows; self.bytes = bytes
+        }
+
+        public static func share(machines: Int) -> Budget {
+            let count = max(1, machines)
+            return Budget(rows: max(1, fileRows / count), bytes: max(1, fileBytes / count))!
+        }
+    }
+
+    /// Every open session, the newest closed ones within `closedFor` of
+    /// `now` that fit `budget` beside them, newest first and stopping at the
+    /// first that does not, and every superseded one within `closedFor`,
+    /// which `log.json` never shows. `items` are one machine's. Kept rows
+    /// pass again unchanged, so the monitor can apply it to what a probe
+    /// already kept.
+    static func kept<T>(_ items: [T], row: (T) -> SessionRow, now: Date, budget: Budget) -> [T] {
         let recent = items.filter { item in row(item).closedAt.map { now.timeIntervalSince($0) < closedFor } ?? true }
-        let closed = recent.compactMap { item in row(item).closedAt.map { ($0, row(item).sessionId) } }
-        guard closed.count > closedPerMachine else { return recent }
-        let dropped = Set(closed.sorted { $0 > $1 }.dropFirst(closedPerMachine).map(\.1))
+        let open = recent.map(row).filter { $0.closedAt == nil }
+        var rows = open.count
+        var bytes = open.reduce(0) { $0 + size($1) }
+        var closed = recent.map(row).filter { $0.closedAt != nil && $0.status != "superseded" }
+        closed.sort { ($0.closedAt!, $0.sessionId) > ($1.closedAt!, $1.sessionId) }
+        var dropped: Set<String> = []
+        for item in closed {
+            let cost = size(item)
+            if dropped.isEmpty, rows + 1 <= budget.rows, bytes + cost <= budget.bytes {
+                rows += 1; bytes += cost
+            } else {
+                dropped.insert(item.sessionId)
+            }
+        }
         return recent.filter { !dropped.contains(row($0).sessionId) }
+    }
+
+    /// What a row takes in `log.json`, measured without the two fields the
+    /// app sets, so the probe and the app measure it alike.
+    static func size(_ row: SessionRow) -> Int {
+        var row = row; row.machine = ""; row.stale = false
+        return ((try? SessionLogFile.encoder().encode(row))?.count ?? 0) + 1
     }
 }
