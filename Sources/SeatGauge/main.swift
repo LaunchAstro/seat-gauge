@@ -65,8 +65,10 @@ let poll = Poll(options: Poll.Options(
     rolledUp: { await MainActor.run { GaugeMirror.shared.readSpend() } }))
 let watcher = poll.watcher, store = poll.store, poller = poll.poller
 // Each machine's load, on its own loop beside the seat poll, into the
-// LOAD tab and `machines.json`.
+// LOAD tab and `machines.json`, with a copy of the file on each other
+// machine for the agents there.
 let machineMonitor = MachineMonitor(prober: MachineProber(runner: RealProcessRunner()),
+                                    share: MachineShare(runner: RealProcessRunner()),
                                     config: { await watcher.config },
                                     notify: { machines, states, history in
                                         Task { @MainActor in

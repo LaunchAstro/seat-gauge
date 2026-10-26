@@ -29,5 +29,5 @@ The words Seat Gauge uses, and what each one means. Terms only, no implementatio
 - **Machine**: a computer whose load the LOAD tab shows, this Mac or another read over ssh. Listed under `machines` in `seats.json`.
 - **Room** (of a machine): `free`, `busy` or `full`, from CPU and memory averaged over 30 seconds against the 60 and 85 percent lines, load per core against 2 and 3, and disk under 25 or 10 GB free.
 - **Trend**: whether a machine's CPU or memory is `rising`, `steady` or `falling`, its last 30 seconds against the 30 before.
-- **Machines file**: `machines.json`, each machine's CPU, memory, disk, room and agent count, written every read (5 seconds by default) for an agent to read.
+- **Machines file**: `machines.json`, each machine's CPU, memory, disk, room and agent count, written every read (5 seconds by default) for an agent to read, and copied once a minute to each other listed machine that answered, at the same path there.
 - **Session log**: `log.json`, one row keyed by machine and session id, with workspace, pane, branch, observed lifecycle and token totals from the Spend parsers. The Log tab draws these rows. Private pane observations stay in a ledger on each machine, one line per change, compacted to one line per session as it grows.

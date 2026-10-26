@@ -164,11 +164,19 @@ Any Mac you can reach over ssh with a key:
 2. On this one, give it your key: `ssh-copy-id studio.local` (its name or address), and check `ssh studio.local true` returns with no password prompt.
 3. Run `seatgauge-cli machines add studio.local Studio`. It reads the machine once to prove it answers, then adds it to `seats.json`; nothing is written if it does not answer. The LOAD tab shows it within a minute.
 
-Nothing is installed on the other Mac. The gauge keeps one ssh connection to it open between reads (its socket is `~/.ssh/seatgauge-*`).
+Nothing is installed on the other Mac. The gauge keeps one ssh connection to it open between reads (its socket is `~/.ssh/seatgauge-*`). Over that connection it also copies `machines.json` to the other Mac once a minute, as below.
 
 `seatgauge-cli machines` reads every machine once and prints the same shape.
 
 `skills/seat-gauge/` is a ready-made agent skill that reads this file. Copy or link the folder into your agent's skills folder, such as `~/.claude/skills/` for Claude Code or `~/.agents/skills/` for Codex, and an agent asked which seat has room reads the file instead of spending a seat to check.
+
+### Read it on another machine
+
+The app copies `machines.json` to each other listed Mac that answered its last read, at most once a minute, into the same folder there: `~/Library/Application Support/com.launchastro.seatgauge/machines.json`. An agent on that Mac reads the same path as one on this Mac, and the skill's command works unchanged. The copy goes over the connection the gauge already keeps open, runs only `sh` there, writes that one file (readable by its owner alone) and nothing else, and replaces it in one rename, so a reader never sees half a file.
+
+- Check `updated`. A copy goes out at most once a minute and only after a read, so it can be a minute plus one read interval old (65 seconds by default). Twice that or older (over two minutes by default) means the copies have stopped: the app has quit, or the machine went unreachable.
+- A Mac with its own `seats.json` in that folder runs its own app, which writes its own `machines.json`, so it gets no copy.
+- `headroom.json` and `log.json` are not copied; they stay on the Mac running the app.
 
 ### Beside session tracing
 

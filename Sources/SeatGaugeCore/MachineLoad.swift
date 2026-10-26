@@ -341,6 +341,92 @@ public struct MachineProber: Sendable {
     }
 }
 
+/// Copies `machines.json` to each other listed machine, into the same
+/// Seat Gauge folder there, so an agent on that machine reads the file at the
+/// same path as one on this Mac. It rides the probe's kept-open ssh
+/// connection, runs only `sh` there, and writes that one file and nothing
+/// else. A machine with its own `seats.json` runs its own app, which writes
+/// its own file, so that file is left alone.
+public struct MachineShare: Sendable {
+    let runner: any ProcessRunning
+    let environment: [String: String]
+    let identifier: String
+
+    /// At most one copy a minute to each machine: a five-minute check needs
+    /// no more, and the file is rewritten every few seconds.
+    public static let every: TimeInterval = 60
+    public static let timeout: Duration = .seconds(10)
+    /// Ends the copy's base64 text. The underscore is not in base64's
+    /// alphabet, so no line of the file can end it early.
+    public static let marker = "SEATGAUGE_END"
+
+    /// `identifier` names the folder there, as `AppPaths` names this Mac's,
+    /// so a `.dev` build never writes into the installed app's folder.
+    public init(runner: any ProcessRunning,
+                environment: [String: String] = ChildEnvironment.make(
+                    from: ProcessInfo.processInfo.environment, keeping: ["SSH_AUTH_SOCK"]),
+                identifier: String = AppPaths.identifier(running: Bundle.main.bundleIdentifier)) {
+        self.runner = runner
+        self.environment = environment
+        self.identifier = identifier
+    }
+
+    /// The probe's own ssh command, with a shorter deadline, so a copy never
+    /// holds up the next read for long.
+    public static func spec(_ machine: Machine, environment: [String: String]) -> ProcessSpec {
+        let probe = MachineProber.spec(machine, environment: environment)
+        return ProcessSpec(executable: probe.executable, arguments: probe.arguments,
+                           environment: environment, timeout: timeout)
+    }
+
+    /// The lines `sh -s` runs there, one `{ }` block, so `sh` reads all of it
+    /// before it runs any: a copy cut off on the way runs nothing. The file
+    /// goes as base64 inside a quoted here-document, so nothing in it is ever
+    /// read as shell. It lands in a private temporary file beside the copy,
+    /// then one rename replaces the copy, so a reader never sees half a file
+    /// and a link in its place, to a file or a folder, is replaced rather than
+    /// written through (`mv -h`). A folder of that name is left alone. A
+    /// temporary file an earlier copy left, killed between the two, goes
+    /// once it is a minute old. An identifier that is not this app's is the
+    /// app's own, so nothing outside the folder is ever named.
+    public static func script(_ data: Data, identifier: String) -> [String] {
+        let ours = AppPaths.identifier(running: identifier) == identifier
+            && identifier.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }
+        let folder = ours ? identifier : AppPaths.bundleID
+        return [
+            "{",
+            #"d="$HOME/Library/Application Support/\#(folder)""#,
+            #"if [ -e "$d/seats.json" ]; then echo kept; exit 0; fi"#,
+            #"if [ -d "$d/machines.json" ] && [ ! -L "$d/machines.json" ]; then exit 1; fi"#,
+            "umask 077",
+            #"mkdir -p "$d" || exit 1"#,
+            #"find "$d" -maxdepth 1 -name '.machines.json.*' -mmin +1 -delete 2>/dev/null"#,
+            #"t=$(mktemp "$d/.machines.json.XXXXXX") || exit 1"#,
+            #"if base64 -D > "$t" <<'\#(marker)'"#,
+        ] + data.base64EncodedString(options: .lineLength76Characters).components(separatedBy: "\r\n") + [
+            marker,
+            #"then mv -f -h "$t" "$d/machines.json" && echo copied; fi"#,
+            #"rm -f "$t""#,
+            "}",
+        ]
+    }
+
+    /// One copy to one machine; true when it landed.
+    public func copy(_ data: Data, to machine: Machine) async -> Bool {
+        guard machine.ssh != nil else { return false }
+        var printed: [String] = []
+        do {
+            let session = try runner.launch(Self.spec(machine, environment: environment))
+            for line in Self.script(data, identifier: identifier) { try session.send(line) }
+            session.closeInput()
+            for try await line in session.stdoutLines { printed.append(line) }
+        } catch {
+            return false
+        }
+        return printed.last == "copied"
+    }
+}
+
 /// `machines.json`: each machine's load and agents as an agent reads them,
 /// written after every read. Figures only; which machine to use is the
 /// reader's call.
@@ -492,16 +578,27 @@ public actor MachineMonitor {
     let file: URL
     let activity: PollActivity
     let notify: @Sendable ([Machine], [String: MachineState], [String: [LoadSample]]) -> Void
+    let share: MachineShare?
+    let now: @Sendable () -> Date
     private var states: [String: MachineState] = [:]
     private var history: [String: [LoadSample]] = [:]
+    /// When each machine was last sent a copy, landed or not, so a machine
+    /// that refuses one is asked again a minute later rather than every read.
+    private var copied: [String: Date] = [:]
+    private var copying: Task<Void, Never>?
 
+    /// `share` copies the file to the other machines; nil, as the CLI's
+    /// one-off read passes, copies nothing.
     public init(prober: MachineProber, file: URL = MachinesFile.defaultFile,
-                activity: PollActivity = PollActivity(),
+                activity: PollActivity = PollActivity(), share: MachineShare? = nil,
+                now: @escaping @Sendable () -> Date = Date.init,
                 config: @escaping @Sendable () async -> Config,
                 notify: @escaping @Sendable ([Machine], [String: MachineState], [String: [LoadSample]]) -> Void = { _, _, _ in }) {
         self.prober = prober
         self.file = file
         self.activity = activity
+        self.share = share
+        self.now = now
         self.config = config
         self.notify = notify
     }
@@ -536,7 +633,7 @@ public actor MachineMonitor {
             }
         }
         states = next
-        let now = Date()
+        let now = self.now()
         var kept: [String: [LoadSample]] = [:]
         for machine in current.machines {
             var samples = (history[machine.id] ?? []).filter { now.timeIntervalSince($0.at) <= LoadSample.span }
@@ -549,10 +646,30 @@ public actor MachineMonitor {
         history = kept
         let written = MachinesFile(machines: current.machines, states: next, samples: kept,
                                    seconds: current.machineSeconds, now: now)
-        if let data = try? written.data() {
+        let data = try? written.data()
+        if let data {
             try? PrivateFile.write(data, to: file, makingFolder: true)
         }
         notify(current.machines, next, kept)
+        if let share, let data { send(data, share: share, machines: current.machines, states: next, now: now) }
         return next
+    }
+
+    /// Waits for the copies the last read started.
+    public func settle() async { await copying?.value }
+
+    /// The copy to each machine over ssh that answered this read and has had
+    /// none for a minute, all at once, so one slow machine holds up no other,
+    /// and off the read loop, so a stalled copy never delays the next read.
+    private func send(_ data: Data, share: MachineShare, machines: [Machine], states: [String: MachineState],
+                      now: Date) {
+        let due = machines.filter { machine in
+            guard machine.ssh != nil, case .live = states[machine.id] else { return false }
+            return copied[machine.id].map { now.timeIntervalSince($0) >= MachineShare.every } ?? true
+        }
+        for machine in due { copied[machine.id] = now }
+        copied = copied.filter { id, _ in machines.contains { $0.id == id } }
+        guard !due.isEmpty else { return }
+        copying = Task { _ = await Machine.each(due) { .success(await share.copy(data, to: $0)) } }
     }
 }

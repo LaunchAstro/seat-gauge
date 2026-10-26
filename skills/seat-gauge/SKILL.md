@@ -3,8 +3,8 @@ name: seat-gauge
 description: Read how much room each subscription seat (Claude and Codex) has left, and how loaded each machine is (CPU, memory, disk, agents working), from Seat Gauge's live files. Use when choosing which seat or machine to run work on, when asked how much of a seat's 5-hour or weekly usage is left, or when checking whether a machine has capacity for more agents.
 metadata:
   owner: Launch Astro
-  version: 0.3.0
-  updated: 2026-10-14
+  version: 0.4.0
+  updated: 2026-10-26
 ---
 
 # Seat Gauge headroom
@@ -37,3 +37,5 @@ jq -r '"updated \(.updated)", (.machines[] | "\(.id) room=\(.room // "-") why=\(
 - Disk under 25 GB free, or `disk_10m` falling by gigabytes: time to clear caches and old build output.
 - `stale=true` or a `problem`: the machine could not be read; do not send it work blind.
 - `blocked` agents are waiting on a person.
+- On another machine the app lists, the same path holds a copy, refreshed once a minute after a read. `updated` over two minutes old (or over twice a minute plus `machineSeconds`, if that is set long): the copies have stopped; check this machine alone and say so. No file there: that machine is not on the app's list, or never answered it.
+- `headroom.json` exists only on the Mac running the app.
