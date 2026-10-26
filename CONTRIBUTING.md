@@ -1,7 +1,12 @@
 # Contributing to Seat Gauge
 
 Thanks for helping. Seat Gauge builds with the Xcode Command Line Tools alone
-(Swift 6.2, macOS 14 or later). You don't need Xcode.
+(Swift 6.2 or later, which needs macOS 15.6 or later to build). The app it
+builds runs on macOS 14 or later. You don't need Xcode.
+
+This is maintained on a best-effort basis: issues and pull requests are read,
+but there is no promised response time. Report a security problem privately,
+as `SECURITY.md` says, never in a public issue.
 
 ## Build and run
 
