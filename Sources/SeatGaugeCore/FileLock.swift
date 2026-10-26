@@ -39,9 +39,10 @@ public enum FileLock {
     }
 
     private static func open(_ lock: URL) throws -> Int32 {
-        try FileManager.default.createDirectory(at: lock.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        let descriptor = Darwin.open(lock.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o644)
+        // The lock sits beside a file only the user may read, so its folder
+        // is made private here, before that file's writer runs.
+        try PrivateFile.folder(lock.deletingLastPathComponent())
+        let descriptor = Darwin.open(lock.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw Busy(lock: lock) }
         return descriptor
     }
