@@ -22,7 +22,7 @@ The whole file has a budget of 2,000 rows and 2,000,000 bytes, half of what a re
 
 Each round the app sends every machine's probe its share as `log-probe --keep-rows <rows> --keep-bytes <bytes>`. The probe takes only whole numbers from 0 to the whole file's budget and passes over any flag it does not know; with no share, or one it refuses, it keeps the whole file's budget. The app applies the same rule to the rows it gets back, which changes nothing for a probe of this version and bounds a probe from an older one, and to the rows it keeps for a machine that did not answer. The share comes from the configured machines alone, so a second app or `seatgauge-cli log` on the same config, a restart or a failed write cannot move it.
 
-A session that leaves `log.json` also leaves the machine's private ledger and checkpoint, and no pass reads its transcripts again. A session resumed after that shows as a new row, with the whole transcript counted.
+The share trims only what the probe prints. The machine's private ledger and checkpoint drop a session only by the same rule with the whole file's budget, 2,000 rows and 2,000,000 bytes, the most any caller's share can be, so when two apps with different numbers of machines read one machine, the one with the smaller share deletes nothing the other would show (issue #131). A remote machine's helper from an earlier version still trims its ledger to the share until it is updated. A session that leaves the ledger and checkpoint is never read again. A session resumed after that shows as a new row, with the whole transcript counted; one the share hid but the ledger kept comes back with its totals when a larger share asks for it.
 
 ## Remote machines
 
