@@ -153,7 +153,7 @@ Beside it, `machines.json` holds each machine's load, read every 5 seconds: this
 - `room`: `free`, `busy` or `full`, and `why`, the lines that set it (empty when free). Busy from 60 percent CPU or memory over 30 seconds, a load of 2 per core, or under 25 GB of disk left; full from 85 percent, 3 per core, or under 10 GB.
 - `cpu`: `used`, the average over the last 30 seconds, and `now`, the last one-second sample; `trend`, `rising`, `steady` or `falling` against the 30 seconds before (`null` until there is a minute of reads); `load` averages over 1, 5 and 15 minutes, `cores` and `load_per_core`. Load counts the tasks running or waiting for a core, so a load above the core count means work is queueing.
 - `ram`: `used` (30-second average, by macOS memory pressure), `now`, `trend` and `total_gb`.
-- `disk`: `used` percent, `free_gb`, and `change_10m_gb`, the space gained or lost over the last ten minutes (negative is filling).
+- `disk`: `used` percent, `free_gb`, and `change_10m_gb`, the space gained or lost over the last ten minutes (negative is filling). `clearable` names the folders worth clearing when space runs short, largest first, each as `path` (from that machine's home), `gb` and `clear`, how to clear it safely; `clearable_at` is when they were sized. Both are `null` until the first size pass lands. See [Folders worth clearing](#folders-worth-clearing).
 - `agents`: the agents herdr runs on that machine, as `working`, `blocked` (waiting on a person), `idle` and `total`, or `null` when the machine has no herdr (the terminal workspace manager above). Agents outside herdr are not counted.
 
 ### Add a machine
@@ -169,6 +169,30 @@ Nothing is installed on the other Mac. The gauge keeps one ssh connection to it 
 `seatgauge-cli machines` reads every machine once and prints the same shape.
 
 `skills/seat-gauge/` is a ready-made agent skill that reads this file. Copy or link the folder into your agent's skills folder, such as `~/.claude/skills/` for Claude Code or `~/.agents/skills/` for Codex, and an agent asked which seat has room reads the file instead of spending a seat to check.
+
+### Folders worth clearing
+
+Every 15 minutes the app sizes a fixed list of folders on each machine that answers: caches and build output that their own tool makes again when it is needed. It runs `du` there at background priority (`taskpolicy -b` and `nice -n 20`, so it waits behind everything else for the CPU and the disk), on one disk, stopped after 60 seconds, and never on the 5-second read. Seat Gauge only names them: it never deletes anything. A folder under 0.1 GB, a link, or one that is not there is left out.
+
+| Folder (from the home) | How to clear it |
+| --- | --- |
+| `Library/Developer/Xcode/DerivedData`, `Library/Developer/CoreSimulator/Caches` | delete what is inside |
+| `Library/Caches/Homebrew` | `brew cleanup --prune=all` |
+| `Library/Caches/pip`, `.cache/pip` | `pip cache purge` |
+| `.cache/uv` | `uv cache clean` |
+| `.npm/_cacache` | `npm cache clean --force` |
+| `Library/Caches/pnpm`, `Library/Caches/node-gyp`, `Library/Caches/org.swift.swiftpm` | delete what is inside |
+| `Library/pnpm/store` | `pnpm store prune` |
+| `Library/Caches/Yarn` | `yarn cache clean` |
+| `.bun/install/cache` | `bun pm cache rm` |
+| `Library/Caches/ms-playwright` | delete browsers no project uses |
+| `Library/Caches/go-build`, `go/pkg/mod` | `go clean -cache`, `go clean -modcache` |
+| `.cargo/registry` | delete `registry/cache` and `registry/src` |
+| `.gradle/caches` | delete what is inside while no Gradle build runs |
+| `.cache/huggingface` | `hf cache delete`, for models no project uses |
+| `Library/Containers/com.docker.docker/Data/vms` | `docker builder prune` and `docker image prune -a`; never delete the folder, which holds Docker's volumes too |
+
+A lane's working copy is not on the list: whether one is left over depends on which lanes are still running, which Seat Gauge cannot know.
 
 ### Read it on another machine
 

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Folders worth clearing.** `machines.json` names each machine's biggest caches and build output beside `free_gb`, with how to clear each, sized every 15 minutes at background priority. Seat Gauge never deletes them.
 - **`machines.json` on every machine.** The app copies `machines.json` once a minute to each other Mac on the LOAD tab, at the same path there, so an agent on any listed machine reads the same file.
 - **Licence.** Seat Gauge is under the GNU Affero General Public License, version 3 only (AGPL-3.0-only), from the next release. Version 0.1.0 and earlier were released under the MIT licence and remain available under it to anyone who obtains a copy; the MIT text is kept in `NOTICE`. Contributions are accepted under AGPL-3.0-only. The fonts stay under the SIL Open Font License, and provider marks stay excluded.
 

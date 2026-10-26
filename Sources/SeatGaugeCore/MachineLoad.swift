@@ -511,12 +511,20 @@ public struct MachinesFile: Encodable, Equatable, Sendable {
         public let freeGB: Int
         /// Gigabytes gained or lost over the last ten minutes; negative is filling.
         public let change10mGB: Double?
-        enum CodingKeys: String, CodingKey { case used, freeGB = "free_gb", change10mGB = "change_10m_gb" }
+        /// The listed folders worth clearing, largest first, as last sized,
+        /// and when; nil until the first size pass lands.
+        public let clearable: [ClearableFolder]?
+        public let clearableAt: String?
+        enum CodingKeys: String, CodingKey {
+            case used, freeGB = "free_gb", change10mGB = "change_10m_gb", clearable, clearableAt = "clearable_at"
+        }
         public func encode(to encoder: Encoder) throws {
             var keys = encoder.container(keyedBy: CodingKeys.self)
             try keys.encode(used, forKey: .used)
             try keys.encode(freeGB, forKey: .freeGB)
             try keys.encode(change10mGB, forKey: .change10mGB)
+            try keys.encode(clearable, forKey: .clearable)
+            try keys.encode(clearableAt, forKey: .clearableAt)
         }
     }
 
@@ -530,6 +538,7 @@ public struct MachinesFile: Encodable, Equatable, Sendable {
     /// A machine is stale when its last read failed or its figures are older
     /// than three read intervals.
     public init(machines: [Machine], states: [String: MachineState], samples: [String: [LoadSample]] = [:],
+                clearable: [String: ClearableReport] = [:],
                 seconds: Int, now: Date, timeZone: TimeZone = .current) {
         let dates = ISO8601DateFormatter()
         dates.timeZone = timeZone
@@ -549,8 +558,10 @@ public struct MachinesFile: Encodable, Equatable, Sendable {
                           loadPerCore: (reading.loadPerCore * 10).rounded() / 10)
                 ram = Memory(used: summary.ram, now: reading.ramUsed, trend: summary.ramTrend,
                              totalGB: Int((Double(reading.ramBytes) / 1_073_741_824).rounded()))
+                let sized = clearable[machine.id]
                 disk = Disk(used: reading.diskUsed, freeGB: Int((Double(reading.diskFreeBytes) / 1e9).rounded()),
-                            change10mGB: summary.diskChangeGB)
+                            change10mGB: summary.diskChangeGB, clearable: sized?.folders,
+                            clearableAt: sized.map { dates.string(from: $0.sizedAt) })
             }
             return Row(id: machine.id, label: machine.label, reachable: fresh, stale: !fresh || (reading?.takenAt ?? .distantPast) < oldest,
                        problem: problem, readAt: reading.map { dates.string(from: $0.takenAt) },
@@ -579,6 +590,7 @@ public actor MachineMonitor {
     let activity: PollActivity
     let notify: @Sendable ([Machine], [String: MachineState], [String: [LoadSample]]) -> Void
     let share: MachineShare?
+    let sizer: ClearableSizer?
     let now: @Sendable () -> Date
     private var states: [String: MachineState] = [:]
     private var history: [String: [LoadSample]] = [:]
@@ -586,11 +598,17 @@ public actor MachineMonitor {
     /// that refuses one is asked again a minute later rather than every read.
     private var copied: [String: Date] = [:]
     private var copying: Task<Void, Never>?
+    /// Each machine's last size pass, when the last one was started, and the
+    /// passes still running, so a slow one is never started twice.
+    private var clearable: [String: ClearableReport] = [:]
+    private var sizeStarted: [String: Date] = [:]
+    private var sizing: [String: Task<Void, Never>] = [:]
 
-    /// `share` copies the file to the other machines; nil, as the CLI's
-    /// one-off read passes, copies nothing.
+    /// `share` copies the file to the other machines and `sizer` sizes the
+    /// folders worth clearing; nil, as the CLI's one-off read passes, does
+    /// neither.
     public init(prober: MachineProber, file: URL = MachinesFile.defaultFile,
-                activity: PollActivity = PollActivity(), share: MachineShare? = nil,
+                activity: PollActivity = PollActivity(), share: MachineShare? = nil, sizer: ClearableSizer? = nil,
                 now: @escaping @Sendable () -> Date = Date.init,
                 config: @escaping @Sendable () async -> Config,
                 notify: @escaping @Sendable ([Machine], [String: MachineState], [String: [LoadSample]]) -> Void = { _, _, _ in }) {
@@ -598,6 +616,7 @@ public actor MachineMonitor {
         self.file = file
         self.activity = activity
         self.share = share
+        self.sizer = sizer
         self.now = now
         self.config = config
         self.notify = notify
@@ -644,7 +663,8 @@ public actor MachineMonitor {
             kept[machine.id] = samples
         }
         history = kept
-        let written = MachinesFile(machines: current.machines, states: next, samples: kept,
+        clearable = clearable.filter { id, _ in current.machines.contains { $0.id == id } }
+        let written = MachinesFile(machines: current.machines, states: next, samples: kept, clearable: clearable,
                                    seconds: current.machineSeconds, now: now)
         let data = try? written.data()
         if let data {
@@ -652,11 +672,36 @@ public actor MachineMonitor {
         }
         notify(current.machines, next, kept)
         if let share, let data { send(data, share: share, machines: current.machines, states: next, now: now) }
+        if let sizer { size(sizer, machines: current.machines, states: next, now: now) }
         return next
     }
 
-    /// Waits for the copies the last read started.
-    public func settle() async { await copying?.value }
+    /// Waits for the copies the last read started, and every size pass running.
+    public func settle() async {
+        await copying?.value
+        for task in sizing.values { await task.value }
+    }
+
+    /// A size pass on each machine that answered this read and has had none
+    /// started for `ClearableFolders.every`, off the read loop. Its folders
+    /// land in the write after it ends.
+    private func size(_ sizer: ClearableSizer, machines: [Machine], states: [String: MachineState], now: Date) {
+        for machine in machines {
+            guard case .live = states[machine.id], sizing[machine.id] == nil,
+                  sizeStarted[machine.id].map({ now.timeIntervalSince($0) >= ClearableFolders.every }) ?? true
+            else { continue }
+            sizeStarted[machine.id] = now
+            sizing[machine.id] = Task {
+                let folders = await sizer.size(machine)
+                self.sized(machine.id, folders)
+            }
+        }
+    }
+
+    private func sized(_ id: String, _ folders: [ClearableFolder]?) {
+        sizing[id] = nil
+        if let folders { clearable[id] = ClearableReport(sizedAt: now(), folders: folders) }
+    }
 
     /// The copy to each machine over ssh that answered this read and has had
     /// none for a minute, all at once, so one slow machine holds up no other,

@@ -66,9 +66,11 @@ let poll = Poll(options: Poll.Options(
 let watcher = poll.watcher, store = poll.store, poller = poll.poller
 // Each machine's load, on its own loop beside the seat poll, into the
 // LOAD tab and `machines.json`, with a copy of the file on each other
-// machine for the agents there.
+// machine for the agents there, and every 15 minutes the size of each
+// machine's folders worth clearing.
 let machineMonitor = MachineMonitor(prober: MachineProber(runner: RealProcessRunner()),
                                     share: MachineShare(runner: RealProcessRunner()),
+                                    sizer: ClearableSizer(runner: RealProcessRunner()),
                                     config: { await watcher.config },
                                     notify: { machines, states, history in
                                         Task { @MainActor in
