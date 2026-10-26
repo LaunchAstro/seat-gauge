@@ -30,16 +30,19 @@ step() {
 
 # The tree is what a push could publish: tracked files, and untracked ones git
 # does not ignore. It fails on an email address, a macOS home path, or a Linux
-# home path under a real-looking name, in any file's text or path. The test
-# fixtures may use the placeholder homes `seat`, `example`, `user` and
-# `someone`. The home path is split so this file does not match itself.
+# home path under a real-looking name, or a token-shaped string (an Anthropic
+# key, a GitHub token, a JWT), in any file's text or path. The test fixtures
+# may use the placeholder homes `seat`, `example`, `user` and `someone`. A
+# fixture that needs a token shape builds it at run time, so the literal is
+# not in the source. The patterns are split so this file does not match itself.
 privacy() {
-  local users email homes hits
+  local users email homes tokens hits
   users="/Us""ers/"
   email='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}'
+  tokens='sk-a''nt-[A-Za-z0-9_-]{8,}|(gh''p|gh''o)_[A-Za-z0-9]{16,}|github''_pat_[A-Za-z0-9_]{16,}|ey''J[A-Za-z0-9_-]{8,}[.][A-Za-z0-9_-]{8,}[.]'
   homes='while (m{/home/([A-Za-z0-9._-]+)}g) { next if $1 =~ /^(seat|example|user|someone)$/; print; last }'
   hits="$( {
-    git grep -n -I -E --untracked -e "$email" -e "$users"
+    git grep -n -I -E --untracked -e "$email" -e "$users" -e "$tokens"
     git grep -n -I -E --untracked -e '/home/[A-Za-z0-9._-]+' | perl -ne "$homes"
     git ls-files --cached --others --exclude-standard | grep -E -e "$users"
   } 2>/dev/null )"

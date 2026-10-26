@@ -11,8 +11,9 @@ import SeatGaugeCore
 @Suite struct SeatDiscoveryTests {
 
     /// A planted credential. It is in every login and token file a case
-    /// makes, and must never reach the seeded file.
-    static let marker = "sk-ant-oat01-SEATGAUGE-PLANTED-MARKER"
+    /// makes, and must never reach the seeded file. Built in two parts so the
+    /// source holds no token-shaped string for the privacy scan to flag.
+    static let marker = "sk-" + "ant-oat01-SEATGAUGE-PLANTED-MARKER"
 
     struct Machine {
         let root: URL
@@ -175,11 +176,16 @@ import SeatGaugeCore
         for team in ["claude-seat", "claude-seats", ".token", "herdr", "/opt/homebrew"] {
             #expect(!written.contains(team), "\(team) in the template")
         }
-        // A person's name is a whole word, so "sam" cannot trip on "sample". The
-        // template's own examples ("work") are not people, so they stay.
-        let words = Set(written.lowercased().split { !$0.isLetter && !$0.isNumber && $0 != "-" }.map(String.init))
-        for name in ["sam", "alex", "jordan"] {
-            #expect(!words.contains(name), "a seat called \(name) in the template")
+        // Every seat id the template names, in a line or an example, is one of the
+        // neutral few (seats, and the machines the LOAD example names). Listing the allowed ids rather than the banned ones means
+        // a real person's seat name cannot sit in the template without failing
+        // here, and no such name has to be written into the tree to catch it.
+        let named = try NSRegularExpression(pattern: #"("id": "|profiles/)([A-Za-z0-9_-]+)"#)
+            .matches(in: written, range: NSRange(written.startIndex..., in: written))
+            .compactMap { Range($0.range(at: 2), in: written).map { String(written[$0]) } }
+        #expect(!named.isEmpty)
+        for id in named {
+            #expect(["claude", "work", "personal", "codex", "here", "studio"].contains(id), "\(id) in the template")
         }
     }
 
