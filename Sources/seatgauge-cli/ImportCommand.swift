@@ -20,5 +20,5 @@ func importCodex() async throws {
 /// Input, output and cache tokens. Thinking is a part of output, so it is
 /// not added again.
 func tokens(_ rows: [SpendRow]) -> Int {
-    rows.reduce(0) { $0 + $1.input + $1.output + $1.cacheRead + $1.cacheWrite5m + $1.cacheWrite1h }
+    rows.reduce(0) { TokenCounts.sum($0, $1.counts.total) }
 }

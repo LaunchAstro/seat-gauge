@@ -17,21 +17,47 @@ public struct TokenCounts: Equatable, Sendable, Codable {
         self.cacheWrite1h = cacheWrite1h
     }
 
+    /// The most one field of one log line may say: a thousand million
+    /// million tokens, past any real response or session by a factor of
+    /// millions. A reader refuses a line over it, so a corrupt or hostile log
+    /// is an unreadable line rather than a sum that overflows.
+    public static let ceiling = 1_000_000_000_000_000
+
+    /// Field by field, held at the largest and smallest `Int` rather than
+    /// trapping: the counts come from files on disk and from other machines,
+    /// and a trap would end the always-on app, which would meet the same
+    /// files again on relaunch.
     public static func + (a: TokenCounts, b: TokenCounts) -> TokenCounts {
-        TokenCounts(responses: a.responses + b.responses, input: a.input + b.input,
-                    output: a.output + b.output, thinking: a.thinking + b.thinking,
-                    cacheRead: a.cacheRead + b.cacheRead,
-                    cacheWrite5m: a.cacheWrite5m + b.cacheWrite5m,
-                    cacheWrite1h: a.cacheWrite1h + b.cacheWrite1h)
+        TokenCounts(responses: sum(a.responses, b.responses), input: sum(a.input, b.input),
+                    output: sum(a.output, b.output), thinking: sum(a.thinking, b.thinking),
+                    cacheRead: sum(a.cacheRead, b.cacheRead),
+                    cacheWrite5m: sum(a.cacheWrite5m, b.cacheWrite5m),
+                    cacheWrite1h: sum(a.cacheWrite1h, b.cacheWrite1h))
     }
 
     public static func - (a: TokenCounts, b: TokenCounts) -> TokenCounts {
-        TokenCounts(responses: a.responses - b.responses, input: a.input - b.input,
-                    output: a.output - b.output, thinking: a.thinking - b.thinking,
-                    cacheRead: a.cacheRead - b.cacheRead,
-                    cacheWrite5m: a.cacheWrite5m - b.cacheWrite5m,
-                    cacheWrite1h: a.cacheWrite1h - b.cacheWrite1h)
+        func less(_ x: Int, _ y: Int) -> Int {
+            let (out, over) = x.subtractingReportingOverflow(y)
+            return over ? (y > 0 ? .min : .max) : out
+        }
+        return TokenCounts(responses: less(a.responses, b.responses), input: less(a.input, b.input),
+                           output: less(a.output, b.output), thinking: less(a.thinking, b.thinking),
+                           cacheRead: less(a.cacheRead, b.cacheRead),
+                           cacheWrite5m: less(a.cacheWrite5m, b.cacheWrite5m),
+                           cacheWrite1h: less(a.cacheWrite1h, b.cacheWrite1h))
     }
+
+    /// Whole numbers added the way `+` adds counts: held at the largest or
+    /// smallest `Int` rather than trapping. For the totals drawn from counts.
+    public static func sum(_ parts: Int...) -> Int {
+        parts.reduce(0) { total, part in
+            let (out, over) = total.addingReportingOverflow(part)
+            return over ? (part > 0 ? .max : .min) : out
+        }
+    }
+
+    /// Everything but thinking, which is inside output already.
+    public var total: Int { Self.sum(input, output, cacheRead, cacheWrite5m, cacheWrite1h) }
 
     public static func += (a: inout TokenCounts, b: TokenCounts) { a = a + b }
 }

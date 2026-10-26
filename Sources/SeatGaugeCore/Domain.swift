@@ -180,6 +180,16 @@ public struct Window: Equatable, Sendable, Codable {
         self.resetsAt = resetsAt
         self.length = length
     }
+
+    /// Through the clamp as well, so a corrupt `readings.json` cannot carry a
+    /// percent whose sums and differences trap when the app reads it at launch.
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(kind: try values.decode(WindowKind.self, forKey: .kind),
+                  usedPercent: try values.decode(Int.self, forKey: .usedPercent),
+                  resetsAt: try values.decode(Date.self, forKey: .resetsAt),
+                  length: try values.decode(Duration.self, forKey: .length))
+    }
 }
 
 /// One seat read once. `windows` is non-empty and in `WindowKind` order.

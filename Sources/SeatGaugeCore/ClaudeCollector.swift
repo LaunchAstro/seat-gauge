@@ -159,26 +159,34 @@ public struct ClaudeCollector: Sendable {
             // Either build's own Claude calls run in its `primer/`, and counting
             // them would have the panel report its polling as the user's work.
             if let cwd = object["cwd"] as? String, AppPaths.isPrimer(cwd, in: here) { continue }
+            // A count no response could have is a broken line, not a figure.
+            guard let counts = Self.counts(usage) else { skipped += 1; continue }
             guard seen.insert(id).inserted else { continue }
             responses.append(SpendResponse(requestID: request, messageID: id, model: model,
-                                           at: at, counts: Self.counts(usage)))
+                                           at: at, counts: counts))
         }
         return FileReading(responses: responses, sessionCosts: costs, skipped: skipped)
     }
 
-    static func counts(_ usage: [String: Any]) -> TokenCounts {
+    /// Nil when a count is there but negative or past `TokenCounts.ceiling`.
+    static func counts(_ usage: [String: Any]) -> TokenCounts? {
         let creation = usage["cache_creation"] as? [String: Any]
-        let written = JSON.int(usage["cache_creation_input_tokens"]) ?? 0
+        let details = usage["output_tokens_details"] as? [String: Any]
+        let values = [usage["cache_creation_input_tokens"], usage["input_tokens"], usage["output_tokens"],
+                      details?["thinking_tokens"], usage["cache_read_input_tokens"],
+                      creation?["ephemeral_5m_input_tokens"], creation?["ephemeral_1h_input_tokens"]]
+        guard values.allSatisfy(JSON.isCount) else { return nil }
+        let written = JSON.count(usage["cache_creation_input_tokens"]) ?? 0
         return TokenCounts(
             responses: 1,
-            input: JSON.int(usage["input_tokens"]) ?? 0,
-            output: JSON.int(usage["output_tokens"]) ?? 0,
-            thinking: JSON.int((usage["output_tokens_details"] as? [String: Any])?["thinking_tokens"]) ?? 0,
-            cacheRead: JSON.int(usage["cache_read_input_tokens"]) ?? 0,
+            input: JSON.count(usage["input_tokens"]) ?? 0,
+            output: JSON.count(usage["output_tokens"]) ?? 0,
+            thinking: JSON.count(details?["thinking_tokens"]) ?? 0,
+            cacheRead: JSON.count(usage["cache_read_input_tokens"]) ?? 0,
             // Without the split, every write is priced as the 5-minute one,
             // which is the cheaper of the two and keeps the figure a floor.
-            cacheWrite5m: creation.flatMap { JSON.int($0["ephemeral_5m_input_tokens"]) } ?? written,
-            cacheWrite1h: creation.flatMap { JSON.int($0["ephemeral_1h_input_tokens"]) } ?? 0)
+            cacheWrite5m: creation.flatMap { JSON.count($0["ephemeral_5m_input_tokens"]) } ?? written,
+            cacheWrite1h: creation.flatMap { JSON.count($0["ephemeral_1h_input_tokens"]) } ?? 0)
     }
 
     static let metadataFields: Set<String> = ["type", "sessionId", "totalCostUSD", "message", "usage", "model",

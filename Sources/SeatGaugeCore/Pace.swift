@@ -68,12 +68,18 @@ public enum PaceGrade: Equatable, Sendable {
 /// Seconds are never drawn.
 public enum Countdown {
     public static func text(until: Date, now: Date) -> String {
-        let total = Int(max(0, until.timeIntervalSince(now)))
+        // A reset saved by an older build, or a corrupt `readings.json`, can
+        // be any Double, and converting one past `Int` traps. A century is
+        // past any window, so the count is held there.
+        let seconds = until.timeIntervalSince(now)
+        let total = seconds.isFinite ? Int(min(max(0, seconds), longest)) : 0
         let hours = total / 3600
         let minutes = (total % 3600) / 60
         if hours >= 24 { return "\(hours / 24)d \(hours % 24)h" }
         return hours > 0 ? String(format: "%d:%02d", hours, minutes) : "\(minutes)m"
     }
+
+    static let longest: TimeInterval = 100 * 365 * 86_400
 }
 
 extension Window {

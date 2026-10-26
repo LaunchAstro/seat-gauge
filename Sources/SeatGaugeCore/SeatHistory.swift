@@ -9,7 +9,7 @@ extension Measure {
     /// With no card, the price the roll-up stored.
     public func amount(of row: SpendRow, rates: RateCard? = nil) -> Decimal? {
         switch self {
-        case .tokens: Decimal(row.input + row.output + row.cacheWrite5m + row.cacheWrite1h)
+        case .tokens: Decimal(TokenCounts.sum(row.input, row.output, row.cacheWrite5m, row.cacheWrite1h))
         case .usd: rates.map { $0.usd(model: row.model, counts: row.counts) } ?? row.usd
         }
     }
