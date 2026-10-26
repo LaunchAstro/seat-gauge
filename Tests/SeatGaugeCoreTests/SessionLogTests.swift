@@ -326,31 +326,6 @@ import Testing
         #expect(!names.contains { $0.hasPrefix("observations-before-compaction") })
     }
 
-    @Test func compactingABigOldLedgerKeepsItBesideTheNewOne() throws {
-        let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
-        var ledger = SessionLedger(directory: root)
-        ledger.keepAbove = 1024
-        let start = Date(timeIntervalSince1970: 1_790_000_000)
-        for pass in 0..<300 {
-            let row = SessionRow(sessionId: pass % 2 == 0 ? "main" : "side", workspace: "PROJECT-Log-work",
-                                 pane: "w1:p1", tool: "codex", status: pass < 298 ? "working" : "closed",
-                                 asOf: start.addingTimeInterval(Double(pass)))
-            try ledger.append([SessionObservation(row: row, pid: 1, processStart: "start", paths: [])])
-        }
-        let before = try Data(contentsOf: ledger.file)
-        let read = try ledger.read()
-        #expect(read.rows.count == 2)
-        try ledger.compactIfLong(read.rows, lines: read.lines)
-
-        let kept = try FileManager.default.contentsOfDirectory(atPath: root.path)
-            .filter { $0.hasPrefix("observations-before-compaction") }
-        #expect(kept.count == 1)
-        #expect(try kept.first.map { try Data(contentsOf: root.appendingPathComponent($0)) } == before)
-        #expect(try lines(ledger.file) == 2)
-        #expect(try ledger.rows() == read.rows)
-        #expect(try ledger.rows()["main"]?.row.status == "closed")
-    }
-
     @Test func replacementKeepsClaudeTotalsAndContentIsNotDecoded() throws {
         let root = try scratch(); defer { try? FileManager.default.removeItem(at: root) }
         let path = root.appendingPathComponent("session.jsonl").path

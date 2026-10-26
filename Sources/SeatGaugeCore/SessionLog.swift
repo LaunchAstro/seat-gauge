@@ -78,10 +78,6 @@ public struct SessionLogFile: Codable, Sendable {
 /// is rewritten as one line each.
 struct SessionLedger {
     let directory: URL
-    /// A ledger this big was written before compaction, when every pass
-    /// appended every session again. The first compaction keeps it beside the
-    /// new one, under a name the probe never reads, for the owner to delete.
-    var keepAbove = 64 << 20
     /// How much is read at a time.
     var chunk = 1 << 20
     var file: URL { directory.appendingPathComponent("observations.jsonl") }
@@ -166,14 +162,6 @@ struct SessionLedger {
             try? handle.close()
             try? FileManager.default.removeItem(at: fresh)
             throw error
-        }
-        let size = (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0
-        if size > keepAbove {
-            // A second name for the same bytes, so nothing is copied and the
-            // rename below cannot lose them.
-            let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
-            try FileManager.default.linkItem(
-                at: file, to: directory.appendingPathComponent("observations-before-compaction-\(stamp).jsonl"))
         }
         guard rename(fresh.path, file.path) == 0 else {
             try? FileManager.default.removeItem(at: fresh)
@@ -338,11 +326,13 @@ public actor SessionLogMonitor {
     @discardableResult public func read() async -> SessionLogFile {
         let machines = await config().machines
         let prober = self.prober
-        let budget = SessionRetention.Budget.share(machines: machines.count)
-        let results = await Machine.each(machines) { await prober.readLog($0, budget: budget) }
+        let results = await Machine.each(machines) {
+            await prober.readLog($0, budget: .share(machines: machines.count, id: $0.id))
+        }
         var problems: [String: String] = [:]
         let now = Date()
         for machine in machines {
+            let budget = SessionRetention.Budget.share(machines: machines.count, id: machine.id)
             switch results[machine.id] {
             case let .success(log):
                 // A pass that answered can still say what it could not read,
@@ -378,16 +368,15 @@ public actor SessionLogMonitor {
 /// number of machines (issue #94). The probe drops a session from its
 /// ledger, checkpoint and pass on the same rule that drops it from
 /// `log.json`, so nothing is kept or re-read that nobody is shown (issue
-/// #70). The rule reads only the rows and the configured machine count, so
-/// two monitors, a restart or a failed write cannot move it.
+/// #70). The rule reads only the rows and the configured machines, so two
+/// monitors, a restart or a failed write cannot move it.
 public enum SessionRetention {
     /// A day. Nothing reads a closed session after that (owner, 26 October
     /// 2026).
     public static let closedFor: TimeInterval = 86_400
     /// The whole file's budget, shared evenly by the configured machines.
     /// It is half of what a reader accepts, 5,000 rows and 4,000,000 bytes
-    /// (issue #38), which leaves room for open sessions, never dropped, and
-    /// for the machine name and stale flag the app adds to each row.
+    /// (issue #38), which leaves room for open sessions, never dropped.
     public static let fileRows = 2_000
     public static let fileBytes = 2_000_000
 
@@ -397,16 +386,22 @@ public enum SessionRetention {
         public let rows: Int
         public let bytes: Int
 
-        /// Nil outside 1 to the whole file's budget, which is all the probe
+        /// Nil outside 0 to the whole file's budget, which is all the probe
         /// takes from the command line.
         public init?(rows: Int, bytes: Int) {
-            guard (1 ... SessionRetention.fileRows).contains(rows), (1 ... SessionRetention.fileBytes).contains(bytes) else { return nil }
+            guard (0 ... SessionRetention.fileRows).contains(rows), (0 ... SessionRetention.fileBytes).contains(bytes) else { return nil }
             self.rows = rows; self.bytes = bytes
         }
 
-        public static func share(machines: Int) -> Budget {
+        /// An even part of the whole file, its bytes less machine `id` on
+        /// each of its rows, which the app adds after the probe measures
+        /// them. Past 2,000 machines, or with a long enough `id`, a share
+        /// keeps no closed session.
+        public static func share(machines: Int, id: String = "") -> Budget {
             let count = max(1, machines)
-            return Budget(rows: max(1, fileRows / count), bytes: max(1, fileBytes / count))!
+            let rows = fileRows / count
+            let name = (try? SessionLogFile.encoder().encode(id)).map { $0.count - 2 } ?? id.utf8.count * 6
+            return Budget(rows: rows, bytes: max(0, fileBytes / count - rows * name))!
         }
     }
 
@@ -436,7 +431,8 @@ public enum SessionRetention {
     }
 
     /// What a row takes in `log.json`, measured without the two fields the
-    /// app sets, so the probe and the app measure it alike.
+    /// app sets, so the probe and the app measure it alike. `Budget.share`
+    /// leaves room for the machine.
     static func size(_ row: SessionRow) -> Int {
         var row = row; row.machine = ""; row.stale = false
         return ((try? SessionLogFile.encoder().encode(row))?.count ?? 0) + 1

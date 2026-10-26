@@ -27,8 +27,10 @@ import Testing
         let mixed = SessionProbe.arguments(["--future", "--keep-bytes", "9000", "--colour", "red", "--keep-rows", "3"])
         #expect(mixed.keep == SessionRetention.Budget(rows: 3, bytes: 9_000))
         #expect(mixed.directory == nil)
+        // A share of nothing is a share: past 2,000 machines, each has one.
+        #expect(SessionProbe.arguments(["--keep-rows", "0", "--keep-bytes", "0"]).keep == SessionRetention.Budget(rows: 0, bytes: 0))
         // Anything but a whole number in range leaves the standard share.
-        for bad in [["--keep-rows", "0", "--keep-bytes", "10"], ["--keep-rows", "-4", "--keep-bytes", "10"],
+        for bad in [["--keep-rows", "-4", "--keep-bytes", "10"],
                     ["--keep-rows", "2001", "--keep-bytes", "10"], ["--keep-rows", "5", "--keep-bytes", "2000001"],
                     ["--keep-rows", "5e2", "--keep-bytes", "10"], ["--keep-rows", "5;rm", "--keep-bytes", "10"],
                     ["--keep-rows", "99999999999999999999", "--keep-bytes", "10"], ["--keep-rows", "5"], ["--keep-rows"]] {
@@ -37,7 +39,7 @@ import Testing
         #expect(SessionProbe.arguments([]).directory == nil)
     }
 
-    @Test("the app sends each machine its share of the file, worked out from the number of machines")
+    @Test("the app sends each machine its share of the file, worked out from the number of machines and its ID")
     func appSendsTheShare() async throws {
         let sent = Sent()
         let machines = (1...3).map { Machine(id: "m\($0)", label: "M\($0)", ssh: "m\($0)") } + [.here]
@@ -46,8 +48,10 @@ import Testing
                                         config: { Config(seats: [], pollMinutes: 5, machines: machines) })
         _ = await monitor.read()
         #expect(sent.lines.count == 4)
-        #expect(sent.lines.allSatisfy { $0.hasSuffix(" log-probe --keep-rows 500 --keep-bytes 500000")
-            || $0.contains(" log-probe --directory ") && $0.hasSuffix(" --keep-rows 500 --keep-bytes 500000") })
+        // 500,000 bytes less the ID on each of 500 rows: "m1" is 2 bytes,
+        // "this-mac" 8.
+        #expect(sent.lines.filter { $0.hasSuffix(" log-probe --keep-rows 500 --keep-bytes 499000") }.count == 3)
+        #expect(sent.lines.filter { $0.contains(" log-probe --directory ") && $0.hasSuffix(" --keep-rows 500 --keep-bytes 496000") }.count == 1)
     }
 
     @Test("a machine's share holds its open sessions, never dropped, and the newest closed ones that fit by row and by byte")
@@ -98,6 +102,55 @@ import Testing
         let again = await SessionLogMonitor(prober: MachineProber(runner: Answer(line: answer), environment: [:]),
                                             file: file, config: { Config(seats: [], pollMinutes: 5, machines: machines) }).read()
         #expect(Set(again.sessions.map(\.id)) == Set(log.sessions.map(\.id)))
+    }
+
+    @Test("one machine with a long ID, sending a full share of closed sessions, stays inside what a reader accepts")
+    func aLongMachineIdStaysInsideTheReader() async throws {
+        let current = Date()
+        let sessions = (0..<2_000).map { closed($0, at: current) }
+        let answer = String(decoding: try SessionLogFile.encoder().encode(SessionLogFile(updated: Date(), sessions: sessions)), as: UTF8.self)
+        let machines = [Machine(id: String(repeating: "m", count: 2_048), label: "Host", ssh: "host")]
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        _ = await SessionLogMonitor(prober: MachineProber(runner: Answer(line: answer), environment: [:]),
+                                    file: file, config: { Config(seats: [], pollMinutes: 5, machines: machines) }).read()
+        #expect(try Data(contentsOf: file).count <= 4_000_000)
+    }
+
+    @Test("more machines than the file has rows leaves each a share of no closed session")
+    func moreMachinesThanRows() async throws {
+        let current = Date()
+        let answer = String(decoding: try SessionLogFile.encoder().encode(SessionLogFile(updated: Date(), sessions: [closed(0, at: current)])),
+                            as: UTF8.self)
+        let machines = (0..<5_001).map { Machine(id: "m\($0)", label: "Host", ssh: "host\($0)") }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let log = await SessionLogMonitor(prober: MachineProber(runner: Answer(line: answer), environment: [:]),
+                                          file: file, config: { Config(seats: [], pollMinutes: 5, machines: machines) }).read()
+        #expect(log.sessions.count <= 5_000)
+        #expect(log.sessions.count == 0)
+    }
+
+    @Test("an expired session in a ledger written before compaction is deleted, with no copy kept")
+    func anExpiredSessionLeavesNoArchive() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("private")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let start = Date()
+        var expired = closed(0, at: start)
+        expired.closedAt = start.addingTimeInterval(-SessionRetention.closedFor)
+        let line = try JSONEncoder().encode(SessionObservation(row: expired, pid: 1, processStart: "start", paths: [])) + Data([0x0A])
+        let ledger = SessionLedger(directory: directory)
+        let count = (65 << 20) / line.count + 1
+        var data = Data(); data.reserveCapacity(count * line.count)
+        for _ in 0..<count { data.append(line) }
+        try data.write(to: ledger.file)
+        let log = try await SessionProbe(runner: Answer(lines: { $0 == ["pane", "list"] ? [#"{"result":{"panes":[]}}"#]
+            : [#"{"result":{"workspaces":[]}}"#] }), directory: directory, home: root).run(now: start)
+        #expect(log.sessions.count == 0)
+        #expect(try ledger.rows().isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.hasPrefix("observations") } == ["observations.jsonl"])
     }
 
     @Test("a probe on a small share drops what does not fit from its ledger and checkpoint at the end of the pass")
