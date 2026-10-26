@@ -41,7 +41,8 @@ import SeatGaugeTestSupport
         // What the parsers read is kept, one line for each line read.
         #expect(clean.count == lines.count)
         #expect(clean[1].contains(#""is_error":true"#))
-        #expect(clean[1].contains("failed:"))
+        // A kept string that mentions a credential goes whole.
+        #expect(clean[1].contains(#""result":"[redacted]""#))
         #expect(clean[2].contains(#""subtype":"init""#))
         #expect(clean[2].contains("claude-haiku-4-5"))
     }
@@ -75,8 +76,7 @@ import SeatGaugeTestSupport
     func recordingsAreOwnerOnlyAndOutsideTheFixtures() throws {
         let clone = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: clone) }
-        let folder = FixtureRecording.directory(in: clone)
-        #expect(folder.path == clone.appendingPathComponent(".scratch/recordings").path)
+        let folder = clone.appendingPathComponent(".scratch/recordings", isDirectory: true)
 
         let day = Calendar.current.date(from: DateComponents(year: 2026, month: 9, day: 22, hour: 12))!
         let written = try FixtureRecording.write(["{}"], seat: SeatID(rawValue: "work"), date: day, into: folder)
@@ -95,7 +95,7 @@ import SeatGaugeTestSupport
     func aClimbingIDWritesNothing() throws {
         let clone = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: clone) }
-        let folder = FixtureRecording.directory(in: clone)
+        let folder = clone.appendingPathComponent(".scratch/recordings", isDirectory: true)
         let day = Calendar.current.date(from: DateComponents(year: 2026, month: 9, day: 22, hour: 12))!
         for id in ["../../escaped", "a/b", "/abs", ""] {
             #expect(throws: (any Error).self, "\(id)") {
@@ -119,7 +119,6 @@ import SeatGaugeTestSupport
             let kept = all.contains(planted)
             #expect(!kept, "\(planted)")
         }
-        #expect(all.contains("failed:"))
     }
 
     @Test("Sol proof, criterion 2: a spaced API key, a quoted passphrase and an unsegmented sk- key go whole")
@@ -137,7 +136,9 @@ import SeatGaugeTestSupport
             let kept = all.contains(planted)
             #expect(!kept, "\(planted.prefix(8))")
         }
-        #expect(all.contains("was refused"))
+        // An error sentence that names nothing secret is kept as it was.
+        #expect(FixtureRecording.redact(#"{"type":"result","result":"Not logged in · Please run /login"}"#)
+                == #"{"result":"Not logged in · Please run /login","type":"result"}"#)
     }
 
     @Test("Sol proof, criterion 4: a recordings folder that is a link writes nothing and changes nothing outside")
@@ -152,7 +153,7 @@ import SeatGaugeTestSupport
         let day = Calendar.current.date(from: DateComponents(year: 2026, month: 9, day: 22, hour: 12))!
 
         // The recordings folder itself a link, and then the folder above it.
-        let folder = FixtureRecording.directory(in: clone)
+        let folder = clone.appendingPathComponent(".scratch/recordings", isDirectory: true)
         try FileManager.default.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: folder, withDestinationURL: outside)
         #expect(throws: (any Error).self) {
@@ -166,5 +167,58 @@ import SeatGaugeTestSupport
         #expect(try String(contentsOf: kept, encoding: .utf8) == "must-preserve")
         #expect(try Self.mode(outside) == 0o755)
         #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path) == ["work-2026-09-22.jsonl"])
+    }
+
+    @Test("Sol proof, criterion 2: an escaped-quote password, a quoted bearer and a cookie list go whole")
+    func credentialSentencesGoWhole() {
+        let lines = [
+            #"{"type":"result","result":"password: \"firstword \\\"quoted\\\" secondword thirdword\" was refused"}"#,
+            #"{"type":"result","result":"Authorization: Bearer \"opaque-secret-bearer\""}"#,
+            #"{"type":"result","result":"Cookie: name=opaque-first; other=opaque-second"}"#,
+        ]
+        let all = lines.map(FixtureRecording.redact).joined(separator: "\n")
+        for planted in ["opaque-secret", "opaque-first", "opaque-second", "secondword", "thirdword", "quoted"] {
+            let kept = all.contains(planted)
+            #expect(!kept, "\(planted)")
+        }
+    }
+
+    @Test("seatgauge-cli record writes to .scratch/recordings under the folder it runs in, 600, and never into Tests/Fixtures")
+    func theCLIRecordsIntoScratch() throws {
+        let scratch = try SeatLoginTests.scratch(.accepts("unused"))
+        defer { scratch.remove() }
+        // A claude that prints the own-login fixture whatever it is asked.
+        let reply = scratch.root.appendingPathComponent("reply.jsonl")
+        try (try Fixture.lines("own").joined(separator: "\n") + "\n").write(to: reply, atomically: true, encoding: .utf8)
+        let claude = scratch.bin.appendingPathComponent("claude")
+        try "#!/bin/sh\ncat \"\(reply.path)\"\nsleep 1\n".write(to: claude, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: claude.path)
+        let seats = scratch.root.appendingPathComponent("seats.json")
+        let entry: [String: Any] = ["id": "work", "label": "Work", "kind": "claude",
+                                    "profile": scratch.profile("work").path, "login": "own"]
+        try JSONSerialization.data(withJSONObject: ["seats": [entry]]).write(to: seats)
+        let clone = scratch.root.appendingPathComponent("clone", isDirectory: true)
+        try FileManager.default.createDirectory(at: clone.appendingPathComponent("Tests/Fixtures"), withIntermediateDirectories: true)
+
+        let task = Process()
+        task.executableURL = AttributionSeedTests.repository.appendingPathComponent(".build/debug/seatgauge-cli")
+        task.arguments = ["record", "work", seats.path]
+        task.currentDirectoryURL = clone
+        task.environment = scratch.parent.merging(["SHELL": "/bin/sh", "CFFIXED_USER_HOME": scratch.home.path]) { $1 }
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        try task.run()
+        let deadline = Date(timeIntervalSinceNow: 60)
+        while task.isRunning, Date() < deadline { usleep(50_000) }
+        if task.isRunning { task.terminate() }
+        task.waitUntilExit()
+
+        #expect(task.terminationStatus == 0)
+        let folder = clone.appendingPathComponent(".scratch/recordings", isDirectory: true)
+        let written = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        #expect(written.count == 1 && written.allSatisfy { $0.hasPrefix("work-") && $0.hasSuffix(".jsonl") })
+        if let name = written.first { #expect(try Self.mode(folder.appendingPathComponent(name)) == 0o600) }
+        #expect(try Self.mode(folder) == 0o700)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: clone.appendingPathComponent("Tests/Fixtures").path).isEmpty)
     }
 }
