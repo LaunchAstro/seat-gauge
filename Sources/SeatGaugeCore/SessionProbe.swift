@@ -121,8 +121,9 @@ public struct SessionProbe: Sendable {
     }
 
     /// The name a pane's sessions go by. It is unsettled when the pane's
-    /// tab could not be read, so a row seen before keeps its own name
-    /// rather than flip to the workspace's for one pass.
+    /// tab could not be read, or the tab list left it out, so a row seen
+    /// before keeps its own name rather than flip to the workspace's for
+    /// one pass.
     struct PaneLabel { var text: String; var settled: Bool }
 
     /// herdr's panes, and each pane's label by id: its tab's label when
@@ -148,7 +149,7 @@ public struct SessionProbe: Sendable {
             guard let paneID = pane["pane_id"] as? String else { continue }
             let tabID = pane["tab_id"] as? String
             let tab = tabID.flatMap { tabLabels?[$0] }
-            if let tab, Self.named(tab) {
+            if let tab = tab.flatMap(Self.named) {
                 labels[paneID] = PaneLabel(text: tab, settled: true)
             } else if let space = spaceLabels[pane["workspace_id"] as? String ?? ""] {
                 labels[paneID] = PaneLabel(text: space, settled: tabID == nil || tab != nil)
@@ -157,9 +158,11 @@ public struct SessionProbe: Sendable {
         return (panes, labels)
     }
 
-    static func named(_ tab: String) -> Bool {
-        let text = tab.trimmingCharacters(in: .whitespaces)
-        return !text.isEmpty && !text.unicodeScalars.allSatisfy { ("0"..."9").contains($0) }
+    /// A tab's label without the blank or control characters around it, or
+    /// nil when nothing else is left or it is all digits, as herdr's own is.
+    static func named(_ tab: String) -> String? {
+        let text = tab.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.controlCharacters))
+        return text.isEmpty || text.unicodeScalars.allSatisfy { ("0"..."9").contains($0) } ? nil : text
     }
 
     /// Every agent process in one pane. A pane herdr cannot describe is

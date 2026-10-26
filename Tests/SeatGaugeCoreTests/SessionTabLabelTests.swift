@@ -18,8 +18,29 @@ import Testing
         #expect(rows[0]["solo"]?.section == "Log")
     }
 
-    @Test func aBlankTabLabelLeavesTheWorkspaceLabel() async throws {
-        let rows = try await TabScene.run([.init(sharedTab: "  ")])
+    static let blanks = ["", "  ", "\n", "\r", "\r\n", "\t", " \u{0B}\u{0C} ", "\u{07}", "\u{00}", "\u{2028}", "\u{00A0}", "\u{200B}", "\u{FEFF}", " 2 "]
+
+    /// Sol #160 r1: a label of a line break alone counted as named. Every
+    /// label with nothing but blank or control characters, or digits, is
+    /// herdr's own, so a row named by its tab before falls back to the workspace.
+    @Test(arguments: blanks.indices) func aBlankTabLabelLeavesTheWorkspaceLabel(case index: Int) async throws {
+        let rows = try await TabScene.run([.init(), .init(sharedTab: Self.blanks[index])])
+        #expect(rows[1]["shared"]?.workspace == "PROJECT-Work", "case \(index)")
+    }
+
+    @Test func aNamedTabLabelIsTrimmed() async throws {
+        let rows = try await TabScene.run([.init(sharedTab: " PROJECT-Refine-work\n")])
+        #expect(rows[0]["shared"]?.workspace == "PROJECT-Refine-work")
+        #expect(rows[0]["shared"]?.seat == "work")
+    }
+
+    @Test func aRowKeepsItsTabLabelWhenTheTabListLeavesOutItsTab() async throws {
+        let rows = try await TabScene.run([.init(), .init(sharedTabListed: false)])
+        #expect(rows[1]["shared"]?.workspace == "PROJECT-Refine-work")
+    }
+
+    @Test func aNewRowTakesTheWorkspaceLabelWhenTheTabListLeavesOutItsTab() async throws {
+        let rows = try await TabScene.run([.init(sharedTabListed: false)])
         #expect(rows[0]["shared"]?.workspace == "PROJECT-Work")
     }
 
@@ -52,6 +73,9 @@ import Testing
 private struct TabScene: Sendable {
     var sharedTab = "PROJECT-Refine-work"
     var tabs = true
+    /// Whether the tab list names the shared pane's tab, as it may not when
+    /// the tab closes between `pane list` and `tab list`.
+    var sharedTabListed = true
     /// Whether `pane list` names each pane's tab, as herdr 0.9.5 does.
     var tabIDs = true
 
@@ -96,12 +120,13 @@ private struct TabRunner: ProcessRunning {
         case ["tab", "list"]:
             guard scene.tabs else { throw ProcessFailure("no answer") }
             // herdr's own shape: an unnamed tab's label is its number.
-            let tabs: [[String: Any]] = [
+            var tabs: [[String: Any]] = [
                 ["tab_id": "w1:t1", "workspace_id": "w1", "number": 1, "label": "1", "focused": true, "pane_count": 1, "agent_status": "idle"],
                 ["tab_id": "w1:t2", "workspace_id": "w1", "number": 2, "label": scene.sharedTab, "focused": false, "pane_count": 1,
                  "agent_status": "working"],
                 ["tab_id": "w2:t1", "workspace_id": "w2", "number": 1, "label": "1", "focused": true, "pane_count": 1, "agent_status": "working"],
             ]
+            if !scene.sharedTabListed { tabs = tabs.filter { $0["tab_id"] as? String != "w1:t2" } }
             return TabSession([json(["result": ["type": "tab_list", "tabs": tabs]])])
         case ["pane", "process-info", "--pane", "w1:p1"], ["pane", "process-info", "--pane", "w2:p1"]:
             return TabSession([json(["result": ["process_info": ["foreground_processes": [["argv": ["claude"], "pid": args[3] == "w1:p1" ? 100 : 200]]]]])])
