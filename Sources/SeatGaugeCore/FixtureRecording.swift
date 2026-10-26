@@ -48,18 +48,27 @@ public enum FixtureRecording {
     /// sentence such as "Not logged in · Please run /login"), with no quote
     /// of either kind, line break, `=`, `@`, backslash or brace in it, no word that names a credential,
     /// and no long run mixing letters and digits, which is a key or an id
-    /// rather than anyone's prose. A `key` or `pin`, in any case, counts
+    /// rather than anyone's prose. Its letters and digits are ASCII once
+    /// `scrub` has folded it (NFKC), because the CLIs print English and a
+    /// letter from another script can spell a credential word that no
+    /// pattern sees: Cyrillic `kеy`, a dotless `pın`. Refusing them closes
+    /// that whole kind, where a table of look-alikes always misses one;
+    /// fullwidth `ｋｅｙ` folds to `key` and meets the word rule. A `key` or `pin`, in any case, counts
     /// wherever it ends, however it is spaced or joined: `API  key`, a bare
     /// `key:`, `key_id`, `keyId`, `signingkEy`, `userPIN`, `MyPin`,
     /// `pinNumber`. Only a lower-case letter straight after it, as in
     /// `keyboard`, `pinned` or `spinning`, makes it part of a longer word,
-    /// and a `KEY` or `PIN` in capitals counts even then (`PINnumber`). A
+    /// and a `KEY` or `PIN` in capitals counts even then (`PINnumber`). An
+    /// `otp`, `seed` or `client id` ends the same way, so `seeded` stays,
+    /// and `signature` counts anywhere. A `code` counts only as a label,
+    /// before a colon or a number (`code: 531862`, `code 531862`), because it
+    /// also names a folder (`~/code`) and the CLI itself. A
     /// missed spelling leaks, while a redacted word (`monkey`, `spin up`)
     /// only costs a recording its wording.
     private static let plainText = try? NSRegularExpression(
-        pattern: #"\A[\p{L}\p{N} .,:;_+\-/()\[\]!?·…%]{0,200}\z"#)
+        pattern: #"\A[A-Za-z0-9 .,:;_+\-/()\[\]!?·…%]{0,200}\z"#)
     private static let credential = try? NSRegularExpression(
-        pattern: #"(?i)pass(word|phrase|wd)?|secret|token|bearer|basic|auth|credential|cookie|session.?key|api.?key|private.?key|access.?key|keys?(?-i:(?!\p{Ll}))|pin(?:code)?s?(?-i:(?!\p{Ll}))|(?-i:KEY|PIN)|sk-|eyJ"#)
+        pattern: #"(?i)pass(word|phrase|wd)?|secret|token|bearer|basic|auth|credential|cookie|session.?key|api.?key|private.?key|access.?key|keys?(?-i:(?!\p{Ll}))|pin(?:code)?s?(?-i:(?!\p{Ll}))|(?-i:KEY|PIN|OTP)|otps?(?-i:(?!\p{Ll}))|codes?\s*[:0-9]|seeds?(?-i:(?!\p{Ll}))|signature|client.?ids?(?-i:(?!\p{Ll}))|sk-|eyJ"#)
     private static let run = try? NSRegularExpression(pattern: #"[\p{L}\p{N}_\-+/.]{24,}"#)
 
     /// One recorded stdout line with only what the parsers read left in it.
@@ -89,14 +98,15 @@ public enum FixtureRecording {
         }
     }
 
-    /// A kept string, with its ids and home made neutral, if it is plain
-    /// (`plainText`), or `[redacted]` whole. Whole, because a rule that
+    /// A kept string, folded and with its ids and home made neutral, if it
+    /// is plain (`plainText`), or `[redacted]` whole. What it returns is the
+    /// folded text it checked, never the spelling it was handed. Whole, because a rule that
     /// takes out only the credential in a sentence always meets one more
     /// way of writing it: escaped quotes, quoted values, cookie lists, JSON
     /// inside the string. A recording shows the shape; it never needs the
     /// wording of an error that mentions a credential.
     static func scrub(_ text: String) -> String {
-        var text = text
+        var text = text.precomposedStringWithCompatibilityMapping
         for (expression, keep) in compiled {
             text = expression.stringByReplacingMatches(
                 in: text, range: NSRange(text.startIndex..., in: text), withTemplate: keep)
