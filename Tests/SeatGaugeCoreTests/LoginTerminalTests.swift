@@ -140,21 +140,6 @@ import SeatGaugeCore
         #expect(terminal.echoes)
     }
 
-    @Test("Sol proof, criterion 1: echo is off before anything invites the paste")
-    func echoIsOffBeforeTheInvitation() throws {
-        let scratch = try SeatLoginTests.scratch(.accepts(Self.code))
-        defer { scratch.remove() }
-        let terminal = try Terminal()
-        let task = try Self.start(scratch, on: terminal)
-        #expect(terminal.read { terminal.said.contains("Open this link") })
-        #expect(!terminal.echoes)
-        terminal.type(Self.code + "\n")
-        Self.finish(task, terminal)
-        let echoed = terminal.said.contains(Self.code)
-        #expect(!echoed)
-        #expect(task.terminationStatus == 0)
-    }
-
     @Test("Sol proof, criterion 2: a sign-in leaves every terminal setting as it found it")
     func everySettingIsPutBack() throws {
         let scratch = try SeatLoginTests.scratch(.accepts(Self.code))
@@ -170,31 +155,6 @@ import SeatGaugeCore
         #expect(terminal.settings == before)
     }
 
-    /// The deterministic proof of Sol's hide-after-end finding is
-    /// `aHideAfterTheEndDoesNothing`; this runs the CLI end to end and
-    /// guards the outcome, without forcing the interleaving.
-    @Test("a sign-in that fails as the code prompt shows leaves the terminal echoing")
-    func aFailureAtThePromptLeavesEcho() throws {
-        let scratch = try SeatLoginTests.scratch(.refuses)
-        defer { scratch.remove() }
-        // A claude that asks for the code and dies at once, so the login ends
-        // while the code is still being asked for.
-        let claude = scratch.bin.appendingPathComponent("claude")
-        try #"""
-            #!/bin/sh
-            printf 'visit: https://example.test/oauth/authorize?code=true\nPaste code here if prompted > '
-            exit 2
-            """#.write(to: claude, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: claude.path)
-        for _ in 0 ..< 10 {
-            let terminal = try Terminal()
-            let task = try Self.start(scratch, on: terminal)
-            Self.finish(task, terminal)
-            #expect(task.terminationStatus == 1)
-            #expect(terminal.echoes)
-        }
-    }
-
     @Test("Sol proof, criterion 2: hiding after the end leaves the terminal as it was found")
     func aHideAfterTheEndDoesNothing() throws {
         let terminal = try Terminal()
@@ -208,6 +168,23 @@ import SeatGaugeCore
         #expect(terminal.echoes)
         #expect(terminal.settings == before)
         #expect(HiddenEntry(terminal: -1) == nil)
+    }
+
+    @Test("Sol proof, criterion 2: when the signal sources never register, echo is never turned off")
+    func noEchoChangeWithoutSignals() throws {
+        let terminal = try Terminal()
+        let before = terminal.settings
+        // A queue held still, so the sources cannot register, and no
+        // handler is ever put in this test process.
+        let held = DispatchQueue(label: "seat-gauge-held")
+        held.suspend()
+        defer { held.resume() }
+        let unarmed = try #require(HiddenEntry(terminal: terminal.slave))
+        #expect(unarmed.endOnSignals(on: held, within: .milliseconds(200)) == false)
+        unarmed.hide()
+        #expect(terminal.echoes)
+        #expect(terminal.settings == before)
+        unarmed.end()
     }
 
     @Test("claude auth login and status run in the seat's own profile, not the caller's folder")

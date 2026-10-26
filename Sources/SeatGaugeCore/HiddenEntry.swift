@@ -18,6 +18,10 @@ public final class HiddenEntry: @unchecked Sendable {
     private let found: termios
     private let lock = NSLock()
     private var ended = false
+    /// Nil until `endOnSignals` is asked; false when its sources never
+    /// registered, and then echo is never turned off, since nothing could
+    /// put it back on Ctrl-C.
+    private var armed: Bool?
     private var sources: [any DispatchSourceSignal] = []
 
     /// Nil when `terminal` is not one, such as a code piped in.
@@ -33,13 +37,16 @@ public final class HiddenEntry: @unchecked Sendable {
     /// an ignored signal, a caught one is reset for every child the command
     /// starts. It goes in only once the sources are registered, so a signal
     /// before then still ends the command as it always did, with the
-    /// terminal not yet changed, and none is ever swallowed.
-    public func endOnSignals() {
+    /// terminal not yet changed, and none is ever swallowed. False, and echo
+    /// left alone from then on, when they have not registered by `wait`.
+    @discardableResult
+    public func endOnSignals(on queue: DispatchQueue = .global(),
+                             within wait: DispatchTimeInterval = .seconds(2)) -> Bool {
         lock.withLock {
-            guard !ended else { return }
+            guard !ended else { return false }
             let registered = DispatchGroup()
             for ending in Self.endings {
-                let source = DispatchSource.makeSignalSource(signal: ending, queue: .global())
+                let source = DispatchSource.makeSignalSource(signal: ending, queue: queue)
                 source.setEventHandler { [self] in
                     end()
                     kill(getpid(), ending)
@@ -49,8 +56,15 @@ public final class HiddenEntry: @unchecked Sendable {
                 source.resume()
                 sources.append(source)
             }
-            guard registered.wait(timeout: .now() + .seconds(2)) == .success else { return }
+            guard registered.wait(timeout: .now() + wait) == .success else {
+                for source in sources { source.cancel() }
+                sources = []
+                armed = false
+                return false
+            }
             for ending in Self.endings { signal(ending) { _ in } }
+            armed = true
+            return true
         }
     }
 
@@ -59,7 +73,7 @@ public final class HiddenEntry: @unchecked Sendable {
     /// typed is kept. Nothing once `end` has run.
     public func hide() {
         lock.withLock {
-            guard !ended else { return }
+            guard !ended, armed != false else { return }
             var quiet = found
             quiet.c_lflag &= ~tcflag_t(ECHO)
             tcsetattr(terminal, TCSANOW, &quiet)
