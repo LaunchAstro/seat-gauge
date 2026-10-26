@@ -93,7 +93,9 @@ struct SessionLedger {
     /// what compaction would save. A last line with no newline is a torn
     /// append and is left out of `rows`; `tail` is that line when it is a
     /// whole observation, which the next append's newline makes readable.
-    func read() throws -> (rows: [String: SessionObservation], lines: Int, tail: SessionObservation?) {
+    typealias Stored = (rows: [String: SessionObservation], lines: Int, tail: SessionObservation?)
+
+    func read() throws -> Stored {
         guard FileManager.default.fileExists(atPath: file.path) else { return ([:], 0, nil) }
         let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }
