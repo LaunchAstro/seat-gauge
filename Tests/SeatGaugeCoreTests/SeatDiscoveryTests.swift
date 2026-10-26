@@ -172,8 +172,14 @@ import SeatGaugeCore
         #expect(steps.allSatisfy { $0 != nil })
         #expect(steps.compactMap { $0 } == steps.compactMap { $0 }.sorted())
         #expect(written.contains("~/.seat-gauge/profiles"))
-        for team in ["claude-seat", "claude-seats", ".token", "personal", "work-seat", "herdr", "/opt/homebrew"] {
+        for team in ["claude-seat", "claude-seats", ".token", "herdr", "/opt/homebrew"] {
             #expect(!written.contains(team), "\(team) in the template")
+        }
+        // A person's name is a whole word, so "sam" cannot trip on "sample". The
+        // template's own examples ("work") are not people, so they stay.
+        let words = Set(written.lowercased().split { !$0.isLetter && !$0.isNumber && $0 != "-" }.map(String.init))
+        for name in ["sam", "alex", "jordan"] {
+            #expect(!words.contains(name), "a seat called \(name) in the template")
         }
     }
 
