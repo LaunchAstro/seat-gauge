@@ -235,7 +235,8 @@ public struct GaugeView: Equatable, Sendable {
             SeatView(id: $0, seat: byID[$0], snapshot: snapshot, now: now, arrangement: arrangement, best: best,
                      pollMinutes: pollMinutes)
         }
-        let polled = seats.filter { $0.offstage != "hidden" && $0.polls && $0.state?.canSync == true }
+        // Hidden by the user, not by a reason: a CLI can fail with any text.
+        let polled = seats.filter { !arrangement.hidden.contains($0.id) && $0.polls && $0.state?.canSync == true }
             .compactMap(\.state)
         synced = Self.synced(polled, now: now, pollMinutes: pollMinutes)
     }
