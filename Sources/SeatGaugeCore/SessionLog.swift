@@ -142,10 +142,11 @@ struct SessionLedger {
 
     /// Rewrites the ledger as `rows`, one line per session, once it holds
     /// more than four lines for each (and more than 256), so it stays a few
-    /// times the size of what it records. `rows` must be what a read of the
-    /// ledger gives now.
-    func compactIfLong(_ rows: [String: SessionObservation], lines: Int) throws {
-        guard lines > 4 * max(rows.count, 64) else { return }
+    /// times the size of what it records, or at once when `dropping`, for a
+    /// session that has left. `rows` must be what a read of the ledger gives
+    /// now, less any session that has left.
+    func compactIfLong(_ rows: [String: SessionObservation], lines: Int, dropping: Bool = false) throws {
+        guard dropping || lines > 4 * max(rows.count, 64) else { return }
         let fresh = directory.appendingPathComponent("observations.jsonl.new")
         try? FileManager.default.removeItem(at: fresh)
         guard FileManager.default.createFile(atPath: fresh.path, contents: nil,
@@ -198,6 +199,15 @@ struct SessionCheckpoint: Codable {
     var files: [String: SessionTokens] = [:]
     var owners: [String: String] = [:]
     var messageOwners: [String: String] = [:]
+
+    /// Forgets the files of sessions that have left, unless a session still
+    /// here holds the same file.
+    mutating func release(_ leaving: some Sequence<SessionObservation>, keeping: some Sequence<SessionObservation>) {
+        let left = Set(leaving.flatMap(\.paths)).subtracting(keeping.flatMap(\.paths))
+        guard !left.isEmpty else { return }
+        for path in left { files[path] = nil; owners[path] = nil }
+        messageOwners = messageOwners.filter { !left.contains($0.value) }
+    }
 }
 
 public actor SessionLogMonitor {
@@ -237,14 +247,17 @@ public actor SessionLogMonitor {
                 // such as a folder macOS held; it shows under the machine.
                 let said = log.problems.keys.sorted().compactMap { log.problems[$0] }
                 if !said.isEmpty { problems[machine.id] = said.joined(separator: "; ") }
-                rows[machine.id] = log.sessions.map { row in
+                // An older probe keeps every closed session, so the rule is
+                // applied here too.
+                rows[machine.id] = SessionRetention.kept(log.sessions, row: { $0 }, now: now).map { row in
                     var row = row; row.machine = machine.id
                     row.stale = row.stale || now.timeIntervalSince(row.asOf) > 90
                     return row
                 }
             case let .failure(error):
                 problems[machine.id] = error.reason
-                rows[machine.id] = (rows[machine.id] ?? []).map { var row = $0; row.stale = true; return row }
+                rows[machine.id] = SessionRetention.kept(rows[machine.id] ?? [], row: { $0 }, now: now)
+                    .map { var row = $0; row.stale = true; return row }
             case .none: break
             }
         }
@@ -256,5 +269,30 @@ public actor SessionLogMonitor {
         } catch { PollLog.system("log: snapshot could not be written") }
         notify(log)
         return log
+    }
+}
+
+/// How long a closed session stays, read from its `closed_at`, so a reader of
+/// `log.json` can tell when a row will go. The probe drops a session from its
+/// ledger, checkpoint and pass on the same rule that drops it from `log.json`,
+/// so nothing is kept or re-read that nobody is shown (issue #70).
+public enum SessionRetention {
+    /// A working week. At the rate seen on the owner's Mac, about 64 sessions
+    /// a day, that is some 450 closed rows per machine.
+    public static let closedFor: TimeInterval = 7 * 86_400
+    /// A burst of short sessions cannot outgrow the file within the week.
+    /// At the 350 to 550 bytes a row takes, four machines stay under the
+    /// 5,000 rows and 4,000,000 bytes a reader may cap `log.json` at (issue
+    /// #38).
+    public static let closedPerMachine = 1_000
+
+    /// Every open session, and the newest `closedPerMachine` that closed
+    /// within `closedFor` of `now`. `items` are one machine's.
+    static func kept<T>(_ items: [T], row: (T) -> SessionRow, now: Date) -> [T] {
+        let recent = items.filter { item in row(item).closedAt.map { now.timeIntervalSince($0) < closedFor } ?? true }
+        let closed = recent.compactMap { item in row(item).closedAt.map { ($0, row(item).sessionId) } }
+        guard closed.count > closedPerMachine else { return recent }
+        let dropped = Set(closed.sorted { $0 > $1 }.dropFirst(closedPerMachine).map(\.1))
+        return recent.filter { !dropped.contains(row($0).sessionId) }
     }
 }

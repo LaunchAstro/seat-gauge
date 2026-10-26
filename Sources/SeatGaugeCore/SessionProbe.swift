@@ -61,10 +61,16 @@ public struct SessionProbe: Sendable {
     func collect(now: Date, rates: RateCard) async throws -> SessionLogFile {
         let ledger = SessionLedger(directory: directory)
         let stored = try ledger.read()
-        var observations = stored.rows
+        func staying(_ rows: [String: SessionObservation]) -> [String: SessionObservation] {
+            SessionRetention.kept(Array(rows), row: { $0.value.row }, now: now)
+                .reduce(into: [String: SessionObservation]()) { $0[$1.key] = $1.value }
+        }
+        // A session `log.json` no longer shows leaves the pass.
+        var observations = staying(stored.rows)
         let checkpointFile = directory.appendingPathComponent("offsets.json")
         var checkpoint = (try? Data(contentsOf: checkpointFile))
             .flatMap { try? JSONDecoder().decode(SessionCheckpoint.self, from: $0) } ?? SessionCheckpoint()
+        checkpoint.release(stored.rows.values.filter { observations[$0.row.sessionId] == nil }, keeping: observations.values)
         for observation in observations.values where observation.row.status != "superseded" {
             for path in observation.paths where checkpoint.owners[path] == nil {
                 checkpoint.owners[path] = observation.row.sessionId
@@ -236,11 +242,21 @@ public struct SessionProbe: Sendable {
         if !novel.isEmpty, let tail = stored.tail { recorded[tail.row.sessionId] = tail }
         for change in novel { recorded[change.row.sessionId] = change }
         try ledger.append(novel)
-        do { try ledger.compactIfLong(recorded, lines: stored.lines + (novel.isEmpty ? 0 : novel.count + 1)) }
+        // A session this pass closed can put the machine over its cap, so the
+        // rule runs again on what the ledger now holds, and what leaves goes
+        // from the ledger, the checkpoint and this pass's rows alike.
+        let kept = staying(recorded)
+        let leaving = recorded.filter { kept[$0.key] == nil }
+        checkpoint.release(leaving.values, keeping: kept.values)
+        do {
+            try ledger.compactIfLong(kept, lines: stored.lines + (novel.isEmpty ? 0 : novel.count + 1),
+                                     dropping: !leaving.isEmpty)
+        }
         catch { PollLog.system("log: the pane ledger could not be compacted") }
         try JSONEncoder().encode(checkpoint).write(to: checkpointFile, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: checkpointFile.path)
-        return SessionLogFile(updated: now, sessions: observations.values.map(\.row).filter { $0.status != "superseded" },
+        return SessionLogFile(updated: now, sessions: observations.values.map(\.row)
+            .filter { $0.status != "superseded" && leaving[$0.sessionId] == nil },
                               problems: gitHeld ? ["git": Self.folderAccessProblem] : [:])
     }
 

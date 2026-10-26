@@ -2,9 +2,23 @@
 
 The Log tab publishes `log.json` in the app's Application Support folder, beside `machines.json` and `headroom.json`. It polls the configured machines every 30 seconds. `seatgauge-cli log` runs one round and prints the same snapshot.
 
+## Requirements
+
+The Log tab sees only agents that run inside herdr, a terminal workspace manager that runs agent sessions in named workspaces and panes and answers questions about them on the command line. Each machine the tab reads needs herdr at `~/.local/bin/herdr`; the probe looks nowhere else. On a Mac without it, the tab lists no sessions and shows that machine's line as "the Log probe did not answer; install this version's CLI helper on the machine", although the helper is not what is missing. The other tabs do not need herdr.
+
+The repo, section and seat columns come from the workspace's name, which must read `<repo>-<section>-<seat>`, such as `seat-gauge-Log-work`. Any other name still logs the session, with those three fields empty; the tab shows them as "unlabelled repo", "no section" and "no seat".
+
+## Rows
+
 Each row is keyed by `machine` and `session_id`. It carries workspace and pane, tool, model and effort, repo, section, seat, branch, `started_at`, `closed_at`, status, `as_of`, `stale`, token counts, counts by model, and list-price USD. Workspace labels split from the right as `<repo>-<section>-<seat>`. A label without three parts leaves those fields empty. A model with no known price leaves the price empty.
 
 Start means the first time the probe saw the session working. `done` means a finished turn. Close means the pane disappeared or its agent process exited. A failed machine read keeps its rows, with `stale` set, and says why under `problems`, keyed by machine. A read that answered can still name something it could not read there, such as a folder macOS held. Consumers also compare `as_of` with their clock and reject figures older than 90 seconds, including when the app has quit.
+
+## How long a row stays
+
+An open session stays as long as it is open. A closed session stays for 7 days after its `closed_at`, then leaves `log.json`. Each machine also keeps at most its 1,000 newest closed sessions, so a burst of short ones cannot outgrow the file within the week. Open rows are never dropped. The app applies the same rule to rows from a remote machine that still runs an older probe, and to the rows it keeps for a machine that did not answer. At the 350 to 550 bytes a row takes, `log.json` from up to four machines stays under a reader that caps it at 5,000 rows and 4,000,000 bytes; a cap on the whole file for any number of machines is issue #94.
+
+A session that leaves `log.json` also leaves the machine's private ledger and checkpoint, and no pass reads its transcripts again. A session resumed after that shows as a new row, with the whole transcript counted.
 
 ## Remote machines
 
@@ -26,4 +40,4 @@ The probe uses herdr pane and process information, then `lsof -b` on each agent 
 
 The machine-local helper uses the Spend parsers and keeps a byte offset, numeric usage events and running totals for each file. A partial line waits until it is complete. Each Claude message ID counts once. Codex resumes use Spend's first-token ordering, including across read budgets, with a separate baseline for each forked session ID.
 
-Seat Gauge decodes only usage metadata from the log records it needs, and never inspects, keeps or sends message content. The public file contains no transcript paths, process arguments, prompts, or commands. Each machine keeps its pane observations in the private `log-private/observations.jsonl`, with a replaceable `offsets.json` checkpoint beside it. A pass appends a line only for a session that changed; an open one is also written every ten minutes, so a row that goes stale says about when it was last seen, and when another session of the same process is written, so the ledger keeps which of them was seen last. Once the file holds more than four lines per session (and more than 256) it is rewritten as one line per session, the last each one had. A ledger over 64 MB was written before compaction, so the first compaction keeps it beside the new one as `observations-before-compaction-<time>.jsonl`, which nothing reads and you can delete. The directory is owner-only, and the files use mode 600. If you delete the checkpoint, the helper rebuilds token totals from the source logs, while the ledger keeps pane history. Keep the ledger if you want observations to outlast their panes.
+Seat Gauge decodes only usage metadata from the log records it needs, and never inspects, keeps or sends message content. The public file contains no transcript paths, process arguments, prompts, or commands. Each machine keeps its pane observations in the private `log-private/observations.jsonl`, with a replaceable `offsets.json` checkpoint beside it. A pass appends a line only for a session that changed; an open one is also written every ten minutes, so a row that goes stale says about when it was last seen, and when another session of the same process is written, so the ledger keeps which of them was seen last. Once the file holds more than four lines per session (and more than 256), or a session has left under the rule above, it is rewritten as one line per session, the last each one had. A ledger over 64 MB was written before compaction, so the first compaction keeps it beside the new one as `observations-before-compaction-<time>.jsonl`, which nothing reads and you can delete. The directory is owner-only, and the files use mode 600. If you delete the checkpoint, the helper rebuilds token totals from the source logs, while the ledger keeps pane history. Keep the ledger if you want observations to outlast their panes.
