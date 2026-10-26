@@ -177,14 +177,20 @@ func spend() async throws {
 /// link printed, the code read from stdin, and `claude auth status` the proof.
 func login(_ arguments: ArraySlice<String>) throws {
     let request = try SeatLogin.Request(arguments: Array(arguments))
+    // The code is not echoed, and the terminal is put back however this ends.
+    HiddenEntry.begin()
+    defer { HiddenEntry.end() }
     let signed = try SeatLogin.signIn(request.seat, email: request.email, seats: try readSeats(request.seatsFile),
                                       searchPath: .loginShell,
                                       code: {
+                                          HiddenEntry.hide()
                                           print("code> ", terminator: "")
                                           fflush(stdout)
                                           let code = readLine()
-                                          // A person's Return ends the line; a pipe's code does not.
-                                          if isatty(STDIN_FILENO) == 0 { print(""); fflush(stdout) }
+                                          HiddenEntry.restore()
+                                          // Neither an unechoed Return nor a pipe's code ends the line.
+                                          print("")
+                                          fflush(stdout)
                                           return code
                                       },
                                       link: { link in
