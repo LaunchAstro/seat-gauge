@@ -4,7 +4,7 @@ The Log tab publishes `log.json` in the app's Application Support folder, beside
 
 Each row is keyed by `machine` and `session_id`. It carries workspace and pane, tool, model and effort, repo, section, seat, branch, `started_at`, `closed_at`, status, `as_of`, `stale`, token counts, counts by model, and list-price USD. Workspace labels split from the right as `<repo>-<section>-<seat>`. A label without three parts leaves those fields empty. A model with no known price leaves the price empty.
 
-Start means the first time the probe saw the session working. `done` means a finished turn. Close means the pane disappeared or its agent process exited. A failed machine read keeps its rows, with `stale` set. Consumers also compare `as_of` with their clock and reject figures older than 90 seconds, including when the app has quit.
+Start means the first time the probe saw the session working. `done` means a finished turn. Close means the pane disappeared or its agent process exited. A failed machine read keeps its rows, with `stale` set, and says why under `problems`, keyed by machine. A read that answered can still name something it could not read there, such as a folder macOS held. Consumers also compare `as_of` with their clock and reject figures older than 90 seconds, including when the app has quit.
 
 ## Remote machines
 
@@ -15,6 +15,10 @@ scripts/install-log-probe.sh <ssh destination>
 ```
 
 This installs only the helper at `~/.local/libexec/seatgauge-log-probe`. It uses the existing SSH login, without a password prompt. Repeat after upgrading the app. A missing helper shows up as a Log problem.
+
+## Folder access on this Mac
+
+The local probe runs inside the app, so macOS asks the app, not a terminal, whether it may open Desktop, Documents or Downloads, where many sessions work. The app is signed ad hoc, so every reinstall asks again. While that prompt is unanswered, macOS holds each read in the folder. The probe gives each `git` branch read 2 seconds; when one is held, it skips `git` for the rest of the pass, keeps the branches it last saw, and reports a folder-access problem for this Mac. A whole pass that runs past 90 seconds on this Mac is reported the same way rather than as a missing helper. Answer the prompt, or allow Seat Gauge in System Settings > Privacy & Security > Files and Folders. Over SSH no prompt appears, so neither case arises on a remote machine.
 
 ## Collection and privacy
 

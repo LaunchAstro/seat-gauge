@@ -14,6 +14,19 @@ public struct SessionProbe: Sendable {
     /// seen. A closed one is not: a pass sets its time on every read.
     static let seenEvery: TimeInterval = 600
 
+    /// A git call that has not answered in this long is waiting on macOS,
+    /// which holds a read of Desktop, Documents or Downloads until the owner
+    /// answers its folder prompt. A reinstall asks again (issue #74). Run in a
+    /// terminal, the branch read takes a few milliseconds.
+    static let gitTimeout: Duration = .seconds(2)
+
+    /// The Log problem a held git call leaves. It names no folder, since
+    /// `log.json` carries no paths.
+    static let folderAccessProblem = "git could not read a session's folder within \(Int(gitTimeout.seconds)) s,"
+        + " so branches show as last seen;"
+        + " macOS may be waiting for you to let Seat Gauge open Desktop, Documents or Downloads."
+        + " Answer the prompt, or allow it in System Settings > Privacy & Security > Files and Folders"
+
     public init(runner: any ProcessRunning = RealProcessRunner(),
                 directory: URL = AppPaths.support.appendingPathComponent("log-private"),
                 home: URL = URL(fileURLWithPath: NSHomeDirectory()), profiles: [SpendProfile] = [], byteBudget: Int = 32 << 20) {
@@ -66,6 +79,10 @@ public struct SessionProbe: Sendable {
             return (id, label)
         }, uniquingKeysWith: { first, _ in first })
         var alive: Set<String> = []
+        // Once one git call is held, the rest of the pass skips git, so a
+        // folder prompt nobody has answered costs one short wait per pass,
+        // not one per pane.
+        var gitHeld = false
         var uncertain: Set<String> = []
         var changes: [SessionObservation] = []
         let present = Set(panes.compactMap { $0["pane_id"] as? String })
@@ -140,8 +157,13 @@ public struct SessionProbe: Sendable {
                 row.closedAt = nil; row.asOf = now; row.stale = false
                 let options = Self.options(argv)
                 row.model = options.model ?? row.model; row.effort = options.effort ?? row.effort
-                if !cwd.isEmpty, !cwd.hasPrefix("/Volumes/") {
-                    row.branch = (try? await command("/usr/bin/git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"]))?.first
+                if !cwd.isEmpty, !cwd.hasPrefix("/Volumes/"), !gitHeld {
+                    do {
+                        row.branch = try await command("/usr/bin/git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"],
+                                                       timeout: Self.gitTimeout).first
+                    } catch let failure as ProcessFailure where failure == .timedOut(after: Self.gitTimeout) {
+                        gitHeld = true
+                    } catch { row.branch = nil }
                 }
                 let keptPaths = Array(Set((observations[id]?.paths ?? inherited?.paths ?? []) + paths)).sorted()
                 let owned = keptPaths.filter { path in
@@ -218,7 +240,8 @@ public struct SessionProbe: Sendable {
         catch { PollLog.system("log: the pane ledger could not be compacted") }
         try JSONEncoder().encode(checkpoint).write(to: checkpointFile, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: checkpointFile.path)
-        return SessionLogFile(updated: now, sessions: observations.values.map(\.row).filter { $0.status != "superseded" })
+        return SessionLogFile(updated: now, sessions: observations.values.map(\.row).filter { $0.status != "superseded" },
+                              problems: gitHeld ? ["git": Self.folderAccessProblem] : [:])
     }
 
     func refreshed(_ original: SessionRow, paths: [String], checkpoint: inout SessionCheckpoint, rates: RateCard) -> SessionRow {
@@ -366,6 +389,13 @@ extension MachineProber {
             let log = try SessionLogFile.decoder().decode(SessionLogFile.self, from: Data(lines.joined(separator: "\n").utf8))
             guard log.version == 1 else { return .failure(ProcessFailure("the Log probe version is unsupported")) }
             return .success(log)
+        } catch let failure as ProcessFailure where machine.ssh == nil && failure == .timedOut(after: spec.timeout) {
+            // This Mac runs the helper inside the app, so a pass that ran out
+            // of time is almost never a missing helper. It is most often macOS
+            // holding a folder read until its prompt is answered (issue #74).
+            return .failure(ProcessFailure("the Log probe did not answer within \(Int(spec.timeout.seconds)) s;"
+                + " macOS may be waiting for you to let Seat Gauge open Desktop, Documents or Downloads."
+                + " Answer the prompt, or allow it in System Settings > Privacy & Security > Files and Folders"))
         } catch { return .failure(ProcessFailure("the Log probe did not answer; install this version's CLI helper on the machine")) }
     }
 }
