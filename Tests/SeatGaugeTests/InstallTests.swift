@@ -41,11 +41,17 @@ import SeatGaugeCore
     /// the metadata an iCloud-synced folder adds. `cli` is what sits at the
     /// CLI's destination beforehand, and `onPath` puts that folder on `PATH`.
     /// `folder` is what the CLI's folder, or the path above it, is to start with.
+    /// `busy` is what `mdutil` says before it says `indexing`, as it can
+    /// straight after a build. `gone` has `mdfind` also list a copy that is no
+    /// longer on disk. `prior` is what sits at the destination beforehand.
+    /// `copyFails` fails the copy into the applications root, and `swapFails`
+    /// the rename that puts the new copy in place.
     @discardableResult
-    static func install(indexing: String = "Indexing enabled.", signed: Bool = true,
-                        bundle: Bool = true, helper: Bool = true, other: Bool = false,
+    static func install(indexing: String = "Indexing enabled.", busy: String? = nil, signed: Bool = true,
+                        bundle: Bool = true, helper: Bool = true, other: Bool = false, gone: Bool = false,
                         iCloud: Bool = false, cli: Planted = .nothing,
-                        onPath: Bool = true, folder: Folder = .usable) throws -> Ran {
+                        onPath: Bool = true, folder: Folder = .usable, prior: Prior = .nothing,
+                        copyFails: Bool = false, swapFails: Bool = false) throws -> Ran {
         let base = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("seat-gauge-install-\(UUID().uuidString)", isDirectory: true)
         let applications = base.appendingPathComponent("Applications", isDirectory: true)
@@ -69,6 +75,25 @@ import SeatGaugeCore
             }
         }
         if iCloud { try signAndTag(dist.appendingPathComponent("Seat Gauge.app")) }
+        let dest = applications.appendingPathComponent("Seat Gauge.app", isDirectory: true)
+        switch prior {
+        case .nothing: break
+        case .ours, .foreign, .bare:
+            try FileManager.default.createDirectory(at: dest.appendingPathComponent("Contents"),
+                                                    withIntermediateDirectories: true)
+            try Data("before".utf8).write(to: dest.appendingPathComponent("marker"))
+            if prior != .bare {
+                let id = prior == .ours ? "com.launchastro.seatgauge" : "com.example.other"
+                try Data("""
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <plist version="1.0"><dict>
+                      <key>CFBundleIdentifier</key><string>\(id)</string>
+                    </dict></plist>
+                    """.utf8).write(to: dest.appendingPathComponent("Contents/Info.plist"))
+            }
+        case .link:
+            try FileManager.default.createSymbolicLink(at: dest, withDestinationURL: planted)
+        }
         switch folder {
         case .usable: break
         case .readOnly:
@@ -99,11 +124,34 @@ import SeatGaugeCore
                 .write(to: file)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
         }
-        try stub("mdutil", "printf '/:\\n\\t%s\\n' '\(indexing)'")
+        let asked = base.appendingPathComponent("mdutil-asked").path
+        if let busy {
+            try stub("mdutil", """
+                if [ -e '\(asked)' ]; then printf '/:\\n\\t%s\\n' '\(indexing)'
+                else : > '\(asked)'; printf '/:\\n\\t%s\\n' '\(busy)'; fi
+                """)
+        } else {
+            try stub("mdutil", "printf '/:\\n\\t%s\\n' '\(indexing)'")
+        }
         let found = other ? planted.path : applications.appendingPathComponent("Seat Gauge.app").path
-        try stub("mdfind", "printf '%s\\n' '\(found)'")
-        try stub("pkill", "exit 0")
+        let deleted = base.appendingPathComponent("deleted/Seat Gauge.app").path
+        try stub("mdfind", "printf '%s\\n' '\(found)'" + (gone ? "; printf '%s\\n' '\(deleted)'" : ""))
+        try stub("pkill", "printf '%s\\n' \"$@\" > '\(base.appendingPathComponent("pkill-args").path)'")
         try stub("open", "exit 0")
+        // The retries' pauses, so a case does not wait them out.
+        try stub("sleep", "exit 0")
+        if copyFails {
+            try stub("ditto", """
+                for a in "$@"; do case "$a" in */.seat-gauge-install.*) exit 1 ;; esac; done
+                exec /usr/bin/ditto "$@"
+                """)
+        }
+        if swapFails {
+            try stub("mv", """
+                case "$1" in */old/*) ;; */.seat-gauge-install.*/'Seat Gauge.app') exit 1 ;; esac
+                exec /bin/mv "$@"
+                """)
+        }
         if !iCloud { try stub("codesign", "exit \(signed ? 0 : 1)") }
 
         let task = Process()
@@ -130,6 +178,13 @@ import SeatGaugeCore
     }
 
     enum Planted { case nothing, file, link(String), ours }
+    enum Prior { case nothing, ours, foreign, bare, link }
+
+    /// A staging folder the script left in the applications root.
+    static func staged(_ ran: Ran) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: ran.applications.path)) ?? [])
+            .filter { $0.hasPrefix(".seat-gauge-install.") }
+    }
     enum Folder { case usable, readOnly, file, fileAbove }
 
     static func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath: url.path) }
@@ -244,6 +299,116 @@ import SeatGaugeCore
         #expect(!attributes.contains("com.apple.FinderInfo"))
         #expect(!attributes.contains("com.apple.fileprovider"))
         #expect(!Self.exists(ran.source))
+    }
+
+    // MARK: - The first run after a build (#20)
+
+    @Test("proof: an index that answers oddly for a moment after a build still installs on the first run")
+    func aBusyIndexInstallsOnTheFirstRun() throws {
+        let ran = try Self.install(busy: "Error: unknown indexing state.")
+        defer { try? FileManager.default.removeItem(at: ran.applications.deletingLastPathComponent()) }
+        #expect(ran.status == 0, "\(ran.out)")
+        #expect(ran.trace.filter { $0 == "mdutil" }.count == 2)
+        #expect(Self.exists(ran.installed.appendingPathComponent("Contents/MacOS/SeatGauge")))
+    }
+
+    @Test("proof: a copy the index still lists but that is gone from disk is passed over")
+    func aCopyGoneFromDiskIsPassedOver() throws {
+        let ran = try Self.install(gone: true)
+        defer { try? FileManager.default.removeItem(at: ran.applications.deletingLastPathComponent()) }
+        #expect(ran.status == 0, "\(ran.out)")
+        #expect(Self.exists(ran.installed.appendingPathComponent("Contents/MacOS/SeatGauge")))
+
+        // A real second copy beside the stale entry is still a refusal.
+        let both = try Self.install(other: true, gone: true)
+        defer { try? FileManager.default.removeItem(at: both.applications.deletingLastPathComponent()) }
+        #expect(both.status != 0)
+        #expect(both.out.contains(both.planted.path))
+        #expect(!both.out.contains("deleted/Seat Gauge.app"))
+        #expect(!Self.exists(both.installed))
+    }
+
+    // MARK: - Replacing the installed copy
+
+    @Test("proof: the copy already installed is replaced, and no staging folder is left")
+    func replacesTheInstalledCopy() throws {
+        let ran = try Self.install(prior: .ours)
+        defer { try? FileManager.default.removeItem(at: ran.applications.deletingLastPathComponent()) }
+        #expect(ran.status == 0, "\(ran.out)")
+        #expect(!Self.exists(ran.installed.appendingPathComponent("marker")))
+        #expect(Self.exists(ran.installed.appendingPathComponent("Contents/MacOS/SeatGauge")))
+        #expect(Self.staged(ran).isEmpty)
+    }
+
+    @Test("proof: anything at the destination that is not Seat Gauge is a refusal, and it is left as it was",
+          arguments: [Prior.foreign, .bare, .link])
+    func somethingElseAtTheDestinationIsARefusal(prior: Prior) throws {
+        let ran = try Self.install(prior: prior)
+        defer { try? FileManager.default.removeItem(at: ran.applications.deletingLastPathComponent()) }
+        #expect(ran.status != 0)
+        #expect(ran.out.contains("is not Seat Gauge"), "\(ran.out)")
+        #expect(ran.out.contains("Nothing has been removed"))
+        #expect(Self.exists(ran.installed.appendingPathComponent("marker")))
+        #expect(Self.exists(ran.source))
+        #expect(!ran.trace.contains("pkill"))
+        #expect(Self.staged(ran).isEmpty)
+    }
+
+    @Test("proof: a copy that fails partway leaves the installed app where it was, still running")
+    func aFailedCopyKeepsTheOldApp() throws {
+        let ran = try Self.install(prior: .ours, copyFails: true)
+        defer { try? FileManager.default.removeItem(at: ran.applications.deletingLastPathComponent()) }
+        #expect(ran.status != 0)
+        #expect(ran.out.contains("Nothing has been removed"), "\(ran.out)")
+        #expect(Self.exists(ran.installed.appendingPathComponent("marker")))
+        #expect(Self.exists(ran.source))
+        #expect(!ran.trace.contains("pkill"))
+        #expect(Self.staged(ran).isEmpty)
+    }
+
+    @Test("proof: a new copy that cannot be put in place puts the old one back")
+    func aFailedSwapPutsTheOldAppBack() throws {
+        let ran = try Self.install(prior: .ours, swapFails: true)
+        defer { try? FileManager.default.removeItem(at: ran.applications.deletingLastPathComponent()) }
+        #expect(ran.status != 0)
+        #expect(ran.out.contains("is back in"), "\(ran.out)")
+        #expect(Self.exists(ran.installed.appendingPathComponent("marker")))
+        #expect(!ran.trace.contains("open"))
+        #expect(Self.staged(ran).isEmpty)
+    }
+
+    @Test("proof: only the installed copy is quit, never a make run build or a path the pattern only looks like")
+    func quitsOnlyTheInstalledCopy() throws {
+        let ran = try Self.install()
+        let base = ran.applications.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: base) }
+        #expect(ran.status == 0, "\(ran.out)")
+        let arguments = try String(contentsOf: base.appendingPathComponent("pkill-args"), encoding: .utf8)
+            .split(separator: "\n").map(String.init)
+        #expect(arguments.first == "-f")
+        let pattern = try #require(arguments.last)
+
+        // Three running processes: the installed copy, a dev build in a
+        // checkout, and one whose path matches only if a dot were any letter.
+        let installed = ran.installed.appendingPathComponent("Contents/MacOS/SeatGauge")
+        let dev = base.appendingPathComponent("checkout/dist/Seat Gauge.app/Contents/MacOS/SeatGauge")
+        let lookalike = ran.applications.appendingPathComponent("Seat GaugeXapp/Contents/MacOS/SeatGauge")
+        var running: [Process] = []
+        defer { for process in running { process.terminate() } }
+        for executable in [installed, dev, lookalike] {
+            try? FileManager.default.removeItem(at: executable)
+            try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = ["30"]
+            try process.run()
+            running.append(process)
+        }
+        let matched = Self.run("/usr/bin/pgrep", "-f", pattern).out
+            .split(separator: "\n").compactMap { Int32($0) }
+        #expect(matched == [running[0].processIdentifier])
     }
 
     @Test("the install says the next step is the first launch")
