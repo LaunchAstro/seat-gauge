@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 - unreleased
+## 0.1.0 - 26 October 2026
 
 The first public release. Built from source with `make install`; there is no prebuilt download.
 
