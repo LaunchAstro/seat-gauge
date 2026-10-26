@@ -221,4 +221,16 @@ import SeatGaugeTestSupport
         #expect(try Self.mode(folder) == 0o700)
         #expect(try FileManager.default.contentsOfDirectory(atPath: clone.appendingPathComponent("Tests/Fixtures").path).isEmpty)
     }
+
+    @Test("Sol proof, criterion 2: a single-quoted value, a long run with a non-ASCII letter, and 200 characters with a newline go whole")
+    func plainRuleEdgesGoWhole() {
+        let run = "Z\u{0445}9Qw8Er7Ty6Ui5Op4As3Df2Z\u{0445}9Qw8Er7Ty6Ui5Op4As3Df2"
+        let long = String(repeating: "x", count: 200) + "\n"
+        for value in ["'purple canyon finch'", run, long] {
+            let line = String(decoding: try! JSONSerialization.data(withJSONObject: ["type": "result", "result": value]), as: UTF8.self)
+            #expect(FixtureRecording.redact(line) == #"{"result":"[redacted]","type":"result"}"#, "\(value.prefix(6))")
+        }
+        #expect(FixtureRecording.redact(#"{"type":"result","result":"\#(String(repeating: "x", count: 200))"}"#)
+                == #"{"result":"\#(String(repeating: "x", count: 200))","type":"result"}"#)
+    }
 }
