@@ -37,5 +37,5 @@ jq -r '"updated \(.updated)", (.machines[] | "\(.id) room=\(.room // "-") why=\(
 - Disk under 25 GB free, or `disk_10m` falling by gigabytes: time to clear caches and old build output.
 - `stale=true` or a `problem`: the machine could not be read; do not send it work blind.
 - `blocked` agents are waiting on a person.
-- On another machine the app lists, the same path holds a copy, refreshed once a minute. `updated` over two minutes old: the copies have stopped; check this machine alone and say so. No file there: that machine is not on the app's list, or never answered it.
+- On another machine the app lists, the same path holds a copy, refreshed once a minute after a read. `updated` over two minutes old (or over twice a minute plus `machineSeconds`, if that is set long): the copies have stopped; check this machine alone and say so. No file there: that machine is not on the app's list, or never answered it.
 - `headroom.json` exists only on the Mac running the app.

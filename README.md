@@ -174,7 +174,7 @@ Nothing is installed on the other Mac. The gauge keeps one ssh connection to it 
 
 The app copies `machines.json` to each other listed Mac that answered its last read, at most once a minute, into the same folder there: `~/Library/Application Support/com.launchastro.seatgauge/machines.json`. An agent on that Mac reads the same path as one on this Mac, and the skill's command works unchanged. The copy goes over the connection the gauge already keeps open, runs only `sh` there, writes that one file (readable by its owner alone) and nothing else, and replaces it in one rename, so a reader never sees half a file.
 
-- Check `updated`: the copy is up to a minute and a read old when it lands. Over two minutes old means the copies have stopped: the app has quit, or the machine went unreachable.
+- Check `updated`. A copy goes out at most once a minute and only after a read, so it can be a minute plus one read interval old (65 seconds by default). Twice that or older (over two minutes by default) means the copies have stopped: the app has quit, or the machine went unreachable.
 - A Mac with its own `seats.json` in that folder runs its own app, which writes its own `machines.json`, so it gets no copy.
 - `headroom.json` and `log.json` are not copied; they stay on the Mac running the app.
 

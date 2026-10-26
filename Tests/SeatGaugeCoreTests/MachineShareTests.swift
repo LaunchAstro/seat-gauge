@@ -12,11 +12,12 @@ import SeatGaugeTestSupport
 
     /// Runs the copy script in a real `/bin/sh -s` with `home` as its home,
     /// the way ssh runs it at the far end, and returns what it printed.
-    static func run(_ data: Data, home: URL, identifier: String = AppPaths.bundleID) async throws -> [String] {
+    static func run(_ data: Data, home: URL, identifier: String = AppPaths.bundleID,
+                    cut: Int = 0) async throws -> [String] {
         let session = try RealProcessRunner().launch(ProcessSpec(
             executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-s"],
             environment: ["HOME": home.path, "PATH": "/usr/bin:/bin"], timeout: .seconds(10)))
-        for line in MachineShare.script(data, identifier: identifier) { try session.send(line) }
+        for line in MachineShare.script(data, identifier: identifier).dropLast(cut) { try session.send(line) }
         session.closeInput()
         var printed: [String] = []
         for try await line in session.stdoutLines { printed.append(line) }
@@ -87,8 +88,22 @@ import SeatGaugeTestSupport
         let support = home.appendingPathComponent("Library/Application Support")
         #expect(FileManager.default.fileExists(atPath: support.appendingPathComponent("com.launchastro.seatgauge.dev/machines.json").path))
         #expect(try await Self.run(Self.file, home: home, identifier: "x\"; touch \"$HOME/owned") == ["copied"])
+        #expect(try await Self.run(Self.file, home: home,
+                                   identifier: AppPaths.bundleID + ".dev\"; touch \"$HOME/owned") == ["copied"])
         #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent("owned").path))
         #expect(FileManager.default.fileExists(atPath: support.appendingPathComponent("com.launchastro.seatgauge/machines.json").path))
+    }
+
+    @Test("a copy cut off on the way runs nothing there and leaves no file behind")
+    func cutOff() async throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let folder = home.appendingPathComponent("Library/Application Support/com.launchastro.seatgauge")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("before".utf8).write(to: folder.appendingPathComponent("machines.json"))
+        for cut in [1, 2, 4] { #expect(try await Self.run(Self.file, home: home, cut: cut) == []) }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["machines.json"])
+        #expect(try String(contentsOf: folder.appendingPathComponent("machines.json"), encoding: .utf8) == "before")
     }
 
     @Test("the copy rides the probe's kept-open ssh connection and runs only sh there")
@@ -112,17 +127,44 @@ import SeatGaugeTestSupport
                                      share: MachineShare(runner: runner, environment: [:]),
                                      now: { clock.now }, config: { config })
         await monitor.read()
+        await monitor.settle()
         #expect(runner.copies == ["studio.local"])
         let copied = try #require(runner.copied.first)
         #expect(copied == (try Data(contentsOf: file)))
 
         clock.now = MachineLoadTests.now.addingTimeInterval(30)
         await monitor.read()
+        await monitor.settle()
         #expect(runner.copies == ["studio.local"])
 
         clock.now = MachineLoadTests.now.addingTimeInterval(61)
         await monitor.read()
+        await monitor.settle()
         #expect(runner.copies == ["studio.local", "studio.local"])
+    }
+
+    @Test("a copy that stalls never holds up the read")
+    func stalled() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("machines-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let runner = HostRunner(answering: ["studio.local": MachineLoadTests.printed], stalling: true)
+        let config = Config(seats: [], pollMinutes: 5, machines: [Self.studio])
+        let monitor = MachineMonitor(prober: MachineProber(runner: runner, environment: [:]), file: file,
+                                     share: MachineShare(runner: runner, environment: [:]), config: { config })
+        let done = ShareClock(.distantPast)
+        let reading = Task {
+            _ = await monitor.read()
+            done.now = .distantFuture
+        }
+        // Five seconds at most, then the copy is let go either way, so a
+        // read that waits on it fails here rather than hanging the run.
+        for _ in 0 ..< 500 where done.now != .distantFuture || runner.copies.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(done.now == .distantFuture)
+        #expect(runner.copies == ["studio.local"])
+        runner.release()
+        await reading.value
     }
 
     @Test("a monitor with no share, as the CLI's one-off read makes, copies nothing")
@@ -150,13 +192,25 @@ final class ShareClock: @unchecked Sendable {
 
 /// Answers each launch by its ssh host ("" for this Mac's `sh`): the probe
 /// with that host's lines, a copy with `copied`. A host with no lines is
-/// silent, as an unreachable machine is.
+/// silent, as an unreachable machine is. `stalling` copies never answer
+/// until `release`.
 final class HostRunner: ProcessRunning, @unchecked Sendable {
     private let answering: [String: [String]]
+    let stalling: Bool
     private let lock = NSLock()
     private var log: (probes: [String], copies: [String], copied: [Data]) = ([], [], [])
+    private var held: [AsyncThrowingStream<String, Error>.Continuation] = []
 
-    init(answering: [String: [String]]) { self.answering = answering }
+    init(answering: [String: [String]], stalling: Bool = false) {
+        self.answering = answering
+        self.stalling = stalling
+    }
+
+    func hold(_ continuation: AsyncThrowingStream<String, Error>.Continuation) {
+        lock.withLock { held.append(continuation) }
+    }
+
+    func release() { for continuation in lock.withLock({ held }) { continuation.finish() } }
 
     var probes: [String] { lock.withLock { log.probes } }
     var copies: [String] { lock.withLock { log.copies } }
@@ -200,7 +254,10 @@ private final class HostSession: ProcessSession, @unchecked Sendable {
     func send(_ line: String) throws { lock.withLock { sent.append(line) } }
 
     func closeInput() {
-        for line in runner.finished(host: host, sent: lock.withLock { sent }) { continuation.yield(line) }
+        let sent = lock.withLock { self.sent }
+        let lines = runner.finished(host: host, sent: sent)
+        if runner.stalling, sent != MachineProbe.script { return runner.hold(continuation) }
+        for line in lines { continuation.yield(line) }
         continuation.finish()
     }
 

@@ -379,26 +379,33 @@ public struct MachineShare: Sendable {
                            environment: environment, timeout: timeout)
     }
 
-    /// The lines `sh -s` runs there. The file goes as base64 inside a quoted
-    /// here-document, so nothing in it is ever read as shell. It lands in a
-    /// private temporary file beside the copy, then one rename replaces the
-    /// copy, so a reader never sees half a file and a link in its place is
-    /// replaced rather than written through. An identifier that is not this
-    /// app's is the app's own, so nothing outside the folder is ever named.
+    /// The lines `sh -s` runs there, one `{ }` block, so `sh` reads all of it
+    /// before it runs any: a copy cut off on the way runs nothing. The file
+    /// goes as base64 inside a quoted here-document, so nothing in it is ever
+    /// read as shell. It lands in a private temporary file beside the copy,
+    /// then one rename replaces the copy, so a reader never sees half a file
+    /// and a link in its place is replaced rather than written through. A
+    /// temporary file an earlier copy left, killed between the two, goes
+    /// once it is a minute old. An identifier that is not this app's is the
+    /// app's own, so nothing outside the folder is ever named.
     public static func script(_ data: Data, identifier: String) -> [String] {
         let ours = AppPaths.identifier(running: identifier) == identifier
             && identifier.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }
         let folder = ours ? identifier : AppPaths.bundleID
         return [
+            "{",
             #"d="$HOME/Library/Application Support/\#(folder)""#,
             #"if [ -e "$d/seats.json" ]; then echo kept; exit 0; fi"#,
             "umask 077",
             #"mkdir -p "$d" || exit 1"#,
+            #"find "$d" -maxdepth 1 -name '.machines.json.*' -mmin +1 -delete 2>/dev/null"#,
             #"t=$(mktemp "$d/.machines.json.XXXXXX") || exit 1"#,
             #"if base64 -D > "$t" <<'\#(marker)'"#,
         ] + data.base64EncodedString(options: .lineLength76Characters).components(separatedBy: "\r\n") + [
             marker,
-            #"then mv -f "$t" "$d/machines.json" && echo copied; else rm -f "$t"; echo failed; fi"#,
+            #"then mv -f "$t" "$d/machines.json" && echo copied; fi"#,
+            #"rm -f "$t""#,
+            "}",
         ]
     }
 
@@ -576,6 +583,7 @@ public actor MachineMonitor {
     /// When each machine was last sent a copy, landed or not, so a machine
     /// that refuses one is asked again a minute later rather than every read.
     private var copied: [String: Date] = [:]
+    private var copying: Task<Void, Never>?
 
     /// `share` copies the file to the other machines; nil, as the CLI's
     /// one-off read passes, copies nothing.
@@ -641,20 +649,25 @@ public actor MachineMonitor {
             try? PrivateFile.write(data, to: file, makingFolder: true)
         }
         notify(current.machines, next, kept)
-        if let share, let data { await send(data, share: share, machines: current.machines, states: next, now: now) }
+        if let share, let data { send(data, share: share, machines: current.machines, states: next, now: now) }
         return next
     }
 
+    /// Waits for the copies the last read started.
+    public func settle() async { await copying?.value }
+
     /// The copy to each machine over ssh that answered this read and has had
-    /// none for a minute, all at once, so one slow machine holds up no other.
+    /// none for a minute, all at once, so one slow machine holds up no other,
+    /// and off the read loop, so a stalled copy never delays the next read.
     private func send(_ data: Data, share: MachineShare, machines: [Machine], states: [String: MachineState],
-                      now: Date) async {
+                      now: Date) {
         let due = machines.filter { machine in
             guard machine.ssh != nil, case .live = states[machine.id] else { return false }
             return copied[machine.id].map { now.timeIntervalSince($0) >= MachineShare.every } ?? true
         }
         for machine in due { copied[machine.id] = now }
         copied = copied.filter { id, _ in machines.contains { $0.id == id } }
-        _ = await Machine.each(due) { .success(await share.copy(data, to: $0)) }
+        guard !due.isEmpty else { return }
+        copying = Task { _ = await Machine.each(due) { .success(await share.copy(data, to: $0)) } }
     }
 }
