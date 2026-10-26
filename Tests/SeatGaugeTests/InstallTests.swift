@@ -434,6 +434,10 @@ import SeatGaugeCore
             try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)
             try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+            // macOS kills a copy of a system binary that still carries
+            // Apple's signature, at a moment that varies with load, so each
+            // copy is signed as itself (#147).
+            #expect(Self.run("/usr/bin/codesign", "-f", "-s", "-", executable.path).status == 0)
             let process = Process()
             process.executableURL = executable
             process.arguments = ["30"]
@@ -450,6 +454,9 @@ import SeatGaugeCore
             usleep(100_000)
         } while Date() < deadline
         #expect(matched == [running[0].processIdentifier])
+        // Still running once asked, so a wrong answer is the pattern's own.
+        let alive = running.filter { $0.isRunning }.count
+        #expect(alive == running.count)
     }
 
     @Test("the install says the next step is the first launch")
