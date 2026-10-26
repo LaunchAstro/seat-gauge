@@ -178,16 +178,17 @@ func spend() async throws {
 func login(_ arguments: ArraySlice<String>) throws {
     let request = try SeatLogin.Request(arguments: Array(arguments))
     // The code is not echoed, and the terminal is put back however this ends.
-    HiddenEntry.begin()
-    defer { HiddenEntry.end() }
+    let entry = HiddenEntry()
+    entry?.endOnSignals()
+    defer { entry?.end() }
     let signed = try SeatLogin.signIn(request.seat, email: request.email, seats: try readSeats(request.seatsFile),
                                       searchPath: .loginShell,
                                       code: {
-                                          HiddenEntry.hide()
+                                          entry?.hide()
                                           print("code> ", terminator: "")
                                           fflush(stdout)
                                           let code = readLine()
-                                          HiddenEntry.restore()
+                                          entry?.restore()
                                           // Neither an unechoed Return nor a pipe's code ends the line.
                                           print("")
                                           fflush(stdout)

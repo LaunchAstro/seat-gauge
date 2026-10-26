@@ -177,6 +177,21 @@ import SeatGaugeCore
         }
     }
 
+    @Test("Sol proof, criterion 2: hiding after the end leaves the terminal as it was found")
+    func aHideAfterTheEndDoesNothing() throws {
+        let terminal = try Terminal()
+        let before = terminal.settings
+        let entry = try #require(HiddenEntry(terminal: terminal.slave))
+        entry.hide()
+        #expect(!terminal.echoes)
+        entry.end()
+        entry.hide()
+        entry.restore()
+        #expect(terminal.echoes)
+        #expect(terminal.settings == before)
+        #expect(HiddenEntry(terminal: -1) == nil)
+    }
+
     @Test("claude auth login and status run in the seat's own profile, not the caller's folder")
     func signInChildrenRunInTheProfile() throws {
         let scratch = try SeatLoginTests.scratch(.accepts("c"))
