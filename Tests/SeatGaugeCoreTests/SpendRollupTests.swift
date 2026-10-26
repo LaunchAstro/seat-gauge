@@ -298,7 +298,7 @@ import SeatGaugeCore
         defer { try? FileManager.default.removeItem(at: directory) }
         try Data(ConfigLoader.template.utf8).write(to: directory.appendingPathComponent("seats.json"))
 
-        let watcher = try ConfigWatcher(loader: ConfigLoader(file: directory.appendingPathComponent("seats.json")))
+        let watcher = ConfigWatcher(loader: ConfigLoader(file: directory.appendingPathComponent("seats.json")))
         let poller = Poller(
             watcher: watcher,
             service: RefreshService(clock: ContinuousClock(), gap: .zero,

@@ -429,7 +429,7 @@ import SeatGaugeCore
         let refused = Data(#"{ "seats": [ { "id": "Work", "label": "Work", "kind": "claude" } ] }"#.utf8)
         try refused.write(to: machine.seats)
 
-        let watcher = try ConfigWatcher(loader: machine.loader)
+        let watcher = ConfigWatcher(loader: machine.loader)
         #expect(await watcher.config.seats.map(\.id.rawValue) == ["work", "codex"])
         #expect(await watcher.problem?.contains(#""Work""#) == true)
         #expect(try Data(contentsOf: machine.seats) == refused)

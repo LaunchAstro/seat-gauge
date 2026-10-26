@@ -51,12 +51,12 @@ public final class Poll<C: Clock>: Sendable where C.Duration == Duration {
     public let store: GaugeStore
     public let poller: Poller<C, ContinuousClock>
 
-    /// Throws when the config file cannot be watched at all. A primer that
-    /// cannot be made is logged, since every Claude read then says why.
+    /// A primer that cannot be made is logged, since every Claude read then
+    /// says why.
     /// `clock` is the one the loop sleeps its interval and a wake's delay on.
     public init(file: URL = ConfigLoader.defaultFile, readings: URL = GaugeStore.defaultFile,
-                primer: URL = AppPaths.primer, options: Options = Options(), clock: C) throws {
-        let watcher = try ConfigWatcher(loader: ConfigLoader(file: file))
+                primer: URL = AppPaths.primer, options: Options = Options(), clock: C) {
+        let watcher = ConfigWatcher(loader: ConfigLoader(file: file))
         // The Claude fetcher runs in this folder and does not make it, so a
         // fresh install with none fails every Claude read.
         do { try AppPaths.makePrimer(primer) } catch {
@@ -94,8 +94,8 @@ public final class Poll<C: Clock>: Sendable where C.Duration == Duration {
 
 extension Poll where C == ContinuousClock {
     public convenience init(file: URL = ConfigLoader.defaultFile, readings: URL = GaugeStore.defaultFile,
-                            primer: URL = AppPaths.primer, options: Options = Options()) throws {
-        try self.init(file: file, readings: readings, primer: primer, options: options, clock: ContinuousClock())
+                            primer: URL = AppPaths.primer, options: Options = Options()) {
+        self.init(file: file, readings: readings, primer: primer, options: options, clock: ContinuousClock())
     }
 }
 

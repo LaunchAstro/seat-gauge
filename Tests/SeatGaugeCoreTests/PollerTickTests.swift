@@ -94,7 +94,7 @@ import SeatGaugeCore
         Self.write(Self.config("\(Self.work), \(Self.codex)"), to: seats, age: 0)
         let polls = TestClock(), ticker = TestClock()
         let counter = Counter()
-        let watcher = try ConfigWatcher(loader: ConfigLoader(file: seats))
+        let watcher = ConfigWatcher(loader: ConfigLoader(file: seats))
         let poller = Poller(
             watcher: watcher,
             service: RefreshService(clock: ContinuousClock(), gap: .zero) { _ in CountingFetcher(counter: counter) },
@@ -152,7 +152,7 @@ import SeatGaugeCore
         let codex = directory.appendingPathComponent("auth.json")
         try Data("{}".utf8).write(to: codex)
         let loader = ConfigLoader(file: seats, machine: SeatDiscovery(home: home, codexLogin: codex))
-        let watcher = try ConfigWatcher(loader: loader)
+        let watcher = ConfigWatcher(loader: loader)
 
         let problem = await watcher.problem ?? ""
         #expect(problem.contains("line"))

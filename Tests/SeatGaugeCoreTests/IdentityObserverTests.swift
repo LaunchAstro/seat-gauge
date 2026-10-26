@@ -136,7 +136,7 @@ import SeatGaugeCore
         let record = home.root.appendingPathComponent("attribution.json")
         let lines = Lines()
         let clock = Clock()
-        let poller = Poller(watcher: try ConfigWatcher(loader: ConfigLoader(file: config)),
+        let poller = Poller(watcher: ConfigWatcher(loader: ConfigLoader(file: config)),
                             service: RefreshService(gap: .zero) { _ in Dormant() },
                             store: GaugeStore(file: home.root.appendingPathComponent("readings.json")),
                             clock: ContinuousClock(),
