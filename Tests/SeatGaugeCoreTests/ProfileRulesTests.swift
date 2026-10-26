@@ -17,7 +17,7 @@ import SeatGaugeCore
 
     static func decode(_ seats: [String], home: URL) throws -> Config {
         let text = "{ \"seats\": [\(seats.joined(separator: ", "))] }"
-        return try ConfigLoader.decode(Data(text.utf8), tokenDirectory: home.appendingPathComponent("tokens"),
+        return try ConfigLoader.decode(Data(text.utf8),
                                        home: home)
     }
 

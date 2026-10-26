@@ -88,8 +88,8 @@ public struct ConfigLoader: Sendable {
             "  // and sign it in as in step 3. To add Codex once the codex CLI is signed in:",
             #"  // { "id": "codex", "label": "Codex", "kind": "codex" },"#,
             "  //",
-            #"  // "id"      lowercase, unique. A claude seat cannot be "default" or "codex", which spend"#,
-            "  //           history keeps. \"label\" is what the card shows.",
+            #"  // "id"      a plain id, as above, and unique. A claude seat cannot be "default" or "codex","#,
+            "  //           which spend history keeps. \"label\" is what the card shows.",
             #"  // "kind"    "claude" or "codex"."#,
             #"  // "profile" a claude seat's own folder, any path. Required, and never ~/.claude or another"#,
             "  //           seat's, so no card reads a login that is not its own. Spend history reads the",
@@ -227,12 +227,9 @@ public struct ConfigLoader: Sendable {
         let spendFrom: String?
     }
 
-    /// `tokenDirectory` is where a seat with no `token` of its own is looked
-    /// up, and is a parameter so a case can point it somewhere temporary.
-    /// `home` is whose `~/.claude` a profile may not be, a parameter for the
-    /// same reason.
+    /// `home` is whose `~/.claude` a profile may not be, a parameter so a
+    /// case can point it somewhere temporary.
     public static func decode(_ data: Data,
-                              tokenDirectory: URL = SeatToken.directory,
                               home: URL = URL(fileURLWithPath: NSHomeDirectory())) throws -> Config {
         let reader = JSONDecoder()
         reader.allowsJSON5 = true
@@ -246,8 +243,8 @@ public struct ConfigLoader: Sendable {
         var seen: Set<String> = []
         var profiles: [ProfilePlace: String] = [:]
         for seat in stored.seats {
-            guard seat.id == seat.id.lowercased(), !seat.id.isEmpty else {
-                throw ConfigProblem("seats.json: the id \"\(seat.id)\" is not lowercase.")
+            guard Self.isPlainID(seat.id) else {
+                throw ConfigProblem("seats.json: the id \"\(seat.id)\" is not a plain id, which is a lowercase letter or digit followed by lowercase letters, digits, - or _.")
             }
             guard seen.insert(seat.id).inserted else {
                 throw ConfigProblem("seats.json: the id \"\(seat.id)\" is used twice.")
@@ -256,8 +253,7 @@ public struct ConfigLoader: Sendable {
             let billing = try Self.billing(renews: seat.renews, ends: seat.ends, id: seat.id)
             switch seat.kind {
             case "claude":
-                seats.append(try claudeSeat(seat, open: open, billing: billing, profiles: &profiles,
-                                            tokenDirectory: tokenDirectory, home: home))
+                seats.append(try claudeSeat(seat, open: open, billing: billing, profiles: &profiles, home: home))
             case "codex":
                 // Codex signs in from its own config, so it ignores both
                 // "profile" and "token" the same way.
@@ -276,8 +272,7 @@ public struct ConfigLoader: Sendable {
     /// One claude seat, refused unless its profile is a directory of its own
     /// that no other seat in `profiles` has, and its login says one way in.
     private static func claudeSeat(_ seat: Stored.StoredSeat, open: [String]?, billing: Billing?,
-                                   profiles: inout [ProfilePlace: String],
-                                   tokenDirectory: URL, home: URL) throws -> Seat {
+                                   profiles: inout [ProfilePlace: String], home: URL) throws -> Seat {
         // A claude seat with no profile would read whatever ~/.claude
         // is signed into, and draw that account under its own name.
         guard let profile = seat.profile else {
@@ -301,9 +296,8 @@ public struct ConfigLoader: Sendable {
             throw ConfigProblem("seats.json: a claude seat cannot have the id \"\(seat.id)\", which spend history keeps for \(seat.id == CodexRollout.seat ? "Codex" : "the default login").")
         }
         let id = SeatID(rawValue: seat.id)
-        // A seat that owns its login pins no token, even when a file
-        // is lying in the token directory under its name. Any
-        // other spelling is refused rather than read as a token seat.
+        // A seat that owns its login pins no token. Any other
+        // spelling is refused rather than read as a token seat.
         let own = seat.login == "own"
         guard seat.login == nil || own else {
             throw ConfigProblem("seats.json: \"\(seat.id)\" has login \"\(seat.login ?? "")\", and the only login a seat can say is \"own\".")
@@ -313,10 +307,11 @@ public struct ConfigLoader: Sendable {
         }
         // A named source is taken as given, so a path that is not there
         // is an unreadable seat with a reason rather than a silent
-        // fall back to somebody else's token.
+        // fall back to somebody else's token. A seat that names none
+        // reads its own profile: no file is ever looked up by its id.
         let token = own ? nil : seat.token.map {
             URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath)
-        } ?? SeatToken.defaultSource(for: id, in: tokenDirectory)
+        }
         return Seat(id: id, label: seat.label, kind: .claude(profileDir: directory), tokenFile: token,
                     account: seat.account, plan: seat.plan, open: open, billing: billing)
     }
@@ -340,6 +335,16 @@ public struct ConfigLoader: Sendable {
     }
 
     /// A seat's `renews` or `ends`: one of them at most, each a real day.
+    /// A seat id names files and fills a column of `spend.csv`, so it is a
+    /// lowercase letter or digit, then lowercase letters, digits, `-` or `_`:
+    /// never a path, a flag or a comma. First launch lists a profile folder
+    /// only under such a name (`SeatDiscovery.isID`).
+    static func isPlainID(_ id: String) -> Bool {
+        let allowed = Set("abcdefghijklmnopqrstuvwxyz0123456789-_")
+        guard let first = id.first, first != "-", first != "_" else { return false }
+        return id.allSatisfy(allowed.contains)
+    }
+
     private static func billing(renews: String?, ends: String?, id: String) throws -> Billing? {
         guard renews == nil || ends == nil else {
             throw ConfigProblem("seats.json: \"\(id)\" has both \"renews\" and \"ends\". A subscription that renews has no end; keep one.")

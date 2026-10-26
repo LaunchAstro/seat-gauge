@@ -35,7 +35,7 @@ import SeatGaugeCore
         let data = try JSONSerialization.data(withJSONObject: ["seats": [[
             "id": "work", "label": "Work\nsecondary", "kind": "codex", "open": ["/usr/bin/false"],
         ]]])
-        let seats = try ConfigLoader.decode(data, tokenDirectory: folder, home: folder).seats
+        let seats = try ConfigLoader.decode(data, home: folder).seats
         let mirror = SeatOpenPanelTests.mirror(seats, in: folder)
         await mirror.open(SeatID(rawValue: "work"))?.value
         let failure = try #require(mirror.problems.first)
@@ -55,7 +55,7 @@ import SeatGaugeCore
             "id": "work", "label": "Work", "kind": "codex",
             "open": [script.path, "work\0codex", saw.path],
         ]]])
-        let config = try? ConfigLoader.decode(data, tokenDirectory: folder, home: folder)
+        let config = try? ConfigLoader.decode(data, home: folder)
         guard let seat = config?.seats.first else { return }
         var failed = false
         do { try await SeatOpener(settle: .seconds(2)).open(seat) } catch { failed = true }

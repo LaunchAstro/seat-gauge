@@ -35,7 +35,7 @@ import Testing
     static func config(_ seats: [String], home: Home) -> String? {
         let text = "{ \"seats\": [\(seats.joined(separator: ", "))] }"
         do {
-            _ = try ConfigLoader.decode(Data(text.utf8), tokenDirectory: home.url.appendingPathComponent("tokens"),
+            _ = try ConfigLoader.decode(Data(text.utf8),
                                         home: home.url)
             return nil
         } catch { return (error as? ConfigProblem)?.reason ?? "\(error)" }

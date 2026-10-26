@@ -135,7 +135,6 @@ import SeatGaugeTestSupport
     func configReadsTokenSources() throws {
         let directory = try Self.temporary()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let personal = try Self.write(Self.dummy, named: "personal.token", into: directory)
         let named = try Self.write(Self.dummy, named: "elsewhere.token", into: directory)
 
         let file = """
@@ -147,22 +146,17 @@ import SeatGaugeTestSupport
                   "token": "\(named.path)" },
                 { "id": "codex", "label": "Codex", "kind": "codex" } ] }
             """
-        let config = try ConfigLoader.decode(Data(file.utf8), tokenDirectory: directory)
+        let config = try ConfigLoader.decode(Data(file.utf8))
         let sources = Dictionary(uniqueKeysWithValues: config.seats.map { ($0.id.rawValue, $0.tokenFile) })
-        #expect(sources["personal"] == personal)              // the default, which is there
+        #expect(sources["personal"] == .some(nil))  // names no file, so reads its own profile
         #expect(sources["team"] == named)        // the one the file names
         #expect(sources["work"] == .some(nil))    // owns its login, so never
         #expect(sources["codex"] == .some(nil))     // codex signs in its own way
 
-        // A seat with no file of its own keeps today's behaviour exactly.
-        let bare = try ConfigLoader.decode(Data(file.utf8),
-                                           tokenDirectory: directory.appendingPathComponent("empty"))
-        #expect(bare.seats.first { $0.id.rawValue == "personal" }?.tokenFile == nil)
-
         // A seat with no profile is told, rather than quietly handed a token.
         let wrong = #"{ "seats": [ { "id": "work", "label": "N", "kind": "claude", "token": "/x" } ] }"#
         #expect(throws: ConfigProblem.self) {
-            try ConfigLoader.decode(Data(wrong.utf8), tokenDirectory: directory)
+            try ConfigLoader.decode(Data(wrong.utf8))
         }
     }
 }

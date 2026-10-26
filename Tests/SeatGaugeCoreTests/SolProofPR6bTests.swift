@@ -30,7 +30,7 @@ import SeatGaugeCore
         func decode(_ seats: [String]) -> Result<Config, ConfigProblem> {
             let text = "{ \"seats\": [\(seats.joined(separator: ", "))] }"
             do {
-                return .success(try ConfigLoader.decode(Data(text.utf8), tokenDirectory: home.appendingPathComponent("tokens"), home: home))
+                return .success(try ConfigLoader.decode(Data(text.utf8), home: home))
             } catch let problem as ConfigProblem { return .failure(problem) } catch { return .failure(ConfigProblem("\(error)")) }
         }
         func claude(_ id: String, _ profile: String) -> String {

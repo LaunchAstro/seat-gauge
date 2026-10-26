@@ -13,26 +13,6 @@ public enum SeatToken {
     /// The variable the Claude CLI reads a seat's login from.
     public static let variable = "CLAUDE_CODE_OAUTH_TOKEN"
 
-    /// Where a seat with neither `token` nor `"login": "own"` looks for
-    /// `<id>.token`. Kept so a token seat already set up this way keeps
-    /// working; nothing needs a file here to get started.
-    public static var directory: URL {
-        URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".config/claude-seats", isDirectory: true)
-    }
-
-    public static func file(for seat: SeatID, in directory: URL = SeatToken.directory) -> URL {
-        directory.appendingPathComponent("\(seat.rawValue).token")
-    }
-
-    /// The default source for a seat, which is that file when it is there. A
-    /// seat with no file gets nil, and so behaves exactly as it did before.
-    public static func defaultSource(for seat: SeatID,
-                                    in directory: URL = SeatToken.directory) -> URL? {
-        let file = file(for: seat, in: directory)
-        return FileManager.default.fileExists(atPath: file.path) ? file : nil
-    }
-
     /// The token, or the reason it could not be read. The reason names the
     /// file and never its contents, because the panel's menu and
     /// `seatgauge-cli read` both show it.
