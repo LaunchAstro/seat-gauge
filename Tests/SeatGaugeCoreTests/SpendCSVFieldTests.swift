@@ -23,18 +23,19 @@ import SeatGaugeTestSupport
         return folder
     }
 
-    static func line(_ index: Int, model: String, at timestamp: String) -> String {
+    static func line(_ index: Int, model: String, at timestamp: String, input: Int = 9) -> String {
         let object: [String: Any] = [
             "type": "assistant", "requestId": "req-\(index)", "sessionId": "s1", "cwd": "/home/example/proj",
             "timestamp": timestamp,
             "message": ["id": "msg-\(index)", "role": "assistant", "model": model,
-                        "usage": ["input_tokens": 9, "output_tokens": 1]] as [String: Any],
+                        "usage": ["input_tokens": input, "output_tokens": 1]] as [String: Any],
         ]
         return String(decoding: try! JSONSerialization.data(withJSONObject: object), as: UTF8.self)
     }
 
     /// One roll-up over one invented transcript, into `folder`.
-    static func rollUp(_ lines: [String], in folder: URL, now: String) async throws -> SpendRun? {
+    static func rollUp(_ lines: [String], in folder: URL, now: String,
+                       rates: RateCard = .bundled) async throws -> SpendRun? {
         let projects = folder.appendingPathComponent("profile/projects/-home-example-proj", isDirectory: true)
         try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
         try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: projects.appendingPathComponent("s1.jsonl"))
@@ -44,7 +45,7 @@ import SeatGaugeTestSupport
                                       calendar: SpendRollupTests.utc)
         return try await rollup.run(
             profiles: [SpendProfile(seat: "work", projects: folder.appendingPathComponent("profile/projects"))],
-            rates: .bundled, now: SpendRollupTests.date(now))
+            rates: rates, now: SpendRollupTests.date(now))
     }
 
     @Test("a file the old writer wrote reads exactly as it did: the same rows, the same unreadable lines, its readable lines rewritten byte for byte")
@@ -134,6 +135,31 @@ import SeatGaugeTestSupport
         #expect(read.rows.map(\.seat) == ["work", "work", "work", "work"])
         #expect(read.rows.compactMap(\.usd).allSatisfy { $0 < 1 })
         #expect(read.rows.map(\.input).reduce(0, +) == 36)
+    }
+
+    @Test("Sol r1: a rate is found by the name the record writes, so the roll-up and the views that reprice agree, and two rates that fold to one name leave it unpriced",
+          arguments: [true, false])
+    func ratesAreFoundByTheWrittenName(bothListed: Bool) async throws {
+        let folder = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        var models = ["vendor,model": Rate(input: 1, output: 0, group: "other")]
+        if bothListed { models["vendor model"] = Rate(input: 2, output: 0, group: "other") }
+        let rates = RateCard(version: "test", models: models)
+        let lines = [Self.line(0, model: "vendor,model", at: "2026-10-25T22:10:00.000Z", input: 1_000_000),
+                     Self.line(1, model: "vendor model", at: "2026-10-25T22:20:00.000Z", input: 1_000_000)]
+        _ = try #require(try await Self.rollUp(lines, in: folder, now: "2026-10-25T23:30:00Z", rates: rates))
+        let read = SpendCSV.read(folder.appendingPathComponent("spend.csv"), state: folder.appendingPathComponent("state.json"))
+        let row = try #require(read.rows.first)
+        #expect(read.rows.count == 1)
+        #expect(row.model == "vendor model")
+        #expect(row.responses == 2)
+        #expect(row.usd == (bothListed ? nil : 2))
+        #expect(rates.usd(model: row.model, counts: row.counts) == row.usd)
+        #expect(rates.rate(for: "vendor,model") == (bothListed ? nil : models["vendor,model"]))
+        // A plain card prices as it always has.
+        #expect(RateCard.bundled.rate(for: "claude-opus-5") == RateCard.bundled.models["claude-opus-5"])
+        let decoded = try JSONDecoder().decode(RateCard.self, from: JSONEncoder().encode(rates))
+        #expect(decoded == rates)
     }
 
     @Test("a row the record kept with a \\r is the cell a fresh walk adds to, so nothing is counted twice")
