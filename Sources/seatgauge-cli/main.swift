@@ -2,7 +2,8 @@ import Foundation
 import SeatGaugeCore
 
 // The app's core, headless. `read` prints every seat's outcome, `record`
-// writes one seat's raw reply to a fixture, `watch` runs the panel's own poll
+// writes what the parsers read of one seat's reply to a private file in
+// `.scratch/recordings/`, `watch` runs the panel's own poll
 // loop with nothing drawn, and `spend` runs the roll-up once over the real
 // transcripts and says what it found. `login` signs one seat in. `machines`
 // reads each machine's load once.

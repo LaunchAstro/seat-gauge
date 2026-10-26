@@ -138,7 +138,7 @@ import SeatGaugeTestSupport
 
     // MARK: - Recording a fixture
 
-    @Test("record writes redacted stdout lines to Tests/Fixtures/<seat>-<date>.jsonl")
+    @Test("record writes redacted stdout lines to <seat>-<date>.jsonl in the folder it is given")
     func recordWritesRedactedLines() throws {
         // The address and the home path the redactor must take out are put
         // together at run time, so this file carries neither for the privacy
@@ -147,15 +147,17 @@ import SeatGaugeTestSupport
         let users = "/" + "Users"
         let raw = [
             "{\"accountId\":\"6f1b2d0e-1111-2222-3333-444455556666\",\"email\":\"\(address)\"}",
-            "{\"session_id\":\"9a7c4e21-aaaa-bbbb-cccc-ddddeeeeffff\",\"cwd\":\"\(users)/someone/code\"}",
+            "{\"type\":\"result\",\"result\":\"session 9a7c4e21-aaaa-bbbb-cccc-ddddeeeeffff for \(address) in \(users)/someone/code\"}",
             "{\"access_token\":\"sk-seat-aaaa\",\"refresh_token\":\"sk-seat-bbbb\"}",
         ]
         let clean = raw.map(FixtureRecording.redact)
-        #expect(clean[0].contains("\"accountId\":\"\""))
+        // Fields no parser reads go, keys and values both.
+        #expect(clean[0] == "{}")
+        #expect(clean[2] == "{}")
+        // A kept field keeps its words, without the ids, address or home.
         #expect(clean[1].contains("00000000-0000-0000-0000-000000000000"))
         #expect(clean[1].contains("/home/seat/code"))
-        #expect(clean[2].contains("\"access_token\":\"\""))
-        #expect(clean[2].contains("\"refresh_token\":\"\""))
+        #expect(clean[1].contains("\"type\":\"result\""))
 
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("seat-gauge-record-\(UUID().uuidString)")
