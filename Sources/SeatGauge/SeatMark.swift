@@ -13,8 +13,13 @@ enum SeatMark {
     nonisolated static let baseSide: CGFloat = 14
     nonisolated static let minimumSide: CGFloat = 12
 
+    /// The widest or tallest frame an icon may have, read from its header
+    /// before anything is decoded. Real ones are 64 pixels at most.
     nonisolated static let largestSide = 1024
+    /// The most frames an icon may hold. Real ones have three or four.
     nonisolated static let largestFrames = 32
+    /// The one image decoded, at most this many pixels a side: past twice
+    /// the largest side the mark is drawn at, on a Retina screen.
     nonisolated static let thumbnailSide = 128
 
     nonisolated static func side(_ scale: TextScale) -> CGFloat {
@@ -22,26 +27,55 @@ enum SeatMark {
     }
 
     /// Every provider's cached icon, fetched first where none is cached. The
-    /// fetch and the file reads run off the main actor, in the core.
+    /// fetch and the file reads run off the main actor, in the core, and so
+    /// does the decode. An icon that makes no mark is evicted, so the next
+    /// launch fetches it again rather than decoding it at every start.
     static func load(_ cache: MarkCache = MarkCache()) async -> [Provider: NSImage] {
         var marks: [Provider: NSImage] = [:]
         for provider in Provider.allCases {
-            if let data = await cache.mark(for: provider), let image = template(from: data) {
-                marks[provider] = image
-            }
+            guard let data = await cache.mark(for: provider) else { continue }
+            let masked = await Task.detached(priority: .utility) { mask(from: data) }.value
+            if let masked { marks[provider] = template(masked) } else { cache.evict(provider) }
         }
         return marks
     }
 
     /// The icon's largest image as a template: black, with each pixel's alpha
     /// the share of it that is the mark (`MarkMask`). Nil for bytes that are
-    /// not an image or an image that is all plate.
+    /// not an image, an icon past the limits, or an image that is all plate.
     nonisolated static func template(from data: Data) -> NSImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        let images = (0..<CGImageSourceGetCount(source)).compactMap {
-            CGImageSourceCreateImageAtIndex(source, $0, nil)
+        mask(from: data).map(template)
+    }
+
+    nonisolated static func template(_ masked: CGImage) -> NSImage {
+        let template = NSImage(cgImage: masked, size: NSSize(width: masked.width, height: masked.height))
+        template.isTemplate = true
+        return template
+    }
+
+    /// The mask itself. Every frame's size, and the number of frames, come
+    /// from the header first, so a compact file that would decode to
+    /// gigabytes is refused unread, and only the largest frame is decoded,
+    /// as a thumbnail no bigger than `thumbnailSide`.
+    nonisolated static func mask(from data: Data) -> CGImage? {
+        let options = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, options) else { return nil }
+        let count = CGImageSourceGetCount(source)
+        guard (1 ... largestFrames).contains(count) else { return nil }
+        var largest: (index: Int, side: Int)?
+        for index in 0 ..< count {
+            guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, options) as? [CFString: Any],
+                  let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                  let height = properties[kCGImagePropertyPixelHeight] as? Int,
+                  (1 ... largestSide).contains(width), (1 ... largestSide).contains(height) else { return nil }
+            if width > (largest?.side ?? 0) { largest = (index, width) }
         }
-        guard let image = images.max(by: { $0.width < $1.width }) else { return nil }
+        let thumbnail = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                         kCGImageSourceCreateThumbnailWithTransform: true,
+                         kCGImageSourceShouldCacheImmediately: true,
+                         kCGImageSourceThumbnailMaxPixelSize: thumbnailSide] as CFDictionary
+        guard let largest, let image = CGImageSourceCreateThumbnailAtIndex(source, largest.index, thumbnail)
+        else { return nil }
         let width = image.width, height = image.height
         guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
               let drawn = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
@@ -60,9 +94,7 @@ enum SeatMark {
                                   bytesPerRow: width * 4, space: space,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
               let masked = out.makeImage() else { return nil }
-        let template = NSImage(cgImage: masked, size: NSSize(width: width, height: height))
-        template.isTemplate = true
-        return template
+        return masked
     }
 }
 
