@@ -55,6 +55,20 @@ import SeatGaugeCore
 
     // MARK: - Settings opens from both menus
 
+    /// The standard About panel reads the version from the bundle's own
+    /// Info.plist, which `build-app.sh` writes from `VERSION`, so the app
+    /// shows its version without `seatgauge-cli --version` (#105).
+    @Test func aboutIsFirstInTheAppMenu() throws {
+        let app = try #require(SeatGaugeApp.menuBar().items.first?.submenu)
+        let item = try #require(app.items.first)
+        #expect(item.title == "About Seat Gauge")
+        #expect(item.action == #selector(NSApplication.orderFrontStandardAboutPanel(_:)))
+        #expect(item.target == nil)
+        #expect(app.items.dropFirst().first?.isSeparatorItem == true)
+        let script = try String(contentsOf: InstallTests.root.appendingPathComponent("scripts/build-app.sh"), encoding: .utf8)
+        #expect(script.contains("<key>CFBundleShortVersionString</key><string>$VER</string>"))
+    }
+
     @Test func settingsIsInTheAppMenuAndTheRightClickMenu() throws {
         let app = try #require(SeatGaugeApp.menuBar().items.first?.submenu)
         let item = try #require(app.items.first { $0.title == "Settings\u{2026}" })
