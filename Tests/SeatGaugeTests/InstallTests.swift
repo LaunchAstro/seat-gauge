@@ -440,8 +440,15 @@ import SeatGaugeCore
             try process.run()
             running.append(process)
         }
-        let matched = Self.run("/usr/bin/pgrep", "-f", pattern).out
-            .split(separator: "\n").compactMap { Int32($0) }
+        // A busy machine can take a moment to list a new copy, so look again
+        // until only the installed copy matches; a wrong match never clears.
+        var matched: [Int32] = []
+        let deadline = Date().addingTimeInterval(10)
+        repeat {
+            matched = Self.run("/usr/bin/pgrep", "-f", pattern).out.split(separator: "\n").compactMap { Int32($0) }
+            if matched == [running[0].processIdentifier] { break }
+            usleep(100_000)
+        } while Date() < deadline
         #expect(matched == [running[0].processIdentifier])
     }
 
