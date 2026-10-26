@@ -48,13 +48,18 @@ import SeatGaugeCore
     /// rename that moves the installed copy aside, `swapFails` the rename that
     /// puts the new copy in place, and `raced` has another install put its
     /// copy at the destination straight after the old one is moved aside.
+    /// `swapped` puts another app, or a relative link, at the destination after
+    /// it was checked and before it is moved aside, from the stub `pkill`,
+    /// which runs between. `late` swaps a foreign app in for the moved-aside
+    /// copy at the moment it is deleted: as the deleting `perl` starts, or as
+    /// the emptied folder's `rmdir` runs.
     @discardableResult
     static func install(indexing: String = "Indexing enabled.", busy: String? = nil, signed: Bool = true,
                         bundle: Bool = true, helper: Bool = true, other: Bool = false, gone: Bool = false,
                         iCloud: Bool = false, cli: Planted = .nothing,
                         onPath: Bool = true, folder: Folder = .usable, prior: Prior = .nothing,
                         copyFails: Bool = false, asideFails: Bool = false, swapFails: Bool = false,
-                        raced: Bool = false) throws -> Ran {
+                        raced: Bool = false, swapped: Swapped = .nothing, late: Late = .nothing) throws -> Ran {
         let base = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("seat-gauge-install-\(UUID().uuidString)", isDirectory: true)
         let applications = base.appendingPathComponent("Applications", isDirectory: true)
@@ -139,7 +144,19 @@ import SeatGaugeCore
         let found = other ? planted.path : applications.appendingPathComponent("Seat Gauge.app").path
         let deleted = base.appendingPathComponent("deleted/Seat Gauge.app").path
         try stub("mdfind", "printf '%s\\n' '\(found)'" + (gone ? "; printf '%s\\n' '\(deleted)'" : ""))
-        try stub("pkill", "printf '%s\\n' \"$@\" > '\(base.appendingPathComponent("pkill-args").path)'")
+        let swap: String
+        switch swapped {
+        case .nothing: swap = ""
+        case .relativeLink:
+            swap = "; rm -rf '\(dest.path)'; mkdir -p '\(applications.path)/other-app'; printf kept > '\(applications.path)/other-app/marker-other'; ln -s other-app '\(dest.path)'"
+        case .foreign, .ours:
+            let id = swapped == .ours ? "com.launchastro.seatgauge" : "com.example.other"
+            swap = """
+                ; rm -rf '\(dest.path)'; mkdir -p '\(dest.path)/Contents'; printf swapped > '\(dest.path)/marker-swapped'
+                printf '<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>\(id)</string></dict></plist>' > '\(dest.path)/Contents/Info.plist'
+                """
+        }
+        try stub("pkill", "printf '%s\\n' \"$@\" > '\(base.appendingPathComponent("pkill-args").path)'" + swap)
         try stub("open", "exit 0")
         // The retries' pauses, so a case does not wait them out.
         try stub("sleep", "exit 0")
@@ -158,6 +175,27 @@ import SeatGaugeCore
                 case "$from" in */old/*) ;; */.seat-gauge-install.*/'Seat Gauge.app') \(swapFails ? "exit 1" : ":") ;; esac
                 /usr/bin/perl "$@" || exit 1
                 case "$to" in */old/'Seat Gauge.app') \(raced ? "mkdir -p \"$from/Contents\"; printf other > \"$from/marker-other\"" : ":") ;; esac
+                """)
+        }
+        // A foreign app put in place of `$1`, the moved-aside copy, which itself
+        // goes beside it, so the case can tell which one survived.
+        let foreign = """
+            mv "$target" "$target-moved"; mkdir -p "$target/Contents"; printf swapped > "$target/marker-swapped"
+            printf '<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.example.other</string></dict></plist>' > "$target/Contents/Info.plist"
+            """
+        switch late {
+        case .nothing: break
+        case .atDelete:
+            try stub("perl", """
+                case "$1" in -MFile::Path*) target="$4"
+                \(foreign) ;; esac
+                exec /usr/bin/perl "$@"
+                """)
+        case .atRmdir:
+            try stub("rmdir", """
+                case "$1" in */old/'Seat Gauge.app') target="$1"
+                \(foreign) ;; esac
+                exec /bin/rmdir "$@"
                 """)
         }
         if !iCloud { try stub("codesign", "exit \(signed ? 0 : 1)") }
@@ -187,6 +225,8 @@ import SeatGaugeCore
 
     enum Planted { case nothing, file, link(String), ours }
     enum Prior { case nothing, ours, foreign, bare, link }
+    enum Swapped { case nothing, foreign, ours, relativeLink }
+    enum Late { case nothing, atDelete, atRmdir }
 
     /// A staging folder the script left in the applications root.
     static func staged(_ ran: Ran) -> [String] {
@@ -409,6 +449,47 @@ import SeatGaugeCore
         #expect(Self.exists(stage.appendingPathComponent("old/Seat Gauge.app/marker")))
         #expect(!Self.exists(stage.appendingPathComponent("Seat Gauge.app")))
         #expect(ran.out.contains(stage.appendingPathComponent("old/Seat Gauge.app").path), "\(ran.out)")
+    }
+
+    @Test("proof: an app put at the destination after the check is never deleted: it is left aside, and said where (#114)",
+          arguments: [(Prior.ours, Swapped.foreign), (.ours, .ours), (.nothing, .foreign)])
+    func aSwappedInAppIsLeftAside(prior: Prior, swapped: Swapped) throws {
+        let ran = try Self.install(prior: prior, swapped: swapped)
+        defer { try? FileManager.default.removeItem(at: ran.applications.deletingLastPathComponent()) }
+        #expect(ran.status == 0, "\(ran.out)")
+        #expect(Self.exists(ran.installed.appendingPathComponent("Contents/MacOS/SeatGauge")))
+        let staged = Self.staged(ran)
+        #expect(staged.count == 1)
+        let aside = ran.applications.appendingPathComponent(staged.first ?? "").appendingPathComponent("old/Seat Gauge.app")
+        #expect(Self.exists(aside.appendingPathComponent("marker-swapped")))
+        #expect(ran.out.contains("left at \(aside.path)"), "\(ran.out)")
+    }
+
+    @Test("Sol proof, criterion 2: a relative link swapped in, dangling once moved aside, is kept and named, and its target is untouched")
+    func aSwappedInRelativeLinkIsKept() throws {
+        let ran = try Self.install(prior: .ours, swapped: .relativeLink)
+        defer { try? FileManager.default.removeItem(at: ran.applications.deletingLastPathComponent()) }
+        #expect(ran.status == 0, "\(ran.out)")
+        let staged = Self.staged(ran)
+        #expect(staged.count == 1)
+        let aside = ran.applications.appendingPathComponent(staged.first ?? "").appendingPathComponent("old/Seat Gauge.app")
+        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: aside.path)) == "other-app")
+        #expect(ran.out.contains("left at \(aside.path)"), "\(ran.out)")
+        #expect(Self.exists(ran.applications.appendingPathComponent("other-app/marker-other")))
+    }
+
+    @Test("Sol proof, criterion 1: a foreign app swapped in for the moved-aside copy at the moment it is deleted is kept and named",
+          arguments: [Late.atDelete, .atRmdir])
+    func aSwapAtTheDeleteIsKept(late: Late) throws {
+        let ran = try Self.install(prior: .ours, late: late)
+        defer { try? FileManager.default.removeItem(at: ran.applications.deletingLastPathComponent()) }
+        #expect(ran.status == 0, "\(ran.out)")
+        #expect(Self.exists(ran.installed.appendingPathComponent("Contents/MacOS/SeatGauge")))
+        let staged = Self.staged(ran)
+        #expect(staged.count == 1)
+        let aside = ran.applications.appendingPathComponent(staged.first ?? "").appendingPathComponent("old/Seat Gauge.app")
+        #expect(Self.exists(aside.appendingPathComponent("marker-swapped")))
+        #expect(ran.out.contains("left at \(aside.path)"), "\(ran.out)")
     }
 
     @Test("proof: only the installed copy is quit, never a make run build or a path the pattern only looks like")
