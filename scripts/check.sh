@@ -4,7 +4,8 @@
 # `check: <step> pass` or `check: <step> FAIL`, and the run exits 1 if any
 # step failed.
 #
-#   scripts/check.sh                   every test: only when the owner asks
+#   scripts/check.sh                   every test, most of them side by side:
+#                                      only when the owner asks
 #   scripts/check.sh MachineLoadTests  the tests for what the change builds
 set -u
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 2
@@ -23,7 +24,10 @@ step() {
   if out="$("$@" 2>&1)"; then
     printf 'check: %s pass\n' "$name"
   else
-    printf 'check: %s FAIL\n%s\n' "$name" "$(printf '%s\n' "$out" | tail -n 20)"
+    # Every failed case's own line, which the last lines of a long run
+    # often leave out, then the run's end.
+    printf 'check: %s FAIL\n%s\n%s\n' "$name" "$(printf '%s\n' "$out" | grep -E 'Test .* (failed after|recorded an issue at)' | cut -c1-300 | head -n 60)" \
+      "$(printf '%s\n' "$out" | tail -n 20)"
     failed=1
   fi
 }
@@ -51,11 +55,25 @@ privacy() {
   return 1
 }
 
+# Suites that time real child processes, timers or memory against tight
+# bounds. Beside other cases they read a busy machine as a failure, so the
+# full run gives them the machine to themselves. A new suite like them goes
+# here.
+ALONE=(MemoryCeilingTests SearchPathTests SeatOpenTests SeatOpenPanelTests SeatsRowTests
+  SolSeatOpenProofTests SolSeatOpenRaceProofTests SolPR73DeadlineProofTests)
+alone="\.($(IFS='|'; printf '%s' "${ALONE[*]}"))/"
+
 step "swift build" swift build "${SWIFT_FLAGS[@]}"
-# Serial, because the panel suites share one `GaugeMirror`.
-FILTER=()
-[ -n "${1:-}" ] && FILTER=(--filter "$1")
-step "swift test" scripts/scratch-home.sh swift test --no-parallel ${FILTER[@]+"${FILTER[@]}"} "${SWIFT_FLAGS[@]}"
+if [ -n "${1:-}" ]; then
+  # A filtered run is one case after another, as it always was.
+  step "swift test" scripts/scratch-home.sh swift test --no-parallel --filter "$1" "${SWIFT_FLAGS[@]}"
+else
+  # The full run: every other suite side by side (the panel suites take
+  # turns on `GaugeMirror` through the `.sharedMirror` lock), then those
+  # above one case at a time.
+  step "swift test" scripts/scratch-home.sh swift test --skip "$alone" "${SWIFT_FLAGS[@]}"
+  step "swift test, timed suites" scripts/scratch-home.sh swift test --no-parallel --filter "$alone" "${SWIFT_FLAGS[@]}"
+fi
 
 step "privacy" privacy
 
