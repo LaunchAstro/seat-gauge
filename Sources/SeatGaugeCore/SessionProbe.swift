@@ -50,7 +50,13 @@ public struct SessionProbe: Sendable {
         return result
     }
 
-    public func run(now: Date = Date(), rates: RateCard = .bundled) async throws -> SessionLogFile {
+    public struct Arguments {
+        public var directory: URL?
+        public var closedThrough: Date?
+        public init(_ arguments: [String]) {}
+    }
+
+    public func run(now: Date = Date(), rates: RateCard = .bundled, closedThrough: Date? = nil) async throws -> SessionLogFile {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         return try await FileLock.holdingAsync(directory.appendingPathComponent("probe.lock"), timeout: .seconds(1)) {
