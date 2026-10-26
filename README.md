@@ -126,13 +126,13 @@ With none of the three the card shows no plan. It never guesses "free". `seatgau
 seatgauge-cli read            # read every seat once and print it
 seatgauge-cli watch           # run the poll loop headless
 seatgauge-cli spend           # roll up spend once and say what it found
-seatgauge-cli record claude   # poll one seat, write its reply to Tests/Fixtures/ under the current folder
+seatgauge-cli record claude   # poll one seat, write what the parsers read of its reply to .scratch/recordings/ under the current folder
 seatgauge-cli login claude    # sign one seat in under its own profile
 ```
 
 `make install` links `seatgauge-cli` into `~/.local/bin`, and these commands act on the installed app's `seats.json`. The CLI has no bundle of its own, so it always reads the installed app's folder, even when you run it from a clone. To use one against a `make run` build, run it from the clone with `swift run seatgauge-cli` and pass that build's file as the last argument, such as `swift run seatgauge-cli login claude ~/Library/Application\ Support/com.launchastro.seatgauge.dev/seats.json`. `read`, `record`, `login` and `machines` take that argument; `watch`, `spend` and `machines add` work only on the installed app's file.
 
-`record` writes a local file of what the seat printed, with account ids, tokens and home paths taken out. It is still your real usage, so never commit it as is. The fixtures in the repository are hand-written; use a recording to see the shape, then write a synthetic transcript.
+`record` keeps only the fields the parsers read of what the seat printed, takes credentials, account ids, emails and home paths out of those, and writes them to `.scratch/recordings/<seat>-<date>.jsonl`, readable by you alone. Git ignores that folder. It is still your real usage, so never commit it. The fixtures in the repository are hand-written; use a recording to see the shape, then write a synthetic transcript.
 
 ## For agents
 

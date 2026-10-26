@@ -56,8 +56,9 @@ gate skip them and say why.
 `Tests/Fixtures/` holds hand-written transcripts in the shape each CLI prints:
 invented timestamps, round numbers, no real reset times, ids or paths. To
 cover a new shape, write a new synthetic line. `seatgauge-cli record <seat>`
-shows you what a real seat prints, but its file is your own usage: read it,
-then write the fixture by hand rather than committing the recording.
+shows you what a real seat prints, in `.scratch/recordings/`, but its file is
+your own usage: read it, then write the fixture by hand rather than committing
+the recording.
 
 ## The gate
 
