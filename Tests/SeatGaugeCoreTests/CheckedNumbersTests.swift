@@ -191,3 +191,43 @@ import Testing
         #expect(config.machineSeconds == 9)
     }
 }
+
+/// Sol's proofs from the review of ceab0a7 on PR 89.
+@Suite struct SolPR89ProofTests {
+    @Test("Sol proof, criterion 1: a finite idle percentage past 0 to 100 is no reading",
+          arguments: ["cpu CPU usage: 0% user, " + String(repeating: "9", count: 100) + "% idle",
+                      "cpu CPU usage: 0% user, 101.0% idle", "cpu CPU usage: 0% user, -20.0% idle"])
+    func finiteIdle(_ line: String) {
+        #expect(MachineProbe.parse(CheckedNumbersTests.probe("cpu", line), at: CheckedNumbersTests.now) == nil)
+    }
+
+    @Test("Sol proof, criterion 1: a disk of under one block is no reading, so its percent cannot be infinite")
+    func smallBlocks() {
+        #expect(MachineProbe.parse(CheckedNumbersTests.probe("disk", "disk dev 1e-300 0 1000000000"),
+                                   at: CheckedNumbersTests.now) == nil)
+    }
+
+    @Test("Sol proof, criterion 2: a count no Double holds makes the rollout line unreadable",
+          arguments: ["1e400", "-1e400"])
+    func codexHugeCount(_ count: String) throws {
+        let reading = try CheckedNumbersTests.rollout(#"{"input_tokens":\#(count),"output_tokens":1,"total_tokens":1}"#)
+        #expect(reading.cells.isEmpty)
+        #expect(reading.skipped == 1)
+    }
+
+    @Test("Sol proof, criterion 2: a transcript count no Double holds makes the line unreadable")
+    func claudeHugeCount() {
+        var seen: Set<String> = []
+        let line = CheckedNumbersTests.assistant(id: "huge", output: "1e400")
+        let reading = ClaudeCollector.read(data: Data(line.utf8), primer: URL(fileURLWithPath: "/nowhere/primer"), seen: &seen)
+        #expect(reading.responses.isEmpty)
+        #expect(reading.skipped == 1)
+    }
+
+    @Test("Sol proof, criterion 6: a log.json row whose counts sum past Int.max totals without trapping")
+    func savedLogTotal() throws {
+        let row = #"{"input":9223372036854775807,"output":9223372036854775807,"responses":1,"thinking":0,"cacheRead":0,"cacheWrite5m":0,"cacheWrite1h":0}"#
+        let tokens = try JSONDecoder().decode(TokenCounts.self, from: Data(row.utf8))
+        #expect(tokens.total == .max)
+    }
+}
