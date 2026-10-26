@@ -105,4 +105,66 @@ import SeatGaugeTestSupport
         let left = FileManager.default.enumerator(atPath: clone.path)?.allObjects as? [String] ?? []
         #expect(left.allSatisfy { !$0.hasSuffix(".jsonl") })
     }
+
+    @Test("Sol proof, criterion 2: a credential inside JSON written into a kept string goes, nested or with an escaped name")
+    func embeddedJSONCredentialsGo() {
+        let lines = [
+            #"{"type":"result","result":"failed: {\"token\":{\"value\":\"opaque-secret-object\"}}"}"#,
+            #"{"type":"result","result":"failed: {\"to\\u006ben\":\"opaque-secret-unicode\"}"}"#,
+            #"{"type":"result","result":"failed: {\"password\":\"firstword secondword thirdword\"}"}"#,
+            #"{"type":"result","result":"failed: {\"note\":\"an unclosed body \"token\":\"opaque-secret-open"}"#,
+        ]
+        let all = lines.map(FixtureRecording.redact).joined(separator: "\n")
+        for planted in ["opaque-secret", "secondword", "thirdword"] {
+            let kept = all.contains(planted)
+            #expect(!kept, "\(planted)")
+        }
+        #expect(all.contains("failed:"))
+    }
+
+    @Test("Sol proof, criterion 2: a spaced API key, a quoted passphrase and an unsegmented sk- key go whole")
+    func freeTextCredentialsGoWhole() {
+        let key = "sk-" + String(repeating: "aB12", count: 12)
+        let lines = [
+            #"{"type":"result","result":"API key: opaque-secret-spaced"}"#,
+            #"{"type":"result","result":"password: \"firstword secondword thirdword\" was refused"}"#,
+            #"{"type":"result","result":"key supplied: \#(key)"}"#,
+            #"{"type":"result","result":"Authorization: Basic b3BhcXVlLXNlY3JldC1iYXNpYw=="}"#,
+            #"{"type":"result","result":"a run like Zx9Qw8Er7Ty6Ui5Op4As3Df2 is nobody's prose"}"#,
+        ]
+        let all = lines.map(FixtureRecording.redact).joined(separator: "\n")
+        for planted in ["opaque-secret", "secondword", "thirdword", key, "b3BhcXVl", "Zx9Qw8Er7Ty6"] {
+            let kept = all.contains(planted)
+            #expect(!kept, "\(planted.prefix(8))")
+        }
+        #expect(all.contains("was refused"))
+    }
+
+    @Test("Sol proof, criterion 4: a recordings folder that is a link writes nothing and changes nothing outside")
+    func aLinkedFolderWritesNothing() throws {
+        let clone = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: clone) }
+        let outside = clone.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o755])
+        let kept = outside.appendingPathComponent("work-2026-09-22.jsonl")
+        try Data("must-preserve".utf8).write(to: kept)
+        let day = Calendar.current.date(from: DateComponents(year: 2026, month: 9, day: 22, hour: 12))!
+
+        // The recordings folder itself a link, and then the folder above it.
+        let folder = FixtureRecording.directory(in: clone)
+        try FileManager.default.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: folder, withDestinationURL: outside)
+        #expect(throws: (any Error).self) {
+            try FixtureRecording.write(["{}"], seat: SeatID(rawValue: "work"), date: day, into: folder)
+        }
+        try FileManager.default.removeItem(at: folder.deletingLastPathComponent())
+        try FileManager.default.createSymbolicLink(at: folder.deletingLastPathComponent(), withDestinationURL: outside)
+        #expect(throws: (any Error).self) {
+            try FixtureRecording.write(["{}"], seat: SeatID(rawValue: "work"), date: day, into: folder)
+        }
+        #expect(try String(contentsOf: kept, encoding: .utf8) == "must-preserve")
+        #expect(try Self.mode(outside) == 0o755)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path) == ["work-2026-09-22.jsonl"])
+    }
 }
