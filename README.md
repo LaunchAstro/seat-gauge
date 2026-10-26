@@ -58,8 +58,8 @@ The app is signed ad hoc (ADR 0002), so macOS treats every `make install` as a n
 2. Move `/Applications/Seat Gauge.app` to the Trash. If you built with `make run`, also delete `dist/` in your clone.
 3. Remove the command line link: `rm ~/.local/bin/seatgauge-cli`.
 4. Remove its settings, readings and spend history: `~/Library/Application Support/com.launchastro.seatgauge/`, and `~/Library/Application Support/com.launchastro.seatgauge.dev/` if you ran `make run`. Then `defaults delete com.launchastro.seatgauge` (and `com.launchastro.seatgauge.dev`), which holds the window's place.
-5. Seat logins the app made live in `~/.seat-gauge/profiles/`, one folder per seat, each signed in to a Claude account. Keep any folder you still use outside Seat Gauge. Sign the rest out first, so its login goes too: `env -u CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR="$HOME/.seat-gauge/profiles/<seat>" claude auth logout`. Then delete `~/.seat-gauge`.
-6. If you added a machine to the LOAD tab: `rm ~/.ssh/seatgauge-*` here, which are its ssh connection sockets, and `rm ~/.local/libexec/seatgauge-log-probe` on that machine if you installed the Log helper there.
+5. Seat logins the app made live in `~/.seat-gauge/profiles/`, one folder per seat, each signed in to a Claude account. Keep any folder you still use outside Seat Gauge. For each one you don't, sign it out first, so its login goes too: `env -u CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR="$HOME/.seat-gauge/profiles/<seat>" claude auth logout`, then delete `~/.seat-gauge/profiles/<seat>`. When no folder is left, `rmdir ~/.seat-gauge/profiles ~/.seat-gauge` removes the rest; it refuses while anything is still inside.
+6. If you added a machine to the LOAD tab: its ssh connection closes within two minutes of Quit and removes its own socket, `~/.ssh/seatgauge-<hash>`. To clear any left behind, removing sockets only and never a file such as a key: `find ~/.ssh -maxdepth 1 -name 'seatgauge-*' -type s -delete`. On that machine, `rm ~/.local/libexec/seatgauge-log-probe` if you installed the Log helper there.
 
 ## Add a seat
 
@@ -123,7 +123,6 @@ With none of the three the card shows no plan. It never guesses "free". `seatgau
 `seatgauge-cli` runs the same core without the window:
 
 ```sh
-seatgauge-cli --version       # print the version
 seatgauge-cli read            # read every seat once and print it
 seatgauge-cli watch           # run the poll loop headless
 seatgauge-cli spend           # roll up spend once and say what it found
