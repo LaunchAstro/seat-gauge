@@ -39,6 +39,11 @@ public enum FixtureRecording {
         return line
     }
 
+    /// The folder `record` writes into, inside the folder it was run from.
+    public static func directory(in folder: URL) -> URL {
+        folder.appendingPathComponent("Tests/Fixtures", isDirectory: true)
+    }
+
     /// `<seat>-<date>.jsonl`, on the local day. Local because every other date
     /// in this app is local, and because a recording made this afternoon
     /// sorting after this morning's is what the tests read the newest one by.

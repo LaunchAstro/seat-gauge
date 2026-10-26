@@ -62,8 +62,7 @@ func record(_ name: String, from path: String?) async throws {
     guard !outcome.lines.isEmpty else {
         throw ProcessFailure("\(name) printed nothing to record: \(view(seat, outcome.state, now: Date()).describe(now: Date()))")
     }
-    let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        .appendingPathComponent("Tests/Fixtures", isDirectory: true)
+    let directory = FixtureRecording.directory(in: URL(fileURLWithPath: FileManager.default.currentDirectoryPath))
     let file = try FixtureRecording.write(outcome.lines.map(FixtureRecording.redact),
                                           seat: seat.id, date: Date(), into: directory)
     print("recorded \(outcome.lines.count) line(s) to \(file.path)")
