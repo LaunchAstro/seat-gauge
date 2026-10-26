@@ -42,6 +42,7 @@ Three SwiftPM targets, Command Line Tools only (no Xcode project).
 | `SpendView.swift` | The spend read side: `spend.csv` from `spendFrom`, through `attribution.json` (one fallback when it is missing or malformed), on one rate card, read once. It answers the Spend tab's chart and model rows, a card's history and the record problems, and holds the tab's choices (`SpendChoices`). Read only. |
 | `SpendChart.swift`, `SeatHistory.swift` | Series for the Spend tab and a card's history chart. |
 | `MachineLoad.swift` | The LOAD tab's figures: the probe each machine runs (here in `sh`, elsewhere over `ssh`), its parse into CPU, memory, disk and herdr's agent count, the room verdict, `MachineMonitor`'s loop and `machines.json`, and `MachineShare`, its once-a-minute copy to each other machine over the same ssh connection. |
+| `ClearableFolders.swift` | The fixed list of folders worth clearing, the background-priority `du` that sizes them every 15 minutes on each machine, and its parse. Report only. |
 | `SessionLog.swift`, `SessionProbe.swift`, `SessionTokens.swift` | The Log snapshot, private pane ledger, machine-local discovery and incremental reads through the Spend parsers. |
 | `State.swift` | `state.json`: roll-up watermark and panel choices, under a file lock. |
 | `PrivateFile.swift` | How every file the app keeps is written: 600 in a 700 folder, replaced in one rename, an older wider one narrowed on the next write. |
