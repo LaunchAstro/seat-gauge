@@ -6,6 +6,40 @@ It reads Claude seats through the `claude` CLI and ChatGPT seats through the `co
 
 Version 0.1.0 is source only: you build it on your own Mac with `make install`. There is no prebuilt download yet. A signed and notarised download may come in a later release.
 
+## What it looks like
+
+Seat Gauge suits a secondary monitor, where it stays in sight while you work on the main one. Its maintainer runs it as a strip along the bottom of a vertical (portrait) display on a secondary monitor, and it works really well there. On first launch it opens at the bottom centre of a portrait display if you have one.
+
+The window is one row of cards, as wide as you make it, with four tabs in its title bar. Every picture here is drawn from made-up seats, machines and figures.
+
+![The SEATS tab: an ALL summary card, then Claude seats named Personal, Work and Team and a Codex seat, each with its 5-hour and weekly bars, a countdown to each reset and the percentage used](docs/images/seats.png)
+
+SEATS: how much of each seat's 5-hour and weekly windows is used and when each resets, with USE on the seat with the most headroom.
+
+![The SEATS tab with the pointer on the Work card, which shows its forecast line and a bar chart of the last week's tokens](docs/images/seats-detail.png)
+
+Hover over a card for its detail: whether its weekly window will run out or go unused at this rate, and its recent spend.
+
+![The LOAD tab: two machines, Studio marked free and Laptop marked busy, each with CPU, memory and disk bars and how many agents are working](docs/images/load.png)
+
+LOAD: CPU, memory and disk for this Mac and any Mac you reach over ssh, the agents working on each, and whether it has room for more.
+
+![The SPEND tab: tokens per day over the last 28 days, a line per account and one for the total, beside each model's total](docs/images/spend.png)
+
+SPEND: tokens or list-price dollars per account over time, rolled up from the local transcripts.
+
+![The LOG tab: one entry per agent session, each naming its machine, workspace, model, branch and token count](docs/images/log.png)
+
+LOG: one entry per agent session run under herdr, with its model, branch, tokens and list price.
+
+<img src="docs/images/seats-tall.png" width="420" alt="The SEATS tab in a narrow, taller window, its five cards stacked one above another">
+
+A narrower, taller window stacks the cards in rows: drag the bottom edge down and they grow, then wrap.
+
+![The SEATS tab in the light appearance](docs/images/seats-light.png)
+
+The light appearance, from Settings or the right-click menu.
+
 ## Quick start
 
 ```sh

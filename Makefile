@@ -18,7 +18,7 @@ else ifeq ($(SEATGAUGE_REAL_ID),)
 APP_ID := com.launchastro.seatgauge.dev
 endif
 
-.PHONY: build test check app install run clean
+.PHONY: build test check app install run clean shots
 
 build:
 	swift build $(SWIFT_FLAGS)
@@ -30,6 +30,11 @@ test:
 # The gate a pull request has to pass.
 check:
 	scripts/check.sh
+
+# The README's pictures, redrawn by the real window from made-up data into
+# docs/images. Needs a logged-in screen to draw on.
+shots:
+	SEATGAUGE_SHOTS="$(CURDIR)/docs/images" scripts/scratch-home.sh swift test --no-parallel --filter ReadmeShots $(SWIFT_FLAGS)
 
 app:
 	@[ -n "$(APP_ID)" ] || { echo 'make app: SEATGAUGE_REAL_ID takes 1 or nothing, so nothing was built.' >&2; exit 2; }
