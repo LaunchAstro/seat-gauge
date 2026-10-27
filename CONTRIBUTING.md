@@ -60,6 +60,22 @@ shows you what a real seat prints, in `.scratch/recordings/`, but its file is
 your own usage: read it, then write the fixture by hand rather than committing
 the recording.
 
+### Screenshots
+
+The pictures in the README are drawn by the real window from made-up seats,
+machines, spend and sessions, in `Tests/SeatGaugeTests/ReadmeShots.swift`.
+After a change to how the panel looks, redraw them and commit the new files:
+
+```sh
+make shots
+```
+
+It runs that one suite under a scratch home and writes the PNGs to
+`docs/images/`. It opens a window for each picture, so run it while logged in
+at the Mac's screen, not over a bare ssh session. Open each image before you
+commit it: the data is made up, but check no real name, path or figure crept
+in through a change to the fixtures.
+
 ## The gate
 
 ```sh

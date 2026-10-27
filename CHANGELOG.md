@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Screenshots in the README.** A short section near the top shows each tab, a narrow window and the light appearance, all drawn from made-up data by `make shots`.
 - **Session labels from tabs.** A Log row goes by its pane's tab name when the tab was named, so lanes that share one herdr workspace each read as their own repo, section and seat. A workspace that holds one lane reads as before.
 - **Folders worth clearing.** `machines.json` names each machine's biggest caches and build output beside `free_gb`, with how to clear each, sized every 15 minutes at background priority. Seat Gauge never deletes them.
 - **`machines.json` on every machine.** The app copies `machines.json` once a minute to each other Mac on the LOAD tab, at the same path there, so an agent on any listed machine reads the same file.
