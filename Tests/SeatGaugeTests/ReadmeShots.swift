@@ -8,9 +8,9 @@ import SeatGaugeCore
 
 /// The README's pictures, drawn by the real window from made-up seats,
 /// machines, spend and sessions, so they can be redrawn after any change to
-/// the panel. Nothing here reads the home it runs under. It runs only when
-/// `SEATGAUGE_SHOTS` names the folder the images go in, which `make shots`
-/// sets to `docs/images`; it needs a logged-in screen to draw on.
+/// the panel. Nothing here reads the home it runs under. The drawing runs
+/// only when `SEATGAUGE_SHOTS` names the folder the images go in, which
+/// `make shots` sets to `docs/images`; it needs a logged-in screen to draw on.
 @Suite(.serialized, .sharedMirror) @MainActor struct ReadmeShots {
     typealias Widths = CardWidthTests
 
@@ -45,6 +45,44 @@ import SeatGaugeCore
         Shot(name: "seats-tall", tab: .seats, width: 600, height: 640),
         Shot(name: "seats-light", tab: .seats, light: true),
     ]
+
+    /// The committed pictures, which every run checks, screen or not: each
+    /// shot is in `docs/images`, small, a PNG with no text chunk to carry a
+    /// name or a path, and shown in the README with alt text, beside the
+    /// secondary monitor note.
+    @Test func theReadmeShowsEveryShot() throws {
+        let images = Widths.root.appendingPathComponent("docs/images")
+        let readme = try String(contentsOf: Widths.root.appendingPathComponent("README.md"), encoding: .utf8)
+        let committed = try FileManager.default.contentsOfDirectory(atPath: images.path)
+            .filter { $0.hasSuffix(".png") }
+        #expect(Set(committed) == Set(Self.shots.map { "\($0.name).png" }))
+        for shot in Self.shots {
+            let path = "docs/images/\(shot.name).png"
+            let data = try #require(FileManager.default.contents(atPath: images.appendingPathComponent("\(shot.name).png").path),
+                                    "\(path) is missing")
+            #expect(data.count < 300_000, "\(path) is \(data.count) bytes")
+            #expect(data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), "\(path) is not a PNG")
+            #expect(Self.chunks(data).allSatisfy { !["tEXt", "iTXt", "zTXt"].contains($0) }, "\(path) carries text")
+            let markdown = readme.contains(try Regex("!\\[[^\\]]{12,}\\]\\(\(path)\\)"))
+            let html = readme.contains(try Regex("<img src=\"\(path)\"[^>]* alt=\"[^\"]{12,}\""))
+            #expect(markdown || html, "\(path) is not in the README with alt text")
+        }
+        #expect(readme.contains("secondary monitor"))
+        #expect(readme.contains("vertical (portrait) display"))
+    }
+
+    /// A PNG's chunk types in order, from its length and type headers.
+    static func chunks(_ data: Data) -> [String] {
+        let bytes = [UInt8](data)
+        var types: [String] = []
+        var at = 8
+        while at + 8 <= bytes.count {
+            let length = bytes[at..<at + 4].reduce(0) { $0 << 8 | Int($1) }
+            types.append(String(decoding: bytes[at + 4..<at + 8], as: UTF8.self))
+            at += 12 + length
+        }
+        return types
+    }
 
     @Test(.enabled(if: folder != nil, "set SEATGAUGE_SHOTS to the folder the images go in"))
     func drawTheReadmeImages() async throws {
