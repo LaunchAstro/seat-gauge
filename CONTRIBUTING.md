@@ -98,7 +98,7 @@ push.
 
 ## Licence
 
-Seat Gauge is under AGPL-3.0-only from the release after 0.1.0 (see `LICENSE`
+Seat Gauge is under AGPL-3.0-only from version 0.2.0 (see `LICENSE`
 and `NOTICE`). A contribution is accepted under AGPL-3.0-only. Code that
 reached 0.1.0 or earlier remains available under the MIT licence to anyone who
 obtains a copy.
