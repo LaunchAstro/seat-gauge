@@ -4,7 +4,7 @@ A small always-visible Mac window that shows, for each paid AI subscription logi
 
 It reads Claude seats through the `claude` CLI and ChatGPT seats through the `codex` CLI, the same way you would. It never reads the Keychain and never refreshes a token.
 
-Version 0.1.0 is source only: you build it on your own Mac with `make install`. There is no prebuilt download yet. A signed and notarised download may come in a later release.
+Version 0.2.0 is source only: you build it on your own Mac with `make install`. There is no prebuilt download yet. A signed and notarised download may come in a later release.
 
 ## What it looks like
 
@@ -53,7 +53,7 @@ make install
 ## Requirements
 
 - To run: macOS 14 or later.
-- To build: macOS 15.6 or later, with the Xcode Command Line Tools that bring Swift 6.2 or later (`xcode-select --install`). Xcode itself is not needed. Swift 6.2 first came with Xcode 26 and its tools, and Apple's Xcode system requirements list macOS 15.6 as the minimum for Xcode 26 (and macOS 26.2 from Xcode 26.4). Since 0.1.0 is built from source, macOS 15.6 is the floor in practice.
+- To build: macOS 15.6 or later, with the Xcode Command Line Tools that bring Swift 6.2 or later (`xcode-select --install`). Xcode itself is not needed. Swift 6.2 first came with Xcode 26 and its tools, and Apple's Xcode system requirements list macOS 15.6 as the minimum for Xcode 26 (and macOS 26.2 from Xcode 26.4). Since Seat Gauge is built from source, macOS 15.6 is the floor in practice.
 - The `claude` CLI for Claude seats, the `codex` CLI for a Codex seat. The app finds each wherever your login shell does. It asks the shell for its `PATH` once per launch, then also looks in the usual install folders (Homebrew on Apple silicon or Intel, `/usr/local/bin`, `~/.local/bin`, `~/.claude/local`, `~/.npm-global/bin`, volta, bun and nvm). Those folders are all it has when the shell takes longer than 3 seconds or gives no answer.
 
 ## Build and install
@@ -254,6 +254,6 @@ If you also trace agent sessions with a tool such as Langfuse, an open source tr
 
 ## Licence
 
-From the release after 0.1.0, the code is under the GNU Affero General Public License, version 3 only (AGPL-3.0-only), in `LICENSE`. Version 0.1.0 and earlier were released under the MIT licence and remain available under it to anyone who obtains a copy; its text is in `NOTICE`. The bundled fonts (Funnel Display, Funnel Sans, Chivo Mono) are under the SIL Open Font License, in `Resources/Fonts/OFL.txt`.
+From version 0.2.0, the code is under the GNU Affero General Public License, version 3 only (AGPL-3.0-only), in `LICENSE`. Version 0.1.0 and earlier were released under the MIT licence and remain available under it to anyone who obtains a copy; its text is in `NOTICE`. The bundled fonts (Funnel Display, Funnel Sans, Chivo Mono) are under the SIL Open Font License, in `Resources/Fonts/OFL.txt`.
 
 Claude and Anthropic are trademarks of Anthropic. ChatGPT, Codex and OpenAI are trademarks of OpenAI. Seat Gauge is not made or endorsed by either company. The app shows each provider's own favicon, fetched from the provider's site at runtime, only to say which service a seat belongs to. No provider mark ships in this repository, and none is covered by either licence. See `NOTICE`.

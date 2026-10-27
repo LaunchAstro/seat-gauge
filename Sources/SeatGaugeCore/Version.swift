@@ -2,5 +2,5 @@
 /// same, for `build-app.sh` to write into the bundle's Info.plist, and
 /// `VersionTests` fails when the two differ, so a bump changes both.
 public enum SeatGaugeVersion {
-    public static let current = "0.1.0"
+    public static let current = "0.2.0"
 }
