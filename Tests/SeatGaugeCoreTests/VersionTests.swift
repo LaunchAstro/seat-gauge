@@ -15,6 +15,12 @@ import SeatGaugeCore
         #expect(SeatGaugeVersion.current == file.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
+    /// The release this checkout is (#167). A version bump changes this line too.
+    @Test func theVersionIsTheRelease() throws {
+        let file = try String(contentsOf: Self.repository.appendingPathComponent("VERSION"), encoding: .utf8)
+        #expect(file.trimmingCharacters(in: .whitespacesAndNewlines) == "0.2.0")
+    }
+
     /// Run as the built binary, as `AttributionSeedTests` runs it.
     @Test func theCLIPrintsIt() throws {
         let task = Process()
