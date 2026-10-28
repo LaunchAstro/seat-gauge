@@ -477,7 +477,7 @@ final class HostRunner: ProcessRunning, @unchecked Sendable {
             log.copied.append(Data(base64Encoded: sent[start ..< end].joined()) ?? Data())
             var files: [String: Data] = [:]
             for (index, line) in sent.enumerated() where line.hasSuffix("<<'\(MachineShare.marker)'") && index > 0 {
-                guard let name = sent[index - 1].firstMatch(of: /"\$d\/\.([a-z]+\.json)\.XXXXXX"/)?.1,
+                guard let name = sent[index - 1].firstMatch(of: /\/\.([a-z]+\.json)\.XXXXXX/)?.1,
                       let close = sent[(index + 1)...].firstIndex(of: MachineShare.marker) else { continue }
                 files[String(name)] = Data(base64Encoded: sent[(index + 1) ..< close].joined()) ?? Data()
             }

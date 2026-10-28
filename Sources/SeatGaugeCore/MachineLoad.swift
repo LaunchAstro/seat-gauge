@@ -387,16 +387,19 @@ public struct MachineShare: Sendable {
     /// The lines `sh -s` runs there, one `{ }` block, so `sh` reads all of it
     /// before it runs any: a copy cut off on the way runs nothing. Each file
     /// goes as base64 inside a quoted here-document, so nothing in it is ever
-    /// read as shell. It lands in a private temporary file beside its copy,
-    /// then one rename replaces the copy, so a reader never sees half a file
-    /// and a link in its place, to a file or a folder, is replaced rather than
-    /// written through (`mv -h`). A folder of that name is left alone, and the
-    /// other file still goes; one made there just before the rename gets our
-    /// temporary file back out of it. The Seat Gauge folder itself is refused
-    /// when it is a link, and narrowed to its owner when it is wider. `copied` is printed only when every file sent
-    /// landed. A temporary file an earlier copy left, killed between the two,
-    /// goes once it is a minute old. An identifier that is not this app's is
-    /// the app's own, so nothing outside the folder is ever named.
+    /// read as shell. A link at the Seat Gauge folder is refused. Otherwise
+    /// the script moves into the folder and checks that it really is that
+    /// folder, so a path swapped for a link later redirects nothing: every
+    /// later step, the narrowing to 700 included, names a file in `.`. Each
+    /// file lands in a private temporary file there, then one rename(2)
+    /// replaces its copy, so a reader never sees half a file, a link in its
+    /// place is replaced rather than written through, and a folder in its
+    /// place, there before or made just then, makes the rename fail rather
+    /// than take the file. The other file still goes, and `copied` is printed
+    /// only when every file sent landed. A temporary file an earlier copy
+    /// left, killed between the two, goes once it is a minute old. An
+    /// identifier that is not this app's is the app's own, so nothing outside
+    /// the folder is ever named.
     public static func script(_ data: Data, headroom: Data? = nil, identifier: String) -> [String] {
         let ours = AppPaths.identifier(running: identifier) == identifier
             && identifier.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }
@@ -405,23 +408,24 @@ public struct MachineShare: Sendable {
         let files = [("machines.json", data)] + (headroom.map { [("headroom.json", $0)] } ?? [])
         return [
             "{",
-            #"d="$HOME/Library/Application Support/\#(folder)""#,
+            #"s="$HOME/Library/Application Support""#,
+            #"d="$s/\#(folder)""#,
             #"if [ -L "$d" ]; then exit 1; fi"#,
             #"if [ -e "$d/seats.json" ]; then echo kept; exit 0; fi"#,
             "umask 077",
-            #"mkdir -p "$d" && chmod 700 "$d" || exit 1"#,
-            #"find "$d" -maxdepth 1 \( -name '.machines.json.*' -o -name '.headroom.json.*' \) -mmin +1 -delete 2>/dev/null"#,
+            #"mkdir -p "$d" && cd "$d" || exit 1"#,
+            #"[ "$(pwd -P)" = "$(cd "$s" && pwd -P)/\#(folder)" ] && chmod 700 . || exit 1"#,
+            #"find . -maxdepth 1 \( -name '.machines.json.*' -o -name '.headroom.json.*' \) -mmin +1 -delete 2>/dev/null"#,
             "ok=1",
         ] + files.flatMap { name, data in
             [
-                #"if [ -d "$d/\#(name)" ] && [ ! -L "$d/\#(name)" ]; then ok=; else"#,
-                #"t=$(mktemp "$d/.\#(name).XXXXXX") || exit 1"#,
+                #"if [ -d \#(name) ] && [ ! -L \#(name) ]; then ok=; else"#,
+                #"t=$(mktemp ./.\#(name).XXXXXX) || exit 1"#,
                 #"if base64 -D > "$t" <<'\#(marker)'"#,
             ] + data.base64EncodedString(options: .lineLength76Characters).components(separatedBy: "\r\n") + [
                 marker,
-                #"then mv -f -h "$t" "$d/\#(name)" || ok=; else ok=; fi"#,
-                #"if [ -d "$d/\#(name)" ] && [ ! -L "$d/\#(name)" ]; then rm -f "$d/\#(name)/${t##*/}"; ok=; fi"#,
-                #"rm -f "$t""#,
+                #"then /usr/bin/perl -e 'rename($ARGV[0], $ARGV[1]) or exit 1' "$t" \#(name) || { rm -f "$t"; ok=; }"#,
+                #"else rm -f "$t"; ok=; fi"#,
                 "fi",
             ]
         } + [
