@@ -351,6 +351,7 @@ public struct MachineShare: Sendable {
     let runner: any ProcessRunning
     let environment: [String: String]
     let identifier: String
+    let headroom: URL?
 
     /// At most one copy a minute to each machine: a five-minute check needs
     /// no more, and the file is rewritten every few seconds.
@@ -365,10 +366,12 @@ public struct MachineShare: Sendable {
     public init(runner: any ProcessRunning,
                 environment: [String: String] = ChildEnvironment.make(
                     from: ProcessInfo.processInfo.environment, keeping: ["SSH_AUTH_SOCK"]),
-                identifier: String = AppPaths.identifier(running: Bundle.main.bundleIdentifier)) {
+                identifier: String = AppPaths.identifier(running: Bundle.main.bundleIdentifier),
+                headroom: URL? = nil) {
         self.runner = runner
         self.environment = environment
         self.identifier = identifier
+        self.headroom = headroom
     }
 
     /// The probe's own ssh command, with a shorter deadline, so a copy never
@@ -389,7 +392,7 @@ public struct MachineShare: Sendable {
     /// temporary file an earlier copy left, killed between the two, goes
     /// once it is a minute old. An identifier that is not this app's is the
     /// app's own, so nothing outside the folder is ever named.
-    public static func script(_ data: Data, identifier: String) -> [String] {
+    public static func script(_ data: Data, headroom: Data? = nil, identifier: String) -> [String] {
         let ours = AppPaths.identifier(running: identifier) == identifier
             && identifier.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }
         let folder = ours ? identifier : AppPaths.bundleID
