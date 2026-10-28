@@ -12,12 +12,14 @@ import SeatGaugeTestSupport
 
     /// Runs the copy script in a real `/bin/sh -s` with `home` as its home,
     /// the way ssh runs it at the far end, and returns what it printed.
-    static func run(_ data: Data, home: URL, identifier: String = AppPaths.bundleID,
-                    cut: Int = 0) async throws -> [String] {
+    static func run(_ data: Data, headroom: Data? = nil, home: URL, identifier: String = AppPaths.bundleID,
+                    cut: Int = 0, path: String = "/usr/bin:/bin") async throws -> [String] {
         let session = try RealProcessRunner().launch(ProcessSpec(
             executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-s"],
-            environment: ["HOME": home.path, "PATH": "/usr/bin:/bin"], timeout: .seconds(10)))
-        for line in MachineShare.script(data, identifier: identifier).dropLast(cut) { try session.send(line) }
+            environment: ["HOME": home.path, "PATH": path], timeout: .seconds(10)))
+        for line in MachineShare.script(data, headroom: headroom, identifier: identifier).dropLast(cut) {
+            try session.send(line)
+        }
         session.closeInput()
         var printed: [String] = []
         for try await line in session.stdoutLines { printed.append(line) }
@@ -28,6 +30,17 @@ import SeatGaugeTestSupport
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("share-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         return home
+    }
+
+    /// A stand-in for `tool` in its own folder under `home`, put first on the
+    /// script's PATH, so a test can act between two of the script's steps.
+    static func wrapper(_ tool: String, in home: URL, _ body: String) throws -> URL {
+        let bin = home.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let file = bin.appendingPathComponent(tool)
+        try Data("#!/bin/sh\n\(body)\n".utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        return bin
     }
 
     static func mode(_ url: URL) throws -> Int {
@@ -102,6 +115,199 @@ import SeatGaugeTestSupport
         #expect(try await Self.run(Self.file, home: home) == [])
         #expect(try FileManager.default.contentsOfDirectory(atPath: target.path) == [])
         #expect(try FileManager.default.contentsOfDirectory(atPath: target.deletingLastPathComponent().path) == ["machines.json"])
+    }
+
+    static let headroom = Data(#"{ "seats" : [ { "id" : "work", "kind" : "claude", "plan" : "Max \"$(x)\" `y`" } ], "updated" : "now" }"#.utf8)
+
+    @Test("headroom.json rides the same copy, beside machines.json, private and whole")
+    func writesHeadroom() async throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        #expect(try await Self.run(Self.file, headroom: Self.headroom, home: home) == ["copied"])
+        let folder = home.appendingPathComponent("Library/Application Support/com.launchastro.seatgauge")
+        let copy = folder.appendingPathComponent("headroom.json")
+        #expect(try Data(contentsOf: copy) == Self.headroom)
+        #expect(try Data(contentsOf: folder.appendingPathComponent("machines.json")) == Self.file)
+        #expect(try Self.mode(copy) == 0o600)
+        #expect(try Self.mode(folder) == 0o700)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted() == ["headroom.json", "machines.json"])
+
+        // A link in its place is replaced, never written through.
+        let elsewhere = home.appendingPathComponent("elsewhere.txt")
+        try Data("untouched".utf8).write(to: elsewhere)
+        try FileManager.default.removeItem(at: copy)
+        try FileManager.default.createSymbolicLink(at: copy, withDestinationURL: elsewhere)
+        let newer = Data(#"{ "seats" : [], "updated" : "later" }"#.utf8)
+        #expect(try await Self.run(Self.file, headroom: newer, home: home) == ["copied"])
+        #expect(try String(contentsOf: elsewhere, encoding: .utf8) == "untouched")
+        #expect(try Data(contentsOf: copy) == newer)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted() == ["headroom.json", "machines.json"])
+    }
+
+    @Test("with no headroom.json yet, only machines.json is copied and an older headroom copy there stays")
+    func noHeadroom() async throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let folder = home.appendingPathComponent("Library/Application Support/com.launchastro.seatgauge")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("older".utf8).write(to: folder.appendingPathComponent("headroom.json"))
+        #expect(try await Self.run(Self.file, home: home) == ["copied"])
+        #expect(try Data(contentsOf: folder.appendingPathComponent("machines.json")) == Self.file)
+        #expect(try String(contentsOf: folder.appendingPathComponent("headroom.json"), encoding: .utf8) == "older")
+    }
+
+    @Test("a machine with its own seats.json keeps its own headroom.json too")
+    func keepsOwnHeadroom() async throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let folder = home.appendingPathComponent("Library/Application Support/com.launchastro.seatgauge")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: folder.appendingPathComponent("seats.json"))
+        try Data("its own".utf8).write(to: folder.appendingPathComponent("headroom.json"))
+        #expect(try await Self.run(Self.file, headroom: Self.headroom, home: home) == ["kept"])
+        #expect(try String(contentsOf: folder.appendingPathComponent("headroom.json"), encoding: .utf8) == "its own")
+        #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("machines.json").path))
+    }
+
+    @Test("a folder where headroom.json goes is left alone; machines.json still lands, but the copy is not reported whole")
+    func headroomFolderInTheWay() async throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let folder = home.appendingPathComponent("Library/Application Support/com.launchastro.seatgauge")
+        let target = folder.appendingPathComponent("headroom.json")
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        #expect(try await Self.run(Self.file, headroom: Self.headroom, home: home) == [])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: target.path) == [])
+        #expect(try Data(contentsOf: folder.appendingPathComponent("machines.json")) == Self.file)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted() == ["headroom.json", "machines.json"])
+    }
+
+    @Test("a headroom copy cut off on the way runs nothing there")
+    func headroomCutOff() async throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let folder = home.appendingPathComponent("Library/Application Support/com.launchastro.seatgauge")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("before".utf8).write(to: folder.appendingPathComponent("headroom.json"))
+        for cut in [1, 2, 4, 6] { #expect(try await Self.run(Self.file, headroom: Self.headroom, home: home, cut: cut) == []) }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["headroom.json"])
+        #expect(try String(contentsOf: folder.appendingPathComponent("headroom.json"), encoding: .utf8) == "before")
+    }
+
+    @Test("an existing Seat Gauge folder there that others can read is narrowed to its owner")
+    func narrowsFolder() async throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let folder = home.appendingPathComponent("Library/Application Support/com.launchastro.seatgauge")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o755])
+        #expect(try Self.mode(folder) == 0o755)
+        #expect(try await Self.run(Self.file, headroom: Self.headroom, home: home) == ["copied"])
+        #expect(try Self.mode(folder) == 0o700)
+        #expect(try Self.mode(folder.appendingPathComponent("headroom.json")) == 0o600)
+    }
+
+    @Test("a link at the Seat Gauge folder there is refused, and nothing lands where it points")
+    func folderLink() async throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let support = home.appendingPathComponent("Library/Application Support")
+        let outside = home.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try Data("outside sentinel".utf8).write(to: outside.appendingPathComponent("headroom.json"))
+        try FileManager.default.createSymbolicLink(at: support.appendingPathComponent("com.launchastro.seatgauge"),
+                                                   withDestinationURL: outside)
+        #expect(try await Self.run(Self.file, headroom: Self.headroom, home: home) == [])
+        #expect(try String(contentsOf: outside.appendingPathComponent("headroom.json"), encoding: .utf8) == "outside sentinel")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path) == ["headroom.json"])
+    }
+
+    @Test("a folder made at a file's name after the check is left without our temporary file, and the copy is not reported whole",
+          arguments: ["machines.json", "headroom.json"])
+    func folderRace(name: String) async throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        // A `mktemp` that, once our temporary file for `name` exists, makes a
+        // folder at `name`, as another process could between check and rename.
+        let bin = try Self.wrapper("mktemp", in: home, """
+            t=$(/usr/bin/mktemp "$@") || exit 1
+            case "$1" in */.\(name).*) /bin/mkdir "${1%/*}/\(name)" ;; esac
+            echo "$t"
+            """)
+        #expect(try await Self.run(Self.file, headroom: Self.headroom, home: home,
+                                   path: bin.path + ":/usr/bin:/bin") == [])
+        let target = home.appendingPathComponent("Library/Application Support/com.launchastro.seatgauge/\(name)")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: target.path) == [])
+    }
+
+    @Test("a folder raced in at a file's name keeps a file of its own that shares our temporary file's name",
+          arguments: ["machines.json", "headroom.json"])
+    func folderRaceKeepsTheirs(name: String) async throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let bin = try Self.wrapper("mktemp", in: home, """
+            t=$(/usr/bin/mktemp "$@") || exit 1
+            case "$1" in */.\(name).*)
+                /bin/mkdir "${1%/*}/\(name)" && echo racer > "${1%/*}/\(name)/${t##*/}" ;;
+            esac
+            echo "$t"
+            """)
+        #expect(try await Self.run(Self.file, headroom: Self.headroom, home: home,
+                                   path: bin.path + ":/usr/bin:/bin") == [])
+        let target = home.appendingPathComponent("Library/Application Support/com.launchastro.seatgauge/\(name)")
+        let inside = try FileManager.default.contentsOfDirectory(atPath: target.path)
+        #expect(inside.count == 1)
+        #expect(try inside.first.map { try String(contentsOf: target.appendingPathComponent($0), encoding: .utf8) } == "racer\n")
+    }
+
+    @Test("a Seat Gauge folder swapped for a link after the check sends nothing where the link points")
+    func folderSwapped() async throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let outside = home.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o755])
+        // A `mkdir` that makes the folder, then moves it aside and links its
+        // path to `outside`, as another process could straight after.
+        let bin = try Self.wrapper("mkdir", in: home, """
+            /bin/mkdir "$@" || exit 1
+            for d; do case "$d" in */com.launchastro.seatgauge)
+                /bin/mv "$d" "$d.aside" && /bin/ln -s "\(outside.path)" "$d" ;;
+            esac; done
+            """)
+        #expect(try await Self.run(Self.file, headroom: Self.headroom, home: home,
+                                   path: bin.path + ":/usr/bin:/bin") == [])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path) == [])
+        #expect(try Self.mode(outside) == 0o755)
+    }
+
+    @Test("each round's copy carries this Mac's headroom.json in the same ssh session, and none while there is none")
+    func monitorHeadroom() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("machines-\(UUID().uuidString).json")
+        let headroom = FileManager.default.temporaryDirectory.appendingPathComponent("headroom-\(UUID().uuidString).json")
+        defer {
+            try? FileManager.default.removeItem(at: file)
+            try? FileManager.default.removeItem(at: headroom)
+        }
+        let config = Config(seats: [], pollMinutes: 5, machines: [.here, Self.studio])
+        let runner = HostRunner(answering: ["": MachineLoadTests.printed, "studio.local": MachineLoadTests.printed])
+        let clock = ShareClock(MachineLoadTests.now)
+        let monitor = MachineMonitor(prober: MachineProber(runner: runner, environment: [:]), file: file,
+                                     share: MachineShare(runner: runner, environment: [:], headroom: headroom),
+                                     now: { clock.now }, config: { config })
+        await monitor.read()
+        await monitor.settle()
+        #expect(runner.copies == ["studio.local"])
+        #expect(runner.sentFiles.last?.keys.sorted() == ["machines.json"])
+
+        try Self.headroom.write(to: headroom)
+        clock.now = MachineLoadTests.now.addingTimeInterval(61)
+        await monitor.read()
+        await monitor.settle()
+        #expect(runner.copies == ["studio.local", "studio.local"])
+        #expect(runner.sentFiles.last?["headroom.json"] == Self.headroom)
+        #expect(runner.sentFiles.last?["machines.json"] == (try Data(contentsOf: file)))
     }
 
     @Test("the dev build copies into its own folder there; an identifier that is not ours copies into the app's")
@@ -233,7 +439,7 @@ final class HostRunner: ProcessRunning, @unchecked Sendable {
     private let answering: [String: [String]]
     let stalling: Bool
     private let lock = NSLock()
-    private var log: (probes: [String], copies: [String], copied: [Data]) = ([], [], [])
+    private var log: (probes: [String], copies: [String], copied: [Data], files: [[String: Data]]) = ([], [], [], [])
     private var held: [AsyncThrowingStream<String, Error>.Continuation] = []
 
     init(answering: [String: [String]], stalling: Bool = false) {
@@ -250,6 +456,8 @@ final class HostRunner: ProcessRunning, @unchecked Sendable {
     var probes: [String] { lock.withLock { log.probes } }
     var copies: [String] { lock.withLock { log.copies } }
     var copied: [Data] { lock.withLock { log.copied } }
+    /// Every file each copy carried, by name.
+    var sentFiles: [[String: Data]] { lock.withLock { log.files } }
 
     func launch(_ spec: ProcessSpec) throws -> any ProcessSession {
         let host = spec.executable.path == "/usr/bin/ssh"
@@ -267,6 +475,13 @@ final class HostRunner: ProcessRunning, @unchecked Sendable {
             let start = sent.firstIndex { $0.hasSuffix("<<'\(MachineShare.marker)'") }.map { $0 + 1 } ?? sent.endIndex
             let end = sent[start...].firstIndex(of: MachineShare.marker) ?? sent.endIndex
             log.copied.append(Data(base64Encoded: sent[start ..< end].joined()) ?? Data())
+            var files: [String: Data] = [:]
+            for (index, line) in sent.enumerated() where line.hasSuffix("<<'\(MachineShare.marker)'") && index > 0 {
+                guard let name = sent[index - 1].firstMatch(of: /\/\.([a-z]+\.json)\.XXXXXX/)?.1,
+                      let close = sent[(index + 1)...].firstIndex(of: MachineShare.marker) else { continue }
+                files[String(name)] = Data(base64Encoded: sent[(index + 1) ..< close].joined()) ?? Data()
+            }
+            log.files.append(files)
             return answering[host] == nil ? [] : ["copied"]
         }
     }
