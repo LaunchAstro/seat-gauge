@@ -391,7 +391,9 @@ public struct MachineShare: Sendable {
     /// then one rename replaces the copy, so a reader never sees half a file
     /// and a link in its place, to a file or a folder, is replaced rather than
     /// written through (`mv -h`). A folder of that name is left alone, and the
-    /// other file still goes. `copied` is printed only when every file sent
+    /// other file still goes; one made there just before the rename gets our
+    /// temporary file back out of it. The Seat Gauge folder itself is refused
+    /// when it is a link, and narrowed to its owner when it is wider. `copied` is printed only when every file sent
     /// landed. A temporary file an earlier copy left, killed between the two,
     /// goes once it is a minute old. An identifier that is not this app's is
     /// the app's own, so nothing outside the folder is ever named.
@@ -404,9 +406,10 @@ public struct MachineShare: Sendable {
         return [
             "{",
             #"d="$HOME/Library/Application Support/\#(folder)""#,
+            #"if [ -L "$d" ]; then exit 1; fi"#,
             #"if [ -e "$d/seats.json" ]; then echo kept; exit 0; fi"#,
             "umask 077",
-            #"mkdir -p "$d" || exit 1"#,
+            #"mkdir -p "$d" && chmod 700 "$d" || exit 1"#,
             #"find "$d" -maxdepth 1 \( -name '.machines.json.*' -o -name '.headroom.json.*' \) -mmin +1 -delete 2>/dev/null"#,
             "ok=1",
         ] + files.flatMap { name, data in
@@ -417,6 +420,7 @@ public struct MachineShare: Sendable {
             ] + data.base64EncodedString(options: .lineLength76Characters).components(separatedBy: "\r\n") + [
                 marker,
                 #"then mv -f -h "$t" "$d/\#(name)" || ok=; else ok=; fi"#,
+                #"if [ -d "$d/\#(name)" ] && [ ! -L "$d/\#(name)" ]; then rm -f "$d/\#(name)/${t##*/}"; ok=; fi"#,
                 #"rm -f "$t""#,
                 "fi",
             ]
