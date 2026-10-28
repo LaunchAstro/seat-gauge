@@ -32,6 +32,17 @@ import SeatGaugeTestSupport
         return home
     }
 
+    /// A stand-in for `tool` in its own folder under `home`, put first on the
+    /// script's PATH, so a test can act between two of the script's steps.
+    static func wrapper(_ tool: String, in home: URL, _ body: String) throws -> URL {
+        let bin = home.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let file = bin.appendingPathComponent(tool)
+        try Data("#!/bin/sh\n\(body)\n".utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        return bin
+    }
+
     static func mode(_ url: URL) throws -> Int {
         try (FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as! NSNumber).intValue
     }
@@ -219,21 +230,56 @@ import SeatGaugeTestSupport
         defer { try? FileManager.default.removeItem(at: home) }
         // A `mktemp` that, once our temporary file for `name` exists, makes a
         // folder at `name`, as another process could between check and rename.
-        let bin = home.appendingPathComponent("bin", isDirectory: true)
-        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
-        let wrapper = bin.appendingPathComponent("mktemp")
-        try Data("""
-            #!/bin/sh
+        let bin = try Self.wrapper("mktemp", in: home, """
             t=$(/usr/bin/mktemp "$@") || exit 1
             case "$1" in */.\(name).*) /bin/mkdir "${1%/*}/\(name)" ;; esac
             echo "$t"
-
-            """.utf8).write(to: wrapper)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapper.path)
+            """)
         #expect(try await Self.run(Self.file, headroom: Self.headroom, home: home,
                                    path: bin.path + ":/usr/bin:/bin") == [])
         let target = home.appendingPathComponent("Library/Application Support/com.launchastro.seatgauge/\(name)")
         #expect(try FileManager.default.contentsOfDirectory(atPath: target.path) == [])
+    }
+
+    @Test("a folder raced in at a file's name keeps a file of its own that shares our temporary file's name",
+          arguments: ["machines.json", "headroom.json"])
+    func folderRaceKeepsTheirs(name: String) async throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let bin = try Self.wrapper("mktemp", in: home, """
+            t=$(/usr/bin/mktemp "$@") || exit 1
+            case "$1" in */.\(name).*)
+                /bin/mkdir "${1%/*}/\(name)" && echo racer > "${1%/*}/\(name)/${t##*/}" ;;
+            esac
+            echo "$t"
+            """)
+        #expect(try await Self.run(Self.file, headroom: Self.headroom, home: home,
+                                   path: bin.path + ":/usr/bin:/bin") == [])
+        let target = home.appendingPathComponent("Library/Application Support/com.launchastro.seatgauge/\(name)")
+        let inside = try FileManager.default.contentsOfDirectory(atPath: target.path)
+        #expect(inside.count == 1)
+        #expect(try inside.first.map { try String(contentsOf: target.appendingPathComponent($0), encoding: .utf8) } == "racer\n")
+    }
+
+    @Test("a Seat Gauge folder swapped for a link after the check sends nothing where the link points")
+    func folderSwapped() async throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let outside = home.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o755])
+        // A `mkdir` that makes the folder, then moves it aside and links its
+        // path to `outside`, as another process could straight after.
+        let bin = try Self.wrapper("mkdir", in: home, """
+            /bin/mkdir "$@" || exit 1
+            for d; do case "$d" in */com.launchastro.seatgauge)
+                /bin/mv "$d" "$d.aside" && /bin/ln -s "\(outside.path)" "$d" ;;
+            esac; done
+            """)
+        #expect(try await Self.run(Self.file, headroom: Self.headroom, home: home,
+                                   path: bin.path + ":/usr/bin:/bin") == [])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path) == [])
+        #expect(try Self.mode(outside) == 0o755)
     }
 
     @Test("each round's copy carries this Mac's headroom.json in the same ssh session, and none while there is none")
