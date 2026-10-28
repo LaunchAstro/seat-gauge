@@ -341,12 +341,13 @@ public struct MachineProber: Sendable {
     }
 }
 
-/// Copies `machines.json` to each other listed machine, into the same
-/// Seat Gauge folder there, so an agent on that machine reads the file at the
-/// same path as one on this Mac. It rides the probe's kept-open ssh
-/// connection, runs only `sh` there, and writes that one file and nothing
-/// else. A machine with its own `seats.json` runs its own app, which writes
-/// its own file, so that file is left alone.
+/// Copies `machines.json`, and `headroom.json` once this Mac has one, to each
+/// other listed machine, into the same Seat Gauge folder there, so an agent on
+/// that machine reads the files at the same paths as one on this Mac. Both go
+/// in one run over the probe's kept-open ssh connection, which runs only `sh`
+/// there and writes those two files and nothing else. A machine with its own
+/// `seats.json` runs its own app, which writes its own files, so they are left
+/// alone.
 public struct MachineShare: Sendable {
     let runner: any ProcessRunning
     let environment: [String: String]
@@ -363,11 +364,12 @@ public struct MachineShare: Sendable {
 
     /// `identifier` names the folder there, as `AppPaths` names this Mac's,
     /// so a `.dev` build never writes into the installed app's folder.
+    /// `headroom` is this Mac's `headroom.json`, read fresh each round.
     public init(runner: any ProcessRunning,
                 environment: [String: String] = ChildEnvironment.make(
                     from: ProcessInfo.processInfo.environment, keeping: ["SSH_AUTH_SOCK"]),
                 identifier: String = AppPaths.identifier(running: Bundle.main.bundleIdentifier),
-                headroom: URL? = nil) {
+                headroom: URL? = AppPaths.support.appendingPathComponent("headroom.json")) {
         self.runner = runner
         self.environment = environment
         self.identifier = identifier
@@ -383,44 +385,54 @@ public struct MachineShare: Sendable {
     }
 
     /// The lines `sh -s` runs there, one `{ }` block, so `sh` reads all of it
-    /// before it runs any: a copy cut off on the way runs nothing. The file
+    /// before it runs any: a copy cut off on the way runs nothing. Each file
     /// goes as base64 inside a quoted here-document, so nothing in it is ever
-    /// read as shell. It lands in a private temporary file beside the copy,
+    /// read as shell. It lands in a private temporary file beside its copy,
     /// then one rename replaces the copy, so a reader never sees half a file
     /// and a link in its place, to a file or a folder, is replaced rather than
-    /// written through (`mv -h`). A folder of that name is left alone. A
-    /// temporary file an earlier copy left, killed between the two, goes
-    /// once it is a minute old. An identifier that is not this app's is the
-    /// app's own, so nothing outside the folder is ever named.
+    /// written through (`mv -h`). A folder of that name is left alone, and the
+    /// other file still goes. `copied` is printed only when every file sent
+    /// landed. A temporary file an earlier copy left, killed between the two,
+    /// goes once it is a minute old. An identifier that is not this app's is
+    /// the app's own, so nothing outside the folder is ever named.
     public static func script(_ data: Data, headroom: Data? = nil, identifier: String) -> [String] {
         let ours = AppPaths.identifier(running: identifier) == identifier
             && identifier.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }
         let folder = ours ? identifier : AppPaths.bundleID
+        // Fixed names only, so no file name is ever built from outside text.
+        let files = [("machines.json", data)] + (headroom.map { [("headroom.json", $0)] } ?? [])
         return [
             "{",
             #"d="$HOME/Library/Application Support/\#(folder)""#,
             #"if [ -e "$d/seats.json" ]; then echo kept; exit 0; fi"#,
-            #"if [ -d "$d/machines.json" ] && [ ! -L "$d/machines.json" ]; then exit 1; fi"#,
             "umask 077",
             #"mkdir -p "$d" || exit 1"#,
-            #"find "$d" -maxdepth 1 -name '.machines.json.*' -mmin +1 -delete 2>/dev/null"#,
-            #"t=$(mktemp "$d/.machines.json.XXXXXX") || exit 1"#,
-            #"if base64 -D > "$t" <<'\#(marker)'"#,
-        ] + data.base64EncodedString(options: .lineLength76Characters).components(separatedBy: "\r\n") + [
-            marker,
-            #"then mv -f -h "$t" "$d/machines.json" && echo copied; fi"#,
-            #"rm -f "$t""#,
+            #"find "$d" -maxdepth 1 \( -name '.machines.json.*' -o -name '.headroom.json.*' \) -mmin +1 -delete 2>/dev/null"#,
+            "ok=1",
+        ] + files.flatMap { name, data in
+            [
+                #"if [ -d "$d/\#(name)" ] && [ ! -L "$d/\#(name)" ]; then ok=; else"#,
+                #"t=$(mktemp "$d/.\#(name).XXXXXX") || exit 1"#,
+                #"if base64 -D > "$t" <<'\#(marker)'"#,
+            ] + data.base64EncodedString(options: .lineLength76Characters).components(separatedBy: "\r\n") + [
+                marker,
+                #"then mv -f -h "$t" "$d/\#(name)" || ok=; else ok=; fi"#,
+                #"rm -f "$t""#,
+                "fi",
+            ]
+        } + [
+            #"if [ -n "$ok" ]; then echo copied; fi"#,
             "}",
         ]
     }
 
     /// One copy to one machine; true when it landed.
-    public func copy(_ data: Data, to machine: Machine) async -> Bool {
+    public func copy(_ data: Data, headroom: Data? = nil, to machine: Machine) async -> Bool {
         guard machine.ssh != nil else { return false }
         var printed: [String] = []
         do {
             let session = try runner.launch(Self.spec(machine, environment: environment))
-            for line in Self.script(data, identifier: identifier) { try session.send(line) }
+            for line in Self.script(data, headroom: headroom, identifier: identifier) { try session.send(line) }
             session.closeInput()
             for try await line in session.stdoutLines { printed.append(line) }
         } catch {
@@ -718,6 +730,9 @@ public actor MachineMonitor {
         for machine in due { copied[machine.id] = now }
         copied = copied.filter { id, _ in machines.contains { $0.id == id } }
         guard !due.isEmpty else { return }
-        copying = Task { _ = await Machine.each(due) { .success(await share.copy(data, to: $0)) } }
+        // Read once a round, here rather than per machine; none yet, before
+        // the first seat poll writes it, sends machines.json alone.
+        let headroom = share.headroom.flatMap { try? Data(contentsOf: $0) }
+        copying = Task { _ = await Machine.each(due) { .success(await share.copy(data, headroom: headroom, to: $0)) } }
     }
 }
